@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model MobDesmob {
+  tag               String                 @id @db.VarChar(50)
+  placa             String                 @unique @db.VarChar(20)
+  foto_veiculo      String?                @db.Text
+  status            String                 @db.VarChar(50)
+  data_mob          DateTime?              @default(now()) @db.Date
+  data_desmob       DateTime?              @db.Date
+  modelo            String?                @db.VarChar(100)
+  contrato          String?                @db.VarChar(100)
+  created_at        DateTime               @default(now()) @db.Timestamp(6)
+
+  documentacoes     DocumentacaoVeiculo[]
+  partes_diarias    ParteDiaria[]
+
+  @@index([placa])
+  @@index([status])
+  @@map("mob_desmob")
+}
+
+model DocumentacaoVeiculo {
+  id          String   @id @default(uuid()) @db.Uuid
+  tag         String   @db.VarChar(50)
+  documento   String   @db.VarChar(100)
+  validade    DateTime @db.Date
+  anexo_url   String?  @db.Text
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+
+  veiculo     MobDesmob @relation(fields: [tag], references: [tag], onDelete: Cascade)
+
+  @@index([tag])
+  @@index([validade])
+  @@index([tag, validade])
+  @@map("documentacao_veiculos")
+}
+
+model ParteDiaria {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tag                String   @db.VarChar(50)
+  funcionario        String?  @db.VarChar(255)
+  funcao             String?  @db.VarChar(100)
+  obra               String   @db.VarChar(100)
+  obra_programada    String?  @db.VarChar(100)
+  data               DateTime @default(now()) @db.Date
+  id_relatorio       String?  @db.VarChar(100)
+  status             String   @db.VarChar(50)
+  lideranca          String?  @db.VarChar(100)
+  operador           String?  @db.VarChar(100)
+  aderencia          Boolean?
+  eficiencia         Decimal? @db.Decimal(5, 2)
+  status_assinatura  String   @default("PENDENTE") @db.VarChar(50)
+  assinatura_dados   Json?
+  created_at         DateTime @default(now()) @db.Timestamp(6)
+
+  veiculo            MobDesmob @relation(fields: [tag], references: [tag], onDelete: Restrict)
+
+  @@index([tag])
+  @@index([data])
+  @@index([status_assinatura])
+  @@index([tag, data])
+  @@map("partes_diarias")
+}

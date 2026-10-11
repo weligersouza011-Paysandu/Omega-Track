@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-omega-50 text-omega-900;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-omega-900 text-white hover:bg-omega-800 focus:ring-omega-700;
+  }
+  .btn-secondary {
+    @apply btn bg-white text-omega-800 border border-omega-200 hover:bg-omega-50 focus:ring-omega-300;
+  }
+  .btn-danger {
+    @apply btn bg-status-vermelho text-white hover:bg-red-600 focus:ring-red-300;
+  }
+  .btn-success {
+    @apply btn bg-status-verde text-white hover:bg-green-600 focus:ring-green-300;
+  }
+  .input {
+    @apply block w-full rounded-lg border border-omega-200 bg-white px-3 py-2 text-sm text-omega-900 placeholder-omega-400 shadow-sm focus:border-omega-accent focus:outline-none focus:ring-1 focus:ring-omega-accent;
+  }
+  .label {
+    @apply block text-sm font-medium text-omega-700 mb-1;
+  }
+  .card {
+    @apply bg-white rounded-xl shadow-card border border-omega-100;
+  }
+  .sidebar-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-omega-300 hover:bg-omega-800/50 hover:text-white transition-colors;
+  }
+  .sidebar-item-active {
+    @apply bg-omega-accent/15 text-white border-l-2 border-omega-accent pl-[14px];
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold;
+  }
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
