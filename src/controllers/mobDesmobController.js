@@ -1,5 +1,6 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 
 export const listarVeiculos = asyncHandler(async (req, res) => {
   const { status, contrato, page = 1, limit = 50 } = req.query;
@@ -79,6 +80,9 @@ export const criarVeiculo = asyncHandler(async (req, res) => {
     });
   }
 
+  // Regra de ouro: foto_veiculo aceita SOMENTE URL do Cloudinary (sem binario).
+  validarUrlMidia(foto_veiculo, 'foto_veiculo');
+
   const veiculo = await prisma.mobDesmob.create({
     data: {
       tag,
@@ -98,6 +102,9 @@ export const criarVeiculo = asyncHandler(async (req, res) => {
 export const atualizarVeiculo = asyncHandler(async (req, res) => {
   const { tag } = req.params;
   const { placa, foto_veiculo, status, data_mob, data_desmob, modelo, contrato } = req.body;
+
+  // Regra de ouro: foto_veiculo aceita SOMENTE URL do Cloudinary (sem binario).
+  validarUrlMidia(foto_veiculo, 'foto_veiculo');
 
   const veiculo = await prisma.mobDesmob.update({
     where: { tag },
@@ -120,6 +127,43 @@ export const deletarVeiculo = asyncHandler(async (req, res) => {
   await prisma.mobDesmob.delete({ where: { tag } });
   res.status(204).send();
 });
+
+// POST /api/mob-desmob/:tag/foto — campo `arquivo` (imagem).
+// Sobe para omegatrack/mobilizacao e grava a secure_url em `foto_veiculo`.
+export const atualizarFotoVeiculo = (req, res, next) => {
+  if (!cloudinaryConfigured) {
+    return res.status(503).json({
+      error: 'Servico indisponivel',
+      message: 'Upload de midia nao configurado (variaveis CLOUDINARY_* ausentes).',
+    });
+  }
+  uploadMiddleware('mobilizacao')(req, res, async (err) => {
+    try {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          err.message = 'Arquivo muito grande. Tamanho maximo: 5 MB.';
+        }
+        err.statusCode = err.statusCode || 400;
+        throw err;
+      }
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'Arquivo ausente',
+          message: 'Envie a foto no campo `arquivo` (multipart/form-data).',
+        });
+      }
+      const veiculo = await prisma.mobDesmob.update({
+        where: { tag: req.params.tag },
+        data: { foto_veiculo: req.file.path },
+      });
+      return res.json({
+        data: { tag: veiculo.tag, foto_veiculo: veiculo.foto_veiculo, public_id: req.file.filename },
+      });
+    } catch (e) {
+      return next(e);
+    }
+  });
+};
 
 export const vincularTelemetriaPorPlaca = asyncHandler(async (req, res) => {
   const { placa } = req.params;

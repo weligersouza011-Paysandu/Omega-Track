@@ -1,6 +1,7 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import config from '../config/index.js';
+import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 
 function calcularFarol(validade) {
   const hoje = new Date();
@@ -124,6 +125,9 @@ export const criarDocumentacao = asyncHandler(async (req, res) => {
     });
   }
 
+  // Regra de ouro: anexo_url aceita SOMENTE URL do Cloudinary (sem binario).
+  validarUrlMidia(anexo_url, 'anexo_url');
+
   const doc = await prisma.documentacaoVeiculo.create({
     data: {
       tag,
@@ -139,6 +143,9 @@ export const criarDocumentacao = asyncHandler(async (req, res) => {
 export const atualizarDocumentacao = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { documento, validade, anexo_url } = req.body;
+
+  // Regra de ouro: anexo_url aceita SOMENTE URL do Cloudinary (sem binario).
+  validarUrlMidia(anexo_url, 'anexo_url');
 
   const doc = await prisma.documentacaoVeiculo.update({
     where: { id },
@@ -157,3 +164,40 @@ export const deletarDocumentacao = asyncHandler(async (req, res) => {
   await prisma.documentacaoVeiculo.delete({ where: { id } });
   res.status(204).send();
 });
+
+// POST /api/documentacao-veiculos/:id/anexo — campo `arquivo` (imagem).
+// Sobe para omegatrack/documentos e grava a secure_url em `anexo_url`.
+export const anexarArquivo = (req, res, next) => {
+  if (!cloudinaryConfigured) {
+    return res.status(503).json({
+      error: 'Servico indisponivel',
+      message: 'Upload de midia nao configurado (variaveis CLOUDINARY_* ausentes).',
+    });
+  }
+  uploadMiddleware('documentos')(req, res, async (err) => {
+    try {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          err.message = 'Arquivo muito grande. Tamanho maximo: 5 MB.';
+        }
+        err.statusCode = err.statusCode || 400;
+        throw err;
+      }
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'Arquivo ausente',
+          message: 'Envie o anexo no campo `arquivo` (multipart/form-data).',
+        });
+      }
+      const doc = await prisma.documentacaoVeiculo.update({
+        where: { id: req.params.id },
+        data: { anexo_url: req.file.path },
+      });
+      return res.json({
+        data: { id: doc.id, anexo_url: doc.anexo_url, public_id: req.file.filename },
+      });
+    } catch (e) {
+      return next(e);
+    }
+  });
+};

@@ -6,6 +6,7 @@ import {
   criarVeiculo,
   atualizarVeiculo,
   deletarVeiculo,
+  atualizarFotoVeiculo,
   vincularTelemetriaPorPlaca,
 } from '../controllers/mobDesmobController.js';
 
@@ -17,6 +18,7 @@ router.get('/placa/:placa', buscarVeiculoPorPlaca);
 router.get('/placa/:placa/telemetria', vincularTelemetriaPorPlaca);
 router.post('/', criarVeiculo);
 router.put('/:tag', atualizarVeiculo);
+router.post('/:tag/foto', atualizarFotoVeiculo);
 router.delete('/:tag', deletarVeiculo);
 
 export default router;

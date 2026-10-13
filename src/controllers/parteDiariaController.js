@@ -1,5 +1,6 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 
 function calcularAderencia(obra, obra_programada) {
   if (!obra || !obra_programada) return null;
@@ -71,6 +72,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
     lideranca,
     operador,
     eficiencia,
+    evidencia_url,
   } = req.body;
 
   if (!tag || !obra || !status) {
@@ -79,6 +81,9 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
       message: 'Os campos tag, obra e status sao obrigatorios.',
     });
   }
+
+  // Regra de ouro: evidencia_url aceita SOMENTE URL do Cloudinary (sem binario).
+  validarUrlMidia(evidencia_url, 'evidencia_url');
 
   const aderencia = calcularAderencia(obra, obra_programada);
 
@@ -96,6 +101,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
       operador,
       aderencia,
       eficiencia: eficiencia !== undefined ? Number(eficiencia) : null,
+      evidencia_url,
     },
   });
 
@@ -115,12 +121,16 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
     lideranca,
     operador,
     eficiencia,
+    evidencia_url,
   } = req.body;
 
   const atual = await prisma.parteDiaria.findUnique({ where: { id } });
   if (!atual) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
   }
+
+  // Regra de ouro: evidencia_url aceita SOMENTE URL do Cloudinary (sem binario).
+  validarUrlMidia(evidencia_url, 'evidencia_url');
 
   const novaObra = obra !== undefined ? obra : atual.obra;
   const novaObraProgramada = obra_programada !== undefined ? obra_programada : atual.obra_programada;
@@ -139,6 +149,7 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
       lideranca,
       operador,
       aderencia,
+      evidencia_url,
       eficiencia: eficiencia !== undefined ? Number(eficiencia) : undefined,
     },
   });
@@ -151,6 +162,43 @@ export const deletarParteDiaria = asyncHandler(async (req, res) => {
   await prisma.parteDiaria.delete({ where: { id } });
   res.status(204).send();
 });
+
+// POST /api/partes-diarias/:id/evidencia — campo `arquivo` (imagem).
+// Sobe para omegatrack/partes-diarias e grava a secure_url em `evidencia_url`.
+export const anexarEvidencia = (req, res, next) => {
+  if (!cloudinaryConfigured) {
+    return res.status(503).json({
+      error: 'Servico indisponivel',
+      message: 'Upload de midia nao configurado (variaveis CLOUDINARY_* ausentes).',
+    });
+  }
+  uploadMiddleware('partes-diarias')(req, res, async (err) => {
+    try {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          err.message = 'Arquivo muito grande. Tamanho maximo: 5 MB.';
+        }
+        err.statusCode = err.statusCode || 400;
+        throw err;
+      }
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'Arquivo ausente',
+          message: 'Envie a evidencia no campo `arquivo` (multipart/form-data).',
+        });
+      }
+      const parte = await prisma.parteDiaria.update({
+        where: { id: req.params.id },
+        data: { evidencia_url: req.file.path },
+      });
+      return res.json({
+        data: { id: parte.id, evidencia_url: parte.evidencia_url, public_id: req.file.filename },
+      });
+    } catch (e) {
+      return next(e);
+    }
+  });
+};
 
 export const listarPendentesAssinatura = asyncHandler(async (req, res) => {
   const { tag, data_inicio, data_fim, page = 1, limit = 50 } = req.query;

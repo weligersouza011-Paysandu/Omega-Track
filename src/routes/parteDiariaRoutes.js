@@ -7,6 +7,7 @@ import {
   deletarParteDiaria,
   listarPendentesAssinatura,
   assinarParteDiaria,
+  anexarEvidencia,
 } from '../controllers/parteDiariaController.js';
 import { authApiKey } from '../middleware/auth.js';
 
@@ -17,6 +18,7 @@ router.get('/pendentes', authApiKey, listarPendentesAssinatura);
 router.get('/:id', buscarParteDiaria);
 router.post('/', criarParteDiaria);
 router.post('/:id/assinar', authApiKey, assinarParteDiaria);
+router.post('/:id/evidencia', anexarEvidencia);
 router.put('/:id', atualizarParteDiaria);
 router.delete('/:id', deletarParteDiaria);
 

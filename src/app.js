@@ -35,6 +35,11 @@ app.get('/', (req, res) => {
       documentacao_farol: '/api/documentacao-veiculos/farol',
       partes_diarias: '/api/partes-diarias',
       partes_pendentes: '/api/partes-diarias/pendentes (requer x-api-key)',
+      upload: '/api/upload?pasta=mobilizacao|partes-diarias|documentos (campo `arquivo`)',
+      upload_delete: 'DELETE /api/upload { public_id }',
+      foto_veiculo: '/api/mob-desmob/:tag/foto (campo `arquivo` -> foto_veiculo)',
+      anexo_documento: '/api/documentacao-veiculos/:id/anexo (campo `arquivo` -> anexo_url)',
+      evidencia_parte: '/api/partes-diarias/:id/evidencia (campo `arquivo` -> evidencia_url)',
     },
   });
 });
