@@ -16,6 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
 const hasFrontendBuild = fs.existsSync(path.join(frontendDist, 'index.html'));
+console.log(`[FRONTEND] build ${hasFrontendBuild ? 'ENCONTRADO' : 'NAO ENCONTRADO'} em ${frontendDist}`);
 
 app.use(cors({
   origin: config.corsOrigin,
