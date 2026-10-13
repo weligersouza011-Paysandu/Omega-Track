@@ -34,40 +34,14 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/', (req, res) => {
-  // Em producao com build do frontend, a raiz serve a UI (index.html via
-  // express.static abaixo). Sem build, mantem a documentacao JSON da API.
-  if (hasFrontendBuild) {
-    return res.sendFile(path.join(frontendDist, 'index.html'));
-  }
-  res.json({
-    name: 'OmegaTrack API',
-    description: 'Sistema de gestao de transporte, frota e manutencoes',
-    version: '1.0.0',
-    endpoints: {
-      health: '/api/health',
-      mob_desmob: '/api/mob-desmob',
-      documentacao: '/api/documentacao-veiculos',
-      documentacao_farol: '/api/documentacao-veiculos/farol',
-      partes_diarias: '/api/partes-diarias',
-      partes_pendentes: '/api/partes-diarias/pendentes (requer x-api-key)',
-      upload: '/api/upload?pasta=mobilizacao|partes-diarias|documentos (campo `arquivo`)',
-      upload_delete: 'DELETE /api/upload { public_id }',
-      foto_veiculo: '/api/mob-desmob/:tag/foto (campo `arquivo` -> foto_veiculo)',
-      anexo_documento: '/api/documentacao-veiculos/:id/anexo (campo `arquivo` -> anexo_url)',
-      evidencia_parte: '/api/partes-diarias/:id/evidencia (campo `arquivo` -> evidencia_url)',
-    },
-  });
-});
-
 app.use('/api', routes);
 
 if (hasFrontendBuild) {
-  // Ficheiros estaticos do React (JS/CSS/assets com cache agressivo).
-  app.use(express.static(frontendDist, { maxAge: '1d', index: false }));
+  // 1. Ficheiros estaticos do frontend compilado (inclui index.html na raiz).
+  app.use(express.static(frontendDist, { maxAge: '1d' }));
 
-  // Fallback SPA: qualquer rota fora de /api devolve o index.html para o
-  // React Router resolver no cliente (ex: /frota, /executivo).
+  // 2. Fallback SPA: qualquer rota nao-API devolve o index.html do React
+  // para o React Router resolver no cliente (ex: /frota, /executivo).
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(frontendDist, 'index.html'));
