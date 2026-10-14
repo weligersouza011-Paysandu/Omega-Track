@@ -1,9 +1,9 @@
 // Estados do farol de vencimentos (compartilhado: Documentação + Dashboard).
 //   EMDIA        > 30 dias (verde)
 //   PLANEJAMENTO 16–30 dias (roxo)
-//   ATENCAO      6–15 dias (laranja)
-//   CRITICO      0–5 dias (azul escuro)
-//   VENCIDO      < hoje (rosa/vermelho)
+//   ATENCAO      6–15 dias (amarelo)
+//   CRITICO      0–5 dias (laranja)
+//   VENCIDO      < hoje (vermelho)
 
 export const FAROL_LABEL = {
   EMDIA: 'Em Dia (>30 dias)',
@@ -24,8 +24,8 @@ export const FAROL_LABEL_CURTO = {
 export const FAROL_COR = {
   EMDIA: '#16A34A',
   PLANEJAMENTO: '#581C87',
-  ATENCAO: '#F97316',
-  CRITICO: '#1D4ED8',
+  ATENCAO: '#EAB308',
+  CRITICO: '#EA580C',
   VENCIDO: '#DC2626',
 };
 

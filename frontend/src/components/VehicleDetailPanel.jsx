@@ -1,4 +1,4 @@
-import { X, Edit3, Calendar, FileText, ClipboardList, ChevronRight, Expand, Plus } from 'lucide-react';
+import { X, Edit3, Calendar, FileText, ClipboardList, ChevronRight, Expand, Plus, Power } from 'lucide-react';
 import BadgeStatus from './BadgeStatus.jsx';
 import { documentos, partesDiarias } from '../data/mockData.js';
 
@@ -17,7 +17,7 @@ const FAROL_DOT = {
   VERMELHO: 'bg-status-vermelho',
 };
 
-export default function VehicleDetailPanel({ veiculo, onClose, onEdit }) {
+export default function VehicleDetailPanel({ veiculo, onClose, onEdit, onDesmob }) {
   if (!veiculo) return null;
 
   const docsVeiculo = documentos.filter(d => d.tag === veiculo.tag);
@@ -41,6 +41,15 @@ export default function VehicleDetailPanel({ veiculo, onClose, onEdit }) {
           >
             <Edit3 size={16} />
           </button>
+          {veiculo.status !== 'Desmobilizado' && (
+            <button
+              onClick={() => onDesmob?.(veiculo)}
+              className="p-1.5 rounded-md hover:bg-red-50 text-omega-400 hover:text-red-700 transition-colors"
+              title="Desmobilizar veículo (apaga documentos e anexos)"
+            >
+              <Power size={16} />
+            </button>
+          )}
           <button
             onClick={onClose}
             className="p-1.5 rounded-md hover:bg-omega-100 text-omega-600 hover:text-omega-900 transition-colors"

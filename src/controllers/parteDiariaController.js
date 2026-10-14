@@ -1,24 +1,319 @@
 import prisma from '../config/database.js';
+import jwt from 'jsonwebtoken';
+import config from '../config/index.js';
 import { asyncHandler } from '../middleware/error.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
+
+// ============================================================================
+// Parte Diaria (Veiculos Leves) — modelo Omega Service
+// Formulario completo: cabecalho/metadata, horarios, modulos dinamicos
+// (mao de obra, equipamentos, atividades, ocorrencias, checklist,
+// comentarios, fotos), assinaturas em 3 etapas e auditoria.
+// ============================================================================
+
+const ETAPAS_ASSINATURA = ['OPERADOR', 'TRANSPORTE', 'PLANEJADOR'];
+const STATUS_RELATORIO_VALIDOS = ['PREENCHENDO', 'REVISAO', 'APROVADO'];
+
+export const STATUS_OPERACIONAL_VALIDOS = [
+  'Operação',
+  'Manutenção Corretiva',
+  'Manutenção Preventiva',
+  'Indisponibilidade',
+  'Interdição',
+];
+
+export const STATUS_APROVACAO_VALIDOS = [
+  'Em Preenchimento',
+  'Finalizado pelo Operador',
+  'Revisado pelo Transporte',
+  'Aprovado',
+];
+
+export function calcularStatusAprovacao(assinaturas = []) {
+  const etapas = new Set((assinaturas || []).map((a) => String(a.etapa || '').toUpperCase()));
+  if (etapas.has('PLANEJADOR')) return 'Aprovado';
+  if (etapas.has('TRANSPORTE')) return 'Revisado pelo Transporte';
+  if (etapas.has('OPERADOR')) return 'Finalizado pelo Operador';
+  return 'Em Preenchimento';
+}
+
+export function statusAprovacaoParaRelatorio(statusAprovacao) {
+  if (statusAprovacao === 'Aprovado') return 'APROVADO';
+  if (statusAprovacao === 'Finalizado pelo Operador' || statusAprovacao === 'Revisado pelo Transporte') return 'REVISAO';
+  return 'PREENCHENDO';
+}
+
+// Compat frontend: expõe `assinatura_url` como alias de `assinatura_dado`
+// (o formulário lê ambos via imagemAssinatura).
+export function enriquecerAssinaturas(parte) {
+  if (parte?.assinaturas) {
+    parte.assinaturas = parte.assinaturas.map((a) => ({
+      ...a,
+      assinatura_url: a.assinatura_url || a.assinatura_dado || null,
+    }));
+  }
+  return parte;
+}
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const DIAS_PT = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+
+function diaSemanaPT(valor) {
+  const d = valor instanceof Date ? valor : new Date(valor);
+  if (Number.isNaN(d.getTime())) return null;
+  return DIAS_PT[d.getDay()] ?? null;
+}
+
+function gerarNumeroRelatorio() {
+  const base = Date.now().toString(36).toUpperCase().slice(-6).padStart(6, '0');
+  return `PD-${base}`;
+}
+
+function validarHorario(valor, nomeCampo) {
+  if (valor === undefined || valor === null || valor === '') return;
+  if (typeof valor !== 'string' || !HHMM.test(valor.trim())) {
+    const err = new Error(`Campo \`${nomeCampo}\` invalido: use o formato HH:MM (ex: 07:30).`);
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function toIntOuNull(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function strOuNull(v) {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  return s === '' ? null : s;
+}
+
+function autorDaRequisicao(req, corpo = {}) {
+  return (
+    corpo.atualizado_por ||
+    corpo.criado_por ||
+    req.headers['x-acting-matricula'] ||
+    req.headers['x-acting-nome'] ||
+    null
+  );
+}
 
 function calcularAderencia(obra, obra_programada) {
   if (!obra || !obra_programada) return null;
   return obra.trim().toUpperCase() === obra_programada.trim().toUpperCase();
 }
 
+// Pendência geral do relatório: checklist sem foto de comprovação ou
+// atividade com status Pendente (ausente conta como pendente).
+function calcularPendencia(checklist = [], atividades = []) {
+  const checkPendente = (checklist || []).some((c) => !c || !String(c.foto_url || '').trim());
+  const ativPendente = (atividades || []).some((a) => !a || !a.status || a.status === 'Pendente');
+  return checkPendente || ativPendente;
+}
+
+const INCLUDE_COMPLETO = {
+  veiculo: { select: { placa: true, modelo: true, status: true } },
+  obra_ref: { select: { id: true, nome: true, numero_contrato: true, contratante: true, gestao: true, planejador: true } },
+  mao_obra: { orderBy: { created_at: 'asc' } },
+  equipamentos: { orderBy: { created_at: 'asc' } },
+  atividades: { orderBy: { created_at: 'asc' } },
+  ocorrencias: { orderBy: { created_at: 'asc' } },
+  checklist: { orderBy: { created_at: 'asc' } },
+  comentarios: { orderBy: { created_at: 'asc' } },
+  fotos: { orderBy: { created_at: 'asc' } },
+  assinaturas: { orderBy: { created_at: 'asc' } },
+  logs: { orderBy: { created_at: 'desc' }, take: 20 },
+};
+
+async function registrarLog(txOuPrisma, parte_id, acao, autor, detalhes = null) {
+  try {
+    await txOuPrisma.parteDiariaLog.create({
+      data: { parte_id, acao, autor, detalhes },
+    });
+  } catch (e) {
+    console.error('[ParteDiaria] falha ao registrar log:', e.message);
+  }
+}
+
+// Normaliza as listas filhas vindas do formulario (ignora linhas vazias).
+function normalizarFilhos(corpo = {}) {
+  const filhos = {};
+
+  if (Array.isArray(corpo.mao_obra)) {
+    filhos.mao_obra = corpo.mao_obra
+      .filter((i) => i && String(i.nome || '').trim())
+      .map((i) => ({
+        nome: String(i.nome).trim(),
+        matricula: strOuNull(i.matricula),
+        funcao: strOuNull(i.funcao),
+        horario: strOuNull(i.horario),
+        observacao: strOuNull(i.observacao),
+      }));
+  }
+  if (Array.isArray(corpo.equipamentos)) {
+    filhos.equipamentos = corpo.equipamentos
+      .filter((i) => i && (String(i.descricao || '').trim() || String(i.tag_patrimonio || '').trim()))
+      // descricao é NOT NULL no banco: usa o TAG como fallback quando vazia
+      .map((i) => ({
+        tag_patrimonio: strOuNull(i.tag_patrimonio),
+        descricao: String(i.descricao || i.tag_patrimonio || '').trim(),
+        horimetro_inicial: strOuNull(i.horimetro_inicial),
+        horimetro_final: strOuNull(i.horimetro_final),
+        status: strOuNull(i.status),
+      }));
+  }
+  if (Array.isArray(corpo.atividades)) {
+    filhos.atividades = corpo.atividades
+      .filter((i) => i && String(i.descricao || '').trim())
+      .map((i) => {
+        validarHorario(i.hora_inicio ?? undefined, 'atividades.hora_inicio');
+        validarHorario(i.hora_fim ?? undefined, 'atividades.hora_fim');
+        return {
+          descricao: String(i.descricao).trim(),
+          prioridade: strOuNull(i.prioridade),
+          local: strOuNull(i.local),
+          hora_inicio: strOuNull(i.hora_inicio),
+          hora_fim: strOuNull(i.hora_fim),
+          status: strOuNull(i.status),
+        };
+      });
+  }
+  if (Array.isArray(corpo.ocorrencias)) {
+    filhos.ocorrencias = corpo.ocorrencias
+      .filter((i) => i && String(i.descricao || '').trim())
+      .map((i) => {
+        validarHorario(i.hora ?? undefined, 'ocorrencias.hora');
+        return {
+          tipo: strOuNull(i.tipo),
+          descricao: String(i.descricao).trim(),
+          hora: strOuNull(i.hora),
+          gravidade: strOuNull(i.gravidade),
+        };
+      });
+  }
+  if (Array.isArray(corpo.checklist)) {
+    filhos.checklist = corpo.checklist
+      .filter((i) => i && String(i.item || '').trim())
+      .map((i) => {
+        const fotoUrl = strOuNull(i.foto_url);
+        if (fotoUrl) validarUrlMidia(fotoUrl, 'checklist.foto_url');
+        return {
+          item: String(i.item).trim(),
+          conforme: i.conforme === undefined || i.conforme === null ? true : Boolean(i.conforme),
+          observacao: strOuNull(i.observacao),
+          foto_url: fotoUrl,
+          foto_public_id: strOuNull(i.foto_public_id),
+        };
+      });
+  }
+  if (Array.isArray(corpo.comentarios)) {
+    filhos.comentarios = corpo.comentarios
+      .filter((i) => i && String(i.texto || '').trim())
+      .map((i) => ({
+        autor: strOuNull(i.autor),
+        texto: String(i.texto).trim(),
+      }));
+  }
+  if (Array.isArray(corpo.fotos)) {
+    filhos.fotos = corpo.fotos
+      .filter((i) => i && String(i.url || '').trim())
+      .map((i) => {
+        validarUrlMidia(String(i.url).trim(), 'fotos.url');
+        return {
+          url: String(i.url).trim(),
+          legenda: strOuNull(i.legenda),
+          public_id: strOuNull(i.public_id),
+        };
+      });
+  }
+  return filhos;
+}
+
 export const listarPartesDiarias = asyncHandler(async (req, res) => {
-  const { tag, data_inicio, data_fim, status_assinatura, status, page = 1, limit = 50 } = req.query;
+  const {
+    tag,
+    data_inicio,
+    data_fim,
+    status_assinatura,
+    status,
+    status_operacional,
+    status_aprovacao,
+    status_relatorio,
+    funcionario,
+    operador,
+    q,
+    page = 1,
+    limit = 50,
+  } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
 
   const where = {};
   if (tag) where.tag = tag;
-  if (status) where.status = status;
+  if (status_operacional) {
+    where.status_operacional = status_operacional;
+  } else if (status) {
+    where.OR = [
+      { status: status },
+      { status_operacional: status },
+    ];
+  }
+  if (status_aprovacao) where.status_aprovacao = status_aprovacao;
   if (status_assinatura) where.status_assinatura = status_assinatura;
+  if (status_relatorio) where.status_relatorio = status_relatorio;
+  if (funcionario) where.funcionario = { contains: String(funcionario), mode: 'insensitive' };
+  if (operador) where.operador = String(operador);
   if (data_inicio || data_fim) {
     where.data = {};
     if (data_inicio) where.data.gte = new Date(data_inicio);
     if (data_fim) where.data.lte = new Date(data_fim);
+  }
+  // Busca livre: TAG, funcionario, operador, obra, relatorio ou lideranca.
+  if (q && String(q).trim()) {
+    const termo = String(q).trim();
+    where.AND = [
+      ...(where.AND || []),
+      {
+        OR: [
+          { tag: { contains: termo, mode: 'insensitive' } },
+          { funcionario: { contains: termo, mode: 'insensitive' } },
+          { operador: { contains: termo, mode: 'insensitive' } },
+          { obra: { contains: termo, mode: 'insensitive' } },
+          { id_relatorio: { contains: termo, mode: 'insensitive' } },
+          { numero_relatorio: { contains: termo, mode: 'insensitive' } },
+          { lideranca: { contains: termo, mode: 'insensitive' } },
+        ],
+      },
+    ];
+  }
+
+  // Escopo por papel (defesa em profundidade — o frontend tambem filtra):
+  // se a sessao JWT for de um usuario OPERACIONAL, restringe aos proprios
+  // lancamentos (operador = matricula ou funcionario contem o nome).
+  // Hoje o login emite token apenas para ADMINISTRADOR (visao total),
+  // entao este bloco e no-op ate o login operacional existir.
+  try {
+    const auth = req.headers.authorization || '';
+    if (auth.startsWith('Bearer ')) {
+      const sessao = jwt.verify(auth.slice(7).trim(), config.loginSecret);
+      if (sessao?.tipo === 'OPERACIONAL' && sessao?.matricula) {
+        where.AND = [
+          ...(where.AND || []),
+          {
+            OR: [
+              { operador: String(sessao.matricula) },
+              ...(sessao?.nome
+                ? [{ funcionario: { contains: String(sessao.nome), mode: 'insensitive' } }]
+                : []),
+            ],
+          },
+        ];
+      }
+    }
+  } catch {
+    /* token ausente/invalido: segue sem escopo adicional */
   }
 
   const [partes, total] = await Promise.all([
@@ -29,6 +324,20 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
       orderBy: { data: 'desc' },
       include: {
         veiculo: { select: { placa: true, modelo: true, status: true } },
+        obra_ref: { select: { id: true, nome: true, numero_contrato: true } },
+        _count: {
+          select: {
+            mao_obra: true,
+            equipamentos: true,
+            atividades: true,
+            ocorrencias: true,
+            checklist: true,
+            comentarios: true,
+            fotos: true,
+            assinaturas: true,
+            logs: true,
+          },
+        },
       },
     }),
     prisma.parteDiaria.count({ where }),
@@ -49,14 +358,25 @@ export const buscarParteDiaria = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const parte = await prisma.parteDiaria.findUnique({
     where: { id },
-    include: { veiculo: true },
+    include: INCLUDE_COMPLETO,
   });
 
   if (!parte) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
   }
 
-  res.json({ data: parte });
+  // Auditoria: contabiliza visualizacao (rodapé do formulário).
+  try {
+    await prisma.parteDiaria.update({
+      where: { id },
+      data: { visualizacoes: { increment: 1 } },
+    });
+    parte.visualizacoes = (parte.visualizacoes || 0) + 1;
+  } catch {
+    /* auditoria nao pode quebrar a leitura */
+  }
+
+  res.json({ data: enriquecerAssinaturas(parte) });
 });
 
 export const criarParteDiaria = asyncHandler(async (req, res) => {
@@ -73,88 +393,396 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
     operador,
     eficiencia,
     evidencia_url,
-  } = req.body;
+    numero_relatorio,
+    numero_contrato,
+    endereco_obra,
+    contratante,
+    responsavel,
+    prazo_contratual,
+    prazo_decorrido,
+    prazo_a_vencer,
+    horario_entrada,
+    horario_saida,
+    intervalo_entrada,
+    intervalo_saida,
+    status_relatorio,
+    status_operacional,
+    status_aprovacao,
+    turno,
+    km_inicial,
+    km_final,
+    criado_por,
+    obra_id,
+    planejador,
+  } = req.body || {};
 
-  if (!tag || !obra || !status) {
+  // Derivação a partir dos módulos (novo formulário): TAG do 1º equipamento
+  // com TAG; autoria do 1º registro da mão de obra.
+  const equipamentosBody = Array.isArray(req.body?.equipamentos) ? req.body.equipamentos : [];
+  const maoObraBody = Array.isArray(req.body?.mao_obra) ? req.body.mao_obra : [];
+  const veiculoModulo = equipamentosBody.find((e) => e && String(e.tag_patrimonio || '').trim());
+  const responsavelModulo = maoObraBody[0] || {};
+  const tagFinal = tag || (veiculoModulo ? String(veiculoModulo.tag_patrimonio).trim().toUpperCase() : null);
+
+  const statusOperacionalFinal = status_operacional || status || 'Operação';
+  if (!tagFinal || !obra || !statusOperacionalFinal) {
     return res.status(400).json({
       error: 'Campos obrigatorios',
-      message: 'Os campos tag, obra e status sao obrigatorios.',
+      message: 'Informe a obra, o status operacional do dia e ao menos um veiculo (TAG em Equipamentos).',
+    });
+  }
+  if (!STATUS_OPERACIONAL_VALIDOS.includes(statusOperacionalFinal)) {
+    return res.status(400).json({
+      error: 'Status invalido',
+      message: `status_operacional deve ser um de: ${STATUS_OPERACIONAL_VALIDOS.join(', ')}.`,
+    });
+  }
+  if (status_aprovacao && !STATUS_APROVACAO_VALIDOS.includes(status_aprovacao)) {
+    return res.status(400).json({
+      error: 'Status invalido',
+      message: `status_aprovacao deve ser um de: ${STATUS_APROVACAO_VALIDOS.join(', ')}.`,
+    });
+  }
+  // O TAG referencia a frota (mob_desmob): falha aqui indica veículo fora do cadastro
+  try {
+    const veiculoExiste = await prisma.mobDesmob.findUnique({ where: { tag: tagFinal } });
+    if (!veiculoExiste) {
+      return res.status(400).json({
+        error: 'Veiculo invalido',
+        message: `TAG "${tagFinal}" não encontrada na frota. Selecione um veículo do cadastro em Equipamentos.`,
+      });
+    }
+  } catch (e) {
+    console.error("Erro ao salvar Parte Diária:", e);
+    return res.status(500).json({
+      error: 'Erro interno no servidor',
+      message: 'Falha ao validar o veículo na frota. Tente novamente.',
+      ...(config.nodeEnv === 'development' && { details: e.message, stack: e.stack }),
     });
   }
 
   // Regra de ouro: evidencia_url aceita SOMENTE URL do Cloudinary (sem binario).
   validarUrlMidia(evidencia_url, 'evidencia_url');
+  validarHorario(horario_entrada ?? undefined, 'horario_entrada');
+  validarHorario(horario_saida ?? undefined, 'horario_saida');
+  validarHorario(intervalo_entrada ?? undefined, 'intervalo_entrada');
+  validarHorario(intervalo_saida ?? undefined, 'intervalo_saida');
+
+  if (status_relatorio && !STATUS_RELATORIO_VALIDOS.includes(status_relatorio)) {
+    return res.status(400).json({
+      error: 'Status invalido',
+      message: `status_relatorio deve ser um de: ${STATUS_RELATORIO_VALIDOS.join(', ')}.`,
+    });
+  }
 
   const aderencia = calcularAderencia(obra, obra_programada);
 
-  const parte = await prisma.parteDiaria.create({
-    data: {
-      tag,
-      funcionario,
-      funcao,
-      obra,
-      obra_programada,
-      data: data ? new Date(data) : undefined,
-      id_relatorio,
-      status,
-      lideranca,
-      operador,
-      aderencia,
-      eficiencia: eficiencia !== undefined ? Number(eficiencia) : null,
-      evidencia_url,
-    },
-  });
+  // Rastreabilidade do autor: corpo > 1º registro da mão de obra >
+  // matricula atuante do header (x-acting-matricula) quando presente.
+  const operadorFinal = operador
+    || (responsavelModulo.matricula ? String(responsavelModulo.matricula).trim() : null)
+    || req.headers['x-acting-matricula']
+    || null;
+  const funcionarioFinal = funcionario
+    || (responsavelModulo.nome ? String(responsavelModulo.nome).trim() : null);
+  const funcaoFinal = funcao
+    || (responsavelModulo.funcao ? String(responsavelModulo.funcao).trim() : null);
+  const autor = autorDaRequisicao(req, req.body);
 
-  res.status(201).json({ data: parte });
+  const dataRef = data ? new Date(data) : new Date();
+  const filhos = normalizarFilhos(req.body);
+
+  // Vinculo com o cadastro de Obras (dropdown da Parte Diaria).
+  let obraIdFinal = null;
+  if (obra_id) {
+    const obraExiste = await prisma.obra.findUnique({ where: { id: String(obra_id) } });
+    if (!obraExiste) {
+      return res.status(400).json({
+        error: 'Obra invalida',
+        message: 'A obra selecionada nao foi encontrada no cadastro.',
+      });
+    }
+    obraIdFinal = obraExiste.id;
+  }
+
+  let pContratual = toIntOuNull(prazo_contratual);
+  let pDecorrido = toIntOuNull(prazo_decorrido);
+  let pVencer = toIntOuNull(prazo_a_vencer);
+  if (pVencer === null && pContratual !== null && pDecorrido !== null) {
+    pVencer = Math.max(pContratual - pDecorrido, 0);
+  }
+
+  let criado;
+  try {
+    criado = await prisma.$transaction(async (tx) => {
+      const novo = await tx.parteDiaria.create({
+        data: {
+          tag: tagFinal,
+          funcionario: funcionarioFinal,
+          funcao: funcaoFinal,
+          obra,
+          obra_programada,
+          data: dataRef,
+          dia_semana: diaSemanaPT(dataRef),
+          id_relatorio,
+          numero_relatorio: strOuNull(numero_relatorio) || gerarNumeroRelatorio(),
+          numero_contrato: strOuNull(numero_contrato),
+          endereco_obra: strOuNull(endereco_obra),
+          contratante: strOuNull(contratante),
+          responsavel: strOuNull(responsavel),
+          prazo_contratual: pContratual,
+          prazo_decorrido: pDecorrido,
+          prazo_a_vencer: pVencer,
+          horario_entrada: strOuNull(horario_entrada),
+          horario_saida: strOuNull(horario_saida),
+          intervalo_entrada: strOuNull(intervalo_entrada),
+          intervalo_saida: strOuNull(intervalo_saida),
+          status_operacional: statusOperacionalFinal,
+          status_aprovacao: status_aprovacao || 'Em Preenchimento',
+          status_relatorio: status_relatorio || statusAprovacaoParaRelatorio(status_aprovacao || 'Em Preenchimento'),
+          possui_pendencia: calcularPendencia(filhos.checklist, filhos.atividades),
+          obra_id: obraIdFinal,
+          planejador: strOuNull(planejador),
+          turno: strOuNull(turno),
+          km_inicial: strOuNull(km_inicial),
+          km_final: strOuNull(km_final),
+          status: statusOperacionalFinal,
+          lideranca,
+          operador: operadorFinal,
+          aderencia,
+          eficiencia: eficiencia !== undefined && eficiencia !== null && eficiencia !== ''
+            ? Number(eficiencia)
+            : null,
+          evidencia_url,
+          criado_por: criado_por || autor,
+          atualizado_por: autor,
+          ...(filhos.mao_obra ? { mao_obra: { create: filhos.mao_obra } } : {}),
+          ...(filhos.equipamentos ? { equipamentos: { create: filhos.equipamentos } } : {}),
+          ...(filhos.atividades ? { atividades: { create: filhos.atividades } } : {}),
+          ...(filhos.ocorrencias ? { ocorrencias: { create: filhos.ocorrencias } } : {}),
+          ...(filhos.checklist ? { checklist: { create: filhos.checklist } } : {}),
+          ...(filhos.comentarios ? { comentarios: { create: filhos.comentarios } } : {}),
+          ...(filhos.fotos ? { fotos: { create: filhos.fotos } } : {}),
+        },
+      });
+      await registrarLog(tx, novo.id, 'CRIADO', autor, { numero_relatorio: novo.numero_relatorio });
+      return novo;
+      // Timeout estendido: o Neon (pooler) tem latencia alta no primeiro toque.
+    }, { timeout: 30000, maxWait: 15000 });
+  } catch (e) {
+    console.error("Erro ao salvar Parte Diária:", e);
+    return res.status(500).json({
+      error: 'Erro interno no servidor',
+      message: 'Não foi possível gravar a parte diária no banco de dados. Verifique os campos e tente novamente.',
+      ...(config.nodeEnv === 'development' && { details: e.message, stack: e.stack }),
+    });
+  }
+
+  const parte = await prisma.parteDiaria.findUnique({ where: { id: criado.id }, include: INCLUDE_COMPLETO });
+  res.status(201).json({ data: enriquecerAssinaturas(parte) });
 });
 
+// PUT /api/partes-diarias/:id — salvamento em tempo real (autosave).
+// Campos simples: atualiza somente as chaves presentes no corpo.
+// Listas filhas: quando a chave vem (mesmo vazia), substitui a colecao.
 export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const {
-    funcionario,
-    funcao,
-    obra,
-    obra_programada,
-    data,
-    id_relatorio,
-    status,
-    lideranca,
-    operador,
-    eficiencia,
-    evidencia_url,
-  } = req.body;
+  const corpo = req.body || {};
 
   const atual = await prisma.parteDiaria.findUnique({ where: { id } });
   if (!atual) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
   }
 
+  const tem = (k) => Object.prototype.hasOwnProperty.call(corpo, k);
+
   // Regra de ouro: evidencia_url aceita SOMENTE URL do Cloudinary (sem binario).
-  validarUrlMidia(evidencia_url, 'evidencia_url');
-
-  const novaObra = obra !== undefined ? obra : atual.obra;
-  const novaObraProgramada = obra_programada !== undefined ? obra_programada : atual.obra_programada;
-  const aderencia = calcularAderencia(novaObra, novaObraProgramada);
-
-  const parte = await prisma.parteDiaria.update({
-    where: { id },
-    data: {
-      funcionario,
-      funcao,
-      obra,
-      obra_programada,
-      data: data ? new Date(data) : undefined,
-      id_relatorio,
-      status,
-      lideranca,
-      operador,
-      aderencia,
-      evidencia_url,
-      eficiencia: eficiencia !== undefined ? Number(eficiencia) : undefined,
-    },
+  if (tem('evidencia_url')) validarUrlMidia(corpo.evidencia_url, 'evidencia_url');
+  ['horario_entrada', 'horario_saida', 'intervalo_entrada', 'intervalo_saida'].forEach((k) => {
+    if (tem(k)) validarHorario(corpo[k] ?? undefined, k);
   });
+  if (tem('status_relatorio') && corpo.status_relatorio && !STATUS_RELATORIO_VALIDOS.includes(corpo.status_relatorio)) {
+    return res.status(400).json({
+      error: 'Status invalido',
+      message: `status_relatorio deve ser um de: ${STATUS_RELATORIO_VALIDOS.join(', ')}.`,
+    });
+  }
+  if (tem('status_operacional') && corpo.status_operacional && !STATUS_OPERACIONAL_VALIDOS.includes(corpo.status_operacional)) {
+    return res.status(400).json({
+      error: 'Status invalido',
+      message: `status_operacional deve ser um de: ${STATUS_OPERACIONAL_VALIDOS.join(', ')}.`,
+    });
+  }
+  if (tem('status_aprovacao') && corpo.status_aprovacao && !STATUS_APROVACAO_VALIDOS.includes(corpo.status_aprovacao)) {
+    return res.status(400).json({
+      error: 'Status invalido',
+      message: `status_aprovacao deve ser um de: ${STATUS_APROVACAO_VALIDOS.join(', ')}.`,
+    });
+  }
 
-  res.json({ data: parte });
+  // Colunas NOT NULL: nunca persistir null/vazio (evita 500 por constraint violation)
+  const COLUNAS_OBRIGATORIAS = ['obra', 'status', 'status_operacional', 'status_aprovacao', 'status_relatorio'];
+  for (const k of COLUNAS_OBRIGATORIAS) {
+    if (tem(k) && (corpo[k] === '' || corpo[k] === null || corpo[k] === undefined)) {
+      return res.status(400).json({
+        error: 'Campo obrigatorio',
+        message: `O campo \`${k}\` é obrigatório e não pode ser vazio.`,
+      });
+    }
+  }
+
+  const dados = {};
+  const simplesTexto = [
+    'funcionario', 'funcao', 'obra', 'obra_programada', 'id_relatorio', 'status',
+    'status_operacional', 'status_aprovacao',
+    'lideranca', 'operador', 'numero_relatorio', 'numero_contrato', 'endereco_obra',
+    'contratante', 'responsavel', 'planejador', 'horario_entrada', 'horario_saida',
+    'intervalo_entrada', 'intervalo_saida', 'status_relatorio', 'turno',
+    'km_inicial', 'km_final', 'evidencia_url',
+  ];
+  simplesTexto.forEach((k) => {
+    if (tem(k)) dados[k] = corpo[k] === '' ? null : corpo[k];
+  });
+  if (tem('status_operacional') && dados.status_operacional) {
+    dados.status = dados.status_operacional;
+  } else if (tem('status') && dados.status) {
+    dados.status_operacional = dados.status;
+  }
+  if (tem('status_aprovacao') && dados.status_aprovacao) {
+    dados.status_relatorio = statusAprovacaoParaRelatorio(dados.status_aprovacao);
+  }
+  if (tem('obra_id')) {
+    if (!corpo.obra_id) {
+      dados.obra_id = null;
+    } else {
+      const obraExiste = await prisma.obra.findUnique({ where: { id: String(corpo.obra_id) } });
+      if (!obraExiste) {
+        return res.status(400).json({
+          error: 'Obra invalida',
+          message: 'A obra selecionada nao foi encontrada no cadastro.',
+        });
+      }
+      dados.obra_id = obraExiste.id;
+    }
+  }
+  if (tem('dia_semana')) dados.dia_semana = strOuNull(corpo.dia_semana);
+  if (tem('data') && corpo.data) {
+    const d = new Date(corpo.data);
+    if (Number.isNaN(d.getTime())) {
+      return res.status(400).json({ error: 'Data invalida', message: 'Campo `data` invalido.' });
+    }
+    dados.data = d;
+    if (!tem('dia_semana')) dados.dia_semana = diaSemanaPT(d);
+  }
+  if (tem('eficiencia')) {
+    const numEficiencia = Number(corpo.eficiencia);
+    dados.eficiencia = corpo.eficiencia === '' || corpo.eficiencia === null || corpo.eficiencia === undefined
+      || !Number.isFinite(numEficiencia)
+      ? null
+      : numEficiencia;
+  }
+  ['prazo_contratual', 'prazo_decorrido', 'prazo_a_vencer'].forEach((k) => {
+    if (tem(k)) dados[k] = toIntOuNull(corpo[k]);
+  });
+  // Auto-calculo: a vencer = contratual - decorrido (quando nao informado).
+  if (!tem('prazo_a_vencer') && (tem('prazo_contratual') || tem('prazo_decorrido'))) {
+    const pc = tem('prazo_contratual') ? dados.prazo_contratual : atual.prazo_contratual;
+    const pd = tem('prazo_decorrido') ? dados.prazo_decorrido : atual.prazo_decorrido;
+    if (pc !== null && pc !== undefined && pd !== null && pd !== undefined) {
+      dados.prazo_a_vencer = Math.max(pc - pd, 0);
+    }
+  }
+
+  const novaObra = tem('obra') ? corpo.obra : atual.obra;
+  const novaObraProgramada = tem('obra_programada') ? corpo.obra_programada : atual.obra_programada;
+  dados.aderencia = calcularAderencia(novaObra, novaObraProgramada);
+
+  const autor = autorDaRequisicao(req, corpo);
+  if (autor) dados.atualizado_por = autor;
+
+  const filhos = normalizarFilhos(corpo);
+  const colecoes = ['mao_obra', 'equipamentos', 'atividades', 'ocorrencias', 'checklist', 'comentarios', 'fotos'];
+  // Só sincroniza coleções que chegaram como array válido: valores nulos ou
+  // mal formatados nunca apagam dados nem quebram o createMany (anti-500)
+  const temLista = (k) => Array.isArray(corpo[k]);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.parteDiaria.update({ where: { id }, data: dados });
+    // Sincronizacao explicita por colecao (delete + recreate).
+    if (temLista('mao_obra')) {
+        await tx.parteDiariaMaoObra.deleteMany({ where: { parte_id: id } });
+        if (filhos.mao_obra?.length) {
+          await tx.parteDiariaMaoObra.createMany({ data: filhos.mao_obra.map((i) => ({ ...i, parte_id: id })) });
+        }
+      }
+      if (temLista('equipamentos')) {
+        await tx.parteDiariaEquipamento.deleteMany({ where: { parte_id: id } });
+        if (filhos.equipamentos?.length) {
+          await tx.parteDiariaEquipamento.createMany({ data: filhos.equipamentos.map((i) => ({ ...i, parte_id: id })) });
+        }
+      }
+      if (temLista('atividades')) {
+        await tx.parteDiariaAtividade.deleteMany({ where: { parte_id: id } });
+        if (filhos.atividades?.length) {
+          await tx.parteDiariaAtividade.createMany({ data: filhos.atividades.map((i) => ({ ...i, parte_id: id })) });
+        }
+      }
+      if (temLista('ocorrencias')) {
+        await tx.parteDiariaOcorrencia.deleteMany({ where: { parte_id: id } });
+        if (filhos.ocorrencias?.length) {
+          await tx.parteDiariaOcorrencia.createMany({ data: filhos.ocorrencias.map((i) => ({ ...i, parte_id: id })) });
+        }
+      }
+      if (temLista('checklist')) {
+        await tx.parteDiariaChecklist.deleteMany({ where: { parte_id: id } });
+        if (filhos.checklist?.length) {
+          await tx.parteDiariaChecklist.createMany({ data: filhos.checklist.map((i) => ({ ...i, parte_id: id })) });
+        }
+      }
+      if (temLista('comentarios')) {
+        await tx.parteDiariaComentario.deleteMany({ where: { parte_id: id } });
+        if (filhos.comentarios?.length) {
+          await tx.parteDiariaComentario.createMany({ data: filhos.comentarios.map((i) => ({ ...i, parte_id: id })) });
+        }
+      }
+      if (temLista('fotos')) {
+        await tx.parteDiariaFoto.deleteMany({ where: { parte_id: id } });
+        if (filhos.fotos?.length) {
+          await tx.parteDiariaFoto.createMany({ data: filhos.fotos.map((i) => ({ ...i, parte_id: id })) });
+        }
+      }
+      await registrarLog(tx, id, tem('status_relatorio') ? 'STATUS_ALTERADO' : 'EDITADO', autor, {
+        campos: Object.keys(dados),
+        filhos_sincronizados: colecoes.filter((c) => temLista(c)),
+      });
+      // Timeout estendido: o Neon (pooler) tem latencia alta no primeiro toque.
+    }, { timeout: 30000, maxWait: 15000 });
+  } catch (e) {
+    console.error("Erro ao salvar Parte Diária:", e);
+    return res.status(500).json({
+      error: 'Erro interno no servidor',
+      message: 'Não foi possível atualizar a parte diária no banco de dados. Verifique os campos e tente novamente.',
+      ...(config.nodeEnv === 'development' && { details: e.message, stack: e.stack }),
+    });
+  }
+
+  // Recalcula a pendência geral a partir do estado final (checklists + atividades).
+  try {
+    const [checks, ativs] = await Promise.all([
+      prisma.parteDiariaChecklist.findMany({ where: { parte_id: id }, select: { foto_url: true } }),
+      prisma.parteDiariaAtividade.findMany({ where: { parte_id: id }, select: { status: true } }),
+    ]);
+    await prisma.parteDiaria.update({
+      where: { id },
+      data: { possui_pendencia: calcularPendencia(checks, ativs) },
+    });
+  } catch {
+    /* pendência é informativa: nunca quebra o salvamento */
+  }
+
+  const completo = await prisma.parteDiaria.findUnique({ where: { id }, include: INCLUDE_COMPLETO });
+  res.json({ data: enriquecerAssinaturas(completo) });
 });
 
 export const deletarParteDiaria = asyncHandler(async (req, res) => {
@@ -194,6 +822,56 @@ export const anexarEvidencia = (req, res, next) => {
       return res.json({
         data: { id: parte.id, evidencia_url: parte.evidencia_url, public_id: req.file.filename },
       });
+    } catch (e) {
+      return next(e);
+    }
+  });
+};
+
+// POST /api/partes-diarias/:id/fotos — campo `arquivo` (imagem) + `legenda`.
+// Sobe para omegatrack/partes-diarias e cria um item na galeria do relatorio.
+export const anexarFoto = (req, res, next) => {
+  if (!cloudinaryConfigured) {
+    return res.status(503).json({
+      error: 'Servico indisponivel',
+      message: 'Upload de midia nao configurado (variaveis CLOUDINARY_* ausentes).',
+    });
+  }
+  uploadMiddleware('partes-diarias')(req, res, async (err) => {
+    try {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          err.message = 'Arquivo muito grande. Tamanho maximo: 5 MB.';
+        }
+        err.statusCode = err.statusCode || 400;
+        throw err;
+      }
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'Arquivo ausente',
+          message: 'Envie a foto no campo `arquivo` (multipart/form-data).',
+        });
+      }
+      const existe = await prisma.parteDiaria.findUnique({ where: { id: req.params.id } });
+      if (!existe) {
+        return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
+      }
+      const foto = await prisma.parteDiariaFoto.create({
+        data: {
+          parte_id: req.params.id,
+          url: req.file.path,
+          legenda: strOuNull(req.body?.legenda),
+          public_id: req.file.filename || null,
+        },
+      });
+      await registrarLog(
+        prisma,
+        req.params.id,
+        'FOTO_ADICIONADA',
+        autorDaRequisicao(req, req.body || {}),
+        { foto_id: foto.id }
+      );
+      return res.status(201).json({ data: foto });
     } catch (e) {
       return next(e);
     }
@@ -277,4 +955,128 @@ export const assinarParteDiaria = asyncHandler(async (req, res) => {
   });
 
   res.json({ data: parte });
+});
+
+// POST /api/partes-diarias/:id/assinaturas — fluxo em 3 etapas.
+// Body: { etapa: OPERADOR|TRANSPORTE|PLANEJADOR, nome, matricula?, assinatura_dado?
+//   (aliases: assinatura_url, assinatura_base64, dataUrl) }
+export const assinarEtapa = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const corpo = req.body || {};
+  const { etapa, nome, matricula } = corpo;
+  // Compat frontend: aceita assinatura_dado, assinatura_url, assinatura_base64 ou dataUrl
+  const assinaturaDadoFinal = corpo.assinatura_dado
+    || corpo.assinatura_url
+    || corpo.assinatura_base64
+    || corpo.dataUrl
+    || null;
+
+  if (!etapa || !ETAPAS_ASSINATURA.includes(String(etapa).toUpperCase())) {
+    return res.status(400).json({
+      error: 'Etapa invalida',
+      message: `etapa deve ser uma de: ${ETAPAS_ASSINATURA.join(', ')}.`,
+    });
+  }
+  if (!nome || !String(nome).trim()) {
+    return res.status(400).json({
+      error: 'Campos obrigatorios',
+      message: 'O campo nome (responsavel pela assinatura) e obrigatorio.',
+    });
+  }
+
+  const existe = await prisma.parteDiaria.findUnique({
+    where: { id },
+    include: { assinaturas: true },
+  });
+  if (!existe) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
+  }
+
+  const etapaNorm = String(etapa).toUpperCase();
+  const autor = autorDaRequisicao(req, req.body || {}) || String(nome).trim();
+
+  const assinaturaDadoStr = assinaturaDadoFinal ? String(assinaturaDadoFinal) : null;
+  await prisma.parteDiariaAssinatura.upsert({
+    where: { parte_id_etapa: { parte_id: id, etapa: etapaNorm } },
+    update: {
+      nome: String(nome).trim(),
+      matricula: strOuNull(matricula),
+      assinatura_dado: assinaturaDadoStr,
+      assinado_em: new Date(),
+    },
+    create: {
+      parte_id: id,
+      etapa: etapaNorm,
+      nome: String(nome).trim(),
+      matricula: strOuNull(matricula),
+      assinatura_dado: assinaturaDadoStr,
+      assinado_em: new Date(),
+    },
+  });
+
+  const todasAssinaturas = await prisma.parteDiariaAssinatura.findMany({ where: { parte_id: id } });
+  const statusAprovacao = calcularStatusAprovacao(todasAssinaturas);
+  const fluxo = statusAprovacaoParaRelatorio(statusAprovacao);
+
+  await prisma.parteDiaria.update({
+    where: { id },
+    data: {
+      status_aprovacao: statusAprovacao,
+      status_relatorio: fluxo,
+      status_assinatura: statusAprovacao === 'Aprovado' ? 'ASSINADO' : 'PENDENTE',
+      atualizado_por: autor,
+    },
+  });
+  await registrarLog(prisma, id, `ASSINATURA_${etapaNorm}`, autor, { etapa: etapaNorm, status_aprovacao: statusAprovacao });
+
+  const completo = await prisma.parteDiaria.findUnique({ where: { id }, include: INCLUDE_COMPLETO });
+  res.json({ data: enriquecerAssinaturas(completo) });
+});
+
+// DELETE /api/partes-diarias/:id/assinaturas/:etapa — remove uma etapa.
+export const removerAssinatura = asyncHandler(async (req, res) => {
+  const { id, etapa } = req.params;
+  const etapaNorm = String(etapa || '').toUpperCase();
+  if (!ETAPAS_ASSINATURA.includes(etapaNorm)) {
+    return res.status(400).json({
+      error: 'Etapa invalida',
+      message: `etapa deve ser uma de: ${ETAPAS_ASSINATURA.join(', ')}.`,
+    });
+  }
+  const existe = await prisma.parteDiaria.findUnique({ where: { id } });
+  if (!existe) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
+  }
+  await prisma.parteDiariaAssinatura.deleteMany({ where: { parte_id: id, etapa: etapaNorm } });
+  const restantes = await prisma.parteDiariaAssinatura.findMany({ where: { parte_id: id } });
+  const statusAprovacao = calcularStatusAprovacao(restantes);
+  const fluxo = statusAprovacaoParaRelatorio(statusAprovacao);
+
+  await prisma.parteDiaria.update({
+    where: { id },
+    data: {
+      status_aprovacao: statusAprovacao,
+      status_relatorio: fluxo,
+      status_assinatura: statusAprovacao === 'Aprovado' ? 'ASSINADO' : 'PENDENTE',
+    },
+  });
+  const autor = autorDaRequisicao(req, {});
+  await registrarLog(prisma, id, `ASSINATURA_REMOVIDA_${etapaNorm}`, autor, { etapa: etapaNorm, status_aprovacao: statusAprovacao });
+  const completo = await prisma.parteDiaria.findUnique({ where: { id }, include: INCLUDE_COMPLETO });
+  res.json({ data: enriquecerAssinaturas(completo) });
+});
+
+// GET /api/partes-diarias/:id/logs — auditoria (log de edicoes).
+export const listarLogs = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const existe = await prisma.parteDiaria.findUnique({ where: { id } });
+  if (!existe) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
+  }
+  const logs = await prisma.parteDiariaLog.findMany({
+    where: { parte_id: id },
+    orderBy: { created_at: 'desc' },
+    take: 50,
+  });
+  res.json({ data: logs });
 });

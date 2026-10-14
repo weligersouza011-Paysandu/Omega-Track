@@ -34,6 +34,7 @@ export const PASTAS = {
   mobilizacao: 'omegatrack/mobilizacao',
   'partes-diarias': 'omegatrack/partes-diarias',
   documentos: 'omegatrack/documentos',
+  assinaturas: 'omegatrack/assinaturas',
 };
 
 export const TIPOS_IMAGEM = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -140,4 +141,52 @@ export function validarUrlMidia(url, nomeCampo = 'arquivo') {
 }
 
 export { cloudinary };
+
+// ============================================================================
+// Purga de anexos: extrai o public_id da secure_url e destroi o asset
+// (tenta `image`, cai para `raw`). Falha isolada nunca trava o chamador.
+// ============================================================================
+export function extrairPublicIdDaUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const m = url.match(/\/upload\/(?:v\d+\/)?(.+)$/i);
+  if (!m) return null;
+  return m[1].split(/[?#]/)[0].replace(/\.[a-z0-9]+$/i, '');
+}
+
+export async function excluirAssetCloudinary(url) {
+  if (!cloudinaryConfigured) return { status: 'nao_configurado' };
+  const publicId = extrairPublicIdDaUrl(url);
+  if (!publicId) return { status: 'public_id_invalido' };
+  try {
+    const r = await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
+    if (r.result === 'not found') {
+      const r2 = await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
+      return { status: r2.result };
+    }
+    return { status: r.result };
+  } catch (e) {
+    console.error(`[Cloudinary] falha ao excluir ${publicId}:`, e.message);
+    return { status: 'erro' };
+  }
+}
+
+export async function uploadAssinaturaBase64(base64Data, identificador = 'usuario') {
+  if (!cloudinaryConfigured) {
+    throw new Error('Cloudinary não configurado. Verifique as variáveis de ambiente.');
+  }
+  if (!base64Data || typeof base64Data !== 'string') {
+    throw new Error('Dado de assinatura base64 inválido.');
+  }
+  const folder = PASTAS.assinaturas || 'omegatrack/assinaturas';
+  const cleanId = String(identificador || 'usuario').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+  const result = await cloudinary.uploader.upload(base64Data, {
+    folder,
+    resource_type: 'image',
+    format: 'png',
+    public_id: `${Date.now()}-assinatura-${cleanId}`,
+    transformation: [{ width: 800, crop: 'limit', quality: 'auto' }],
+  });
+  return result.secure_url;
+}
+
 export default cloudinary;

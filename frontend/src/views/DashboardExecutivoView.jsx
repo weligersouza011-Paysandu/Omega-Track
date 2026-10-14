@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, AlertTriangle, Clock, CheckCircle2, FileWarning } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ExternalLink, AlertTriangle, Clock, CheckCircle2, FileWarning, FileText } from 'lucide-react';
 import { veiculos } from '../data/mockData.js';
-import { calcularFarol, FAROL_LABEL, FAROL_COR } from '../utils/farol.js';
+import { calcularFarol, textoDias, FAROL_LABEL, FAROL_LABEL_CURTO, FAROL_COR } from '../utils/farol.js';
 
 const CORES_STATUS = { mob: '#0052CC', desmob: '#A53030' };
 
@@ -27,6 +27,11 @@ function normalizarContrato(raw) {
 function normalizarModelo(raw) {
   const t = String(raw || '').trim();
   return t === '' ? 'Sem modelo' : t;
+}
+
+function formataData(valor) {
+  const d = new Date(valor);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR');
 }
 
 function corDoContrato(nome) {
@@ -121,6 +126,64 @@ export default function DashboardExecutivoView() {
     return m;
   }, [base]);
 
+  const placaPorTag = useMemo(() => {
+    const m = new Map();
+    base.forEach((v) => m.set(v.tag, v.placa));
+    return m;
+  }, [base]);
+
+  // Documentos enriquecidos para as tooltips: farol + modelo/placa resolvidos.
+  const docsDetalhados = useMemo(() => docsNeon.map((d) => {
+    const f = calcularFarol(d.validade);
+    return {
+      ...d,
+      farol: f.farol,
+      dias: f.dias,
+      modeloNorm: normalizarModelo(d.veiculo?.modelo || modeloPorTag.get(d.tag)),
+      placa: d.veiculo?.placa || placaPorTag.get(d.tag) || '—',
+    };
+  }), [docsNeon, modeloPorTag, placaPorTag]);
+
+  const docsPorStatus = (k) => docsDetalhados.filter((d) => d.farol === k);
+  const docsPorModeloStatus = (modelo, k) =>
+    docsDetalhados.filter((d) => d.modeloNorm === modelo && d.farol === k);
+  const docsVisiveisPorModelo = (modelo) =>
+    docsDetalhados.filter((d) => d.modeloNorm === modelo && d.farol !== 'EMDIA');
+  const docsPorTagStatus = (tag, k) =>
+    docsDetalhados.filter((d) => d.tag === tag && d.farol === k);
+  const docsVisiveisPorTag = (tag) =>
+    docsDetalhados.filter((d) => d.tag === tag && d.farol !== 'EMDIA');
+
+  // Tooltip flutuante customizada (segue o mouse, com lista de veiculos).
+  const [tooltip, setTooltip] = useState(null); // { x, y, titulo, cor, itens }
+  const tooltipTimer = useRef(null);
+
+  const posicionarTooltip = (e) => {
+    const pad = 16;
+    const w = 300;
+    const h = 330;
+    let x = e.clientX + pad;
+    let y = e.clientY + pad;
+    if (x + w > window.innerWidth - 8) x = e.clientX - w - pad;
+    if (y + h > window.innerHeight - 8) y = Math.max(8, window.innerHeight - h - 8);
+    return { x: Math.max(8, x), y };
+  };
+
+  const mostrarTooltip = (e, titulo, cor, itens) => {
+    if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
+    setTooltip({ ...posicionarTooltip(e), titulo, cor, itens });
+  };
+  const moverTooltip = (e) => {
+    setTooltip((t) => (t ? { ...t, ...posicionarTooltip(e) } : t));
+  };
+  const esconderTooltip = (atraso = 120) => {
+    if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
+    tooltipTimer.current = setTimeout(() => setTooltip(null), atraso);
+  };
+  const fixarTooltip = () => {
+    if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
+  };
+
   const docsPorFarol = useMemo(() => {
     const r = { EMDIA: 0, ATENCAO: 0, CRITICO: 0, PLANEJAMENTO: 0, VENCIDO: 0 };
     docsNeon.forEach((d) => { r[calcularFarol(d.validade).farol] += 1; });
@@ -170,10 +233,12 @@ export default function DashboardExecutivoView() {
     return r;
   }, [docsNeon, tagsRelevantes]);
 
+  // Escala de altura das barras por TAG — apenas status visiveis (sem Em Dia).
   const farolMaxTag = useMemo(() => {
+    const visiveis = ['ATENCAO', 'CRITICO', 'PLANEJAMENTO', 'VENCIDO'];
     let m = 0;
     Object.values(docsPorFarolPorTag).forEach(v => {
-      const total = Object.values(v).reduce((a, b) => a + b, 0);
+      const total = visiveis.reduce((a, k) => a + (v[k] || 0), 0);
       if (total > m) m = total;
     });
     return Math.max(m, 1);
@@ -274,6 +339,44 @@ export default function DashboardExecutivoView() {
         </div>
       </div>
 
+      {/* Faixa da secao Documentacao */}
+      <div className="card px-4 py-3.5 flex flex-col sm:flex-row sm:items-center gap-2.5 border-l-4 !border-l-omega-accent">
+        <div className="w-9 h-9 rounded-xl bg-omega-900 flex items-center justify-center text-white shrink-0">
+          <FileText size={17} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base font-extrabold text-omega-900 tracking-tight leading-tight">Documentação</h2>
+          <p className="text-[11px] text-omega-500 mt-0.5">Resumo de vencimentos e farol de prazos da frota</p>
+        </div>
+        <div className="text-[11px] font-bold text-omega-500 tabular-nums whitespace-nowrap">
+          {docsNeon.length} documento(s)
+        </div>
+      </div>
+
+      {/* KPIs de resumo de vencimentos — topo da secao, acima dos graficos */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { k: 'EMDIA', i: CheckCircle2, sub: '> 30 dias' },
+          { k: 'PLANEJAMENTO', i: Clock, sub: '16-30 dias' },
+          { k: 'ATENCAO', i: FileWarning, sub: '6-15 dias' },
+          { k: 'CRITICO', i: AlertTriangle, sub: '1-5 dias' },
+          { k: 'VENCIDO', i: AlertTriangle, sub: 'Vencido' },
+        ].map(item => (
+          <div key={item.k} className="card p-4" style={{ borderTop: `3px solid ${FAROL_COR[item.k]}` }}>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${FAROL_COR[item.k]}15`, color: FAROL_COR[item.k] }}>
+                <item.i size={15} />
+              </div>
+              <span className="text-[10px] font-semibold text-omega-600 uppercase tracking-wide leading-tight">{item.sub}</span>
+            </div>
+            <div className="text-2xl font-black tabular-nums" style={{ color: FAROL_COR[item.k] }}>
+              {docsPorFarol[item.k]}
+            </div>
+            <div className="text-[11px] font-semibold text-omega-500 mt-0.5">{FAROL_LABEL[item.k].split('(')[0].trim()}</div>
+          </div>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="card p-4">
           <div className="text-center text-xs font-bold text-omega-800 mb-4">
@@ -284,7 +387,13 @@ export default function DashboardExecutivoView() {
               const v = docsPorFarol[k];
               const w = (v / maxFarol) * 100;
               return (
-                <div key={k} className="grid grid-cols-[130px_1fr_36px] items-center gap-3">
+                <div
+                  key={k}
+                  className="grid grid-cols-[130px_1fr_36px] items-center gap-3 rounded-lg px-1 -mx-1 py-0.5 hover:bg-omega-50 transition-colors cursor-default"
+                  onMouseEnter={(e) => mostrarTooltip(e, FAROL_LABEL[k].split('(')[0].trim(), FAROL_COR[k], docsPorStatus(k))}
+                  onMouseMove={moverTooltip}
+                  onMouseLeave={() => esconderTooltip()}
+                >
                   <div className="text-[11px] font-semibold text-omega-700 text-right">{FAROL_LABEL[k]}</div>
                   <div className="h-8 rounded overflow-hidden bg-omega-100/60 shadow-inner">
                     <div
@@ -307,11 +416,20 @@ export default function DashboardExecutivoView() {
           </div>
           <div className="flex items-end justify-center gap-10 px-4 pt-2 h-48">
             {Object.entries(docsPorFarolPorModelo).map(([modelo, data]) => {
-              const total = Object.values(data).reduce((a, b) => a + b, 0);
+              // Topo soma APENAS os status visiveis no empilhado (Em Dia fica fora do grafico).
               const ordem = ['ATENCAO', 'CRITICO', 'PLANEJAMENTO', 'VENCIDO'];
+              const total = ordem.reduce((a, k) => a + (data[k] || 0), 0);
               return (
                 <div key={modelo} className="flex flex-col items-center flex-1 max-w-[120px]">
-                  <div className="text-xs font-bold text-omega-800 mb-2 tabular-nums">{total}</div>
+                  <div
+                    className="text-xs font-bold text-omega-800 mb-2 tabular-nums rounded px-1.5 hover:bg-omega-100 transition-colors cursor-default"
+                    title={`${modelo} — todos os status visíveis`}
+                    onMouseEnter={(e) => mostrarTooltip(e, `${modelo} — todos`, FAROL_COR.ATENCAO, docsVisiveisPorModelo(modelo))}
+                    onMouseMove={moverTooltip}
+                    onMouseLeave={() => esconderTooltip()}
+                  >
+                    {total}
+                  </div>
                   <div className="w-20 flex flex-col-reverse rounded-t overflow-hidden shadow-inner min-h-[140px] bg-omega-100/30">
                     {ordem.map(k => {
                       const v = data[k];
@@ -322,6 +440,9 @@ export default function DashboardExecutivoView() {
                           key={k}
                           className="w-full flex items-start justify-center text-white text-[10px] font-bold pt-0.5"
                           style={{ minHeight: v > 0 ? `${Math.max(h, 14)}px` : '0', background: FAROL_COR[k] }}
+                          onMouseEnter={(e) => mostrarTooltip(e, `${modelo} — ${FAROL_LABEL[k].split('(')[0].trim()}`, FAROL_COR[k], docsPorModeloStatus(modelo, k))}
+                          onMouseMove={moverTooltip}
+                          onMouseLeave={() => esconderTooltip()}
                         >
                           {v}
                         </div>
@@ -360,22 +481,33 @@ export default function DashboardExecutivoView() {
         <div className="flex items-end justify-between gap-2 px-4 h-48 overflow-x-auto">
           {tagsRelevantes.map(tag => {
             const data = docsPorFarolPorTag[tag];
-            const total = data ? Object.values(data).reduce((a, b) => a + b, 0) : 0;
             const ordem = ['ATENCAO', 'CRITICO', 'PLANEJAMENTO', 'VENCIDO'];
+            const total = data ? ordem.reduce((a, k) => a + (data[k] || 0), 0) : 0;
             return (
               <div key={tag} className="flex flex-col items-center min-w-[70px] flex-1 max-w-[90px]">
-                <div className="text-[11px] font-bold text-omega-800 mb-1.5 tabular-nums">{total}</div>
+                <div
+                  className="text-[11px] font-bold text-omega-800 mb-1.5 tabular-nums rounded px-1.5 hover:bg-omega-100 transition-colors cursor-default"
+                  title={`${tag} — todos os status visíveis`}
+                  onMouseEnter={(e) => mostrarTooltip(e, `${tag} — todos`, FAROL_COR.ATENCAO, docsVisiveisPorTag(tag))}
+                  onMouseMove={moverTooltip}
+                  onMouseLeave={() => esconderTooltip()}
+                >
+                  {total}
+                </div>
                 <div className="w-full flex flex-col-reverse rounded-t overflow-hidden shadow-inner min-h-[160px] bg-omega-100/30">
                   {ordem.map(k => {
                     const v = data?.[k] || 0;
                     if (v === 0) return null;
                     const h = (v / farolMaxTag) * 140 + 6;
                     return (
-                      <div
-                        key={k}
-                        className="w-full flex items-center justify-center text-white text-[10px] font-bold"
-                        style={{ height: `${h}px`, background: FAROL_COR[k] }}
-                      >
+                        <div
+                          key={k}
+                          className="w-full flex items-center justify-center text-white text-[10px] font-bold"
+                          style={{ height: `${h}px`, background: FAROL_COR[k] }}
+                          onMouseEnter={(e) => mostrarTooltip(e, `${tag} — ${FAROL_LABEL[k].split('(')[0].trim()}`, FAROL_COR[k], docsPorTagStatus(tag, k))}
+                          onMouseMove={moverTooltip}
+                          onMouseLeave={() => esconderTooltip()}
+                        >
                         {v}
                       </div>
                     );
@@ -388,28 +520,46 @@ export default function DashboardExecutivoView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {[
-          { k: 'EMDIA', i: CheckCircle2, sub: '> 30 dias' },
-          { k: 'ATENCAO', i: FileWarning, sub: '6-15 dias' },
-          { k: 'CRITICO', i: AlertTriangle, sub: '1-5 dias' },
-          { k: 'PLANEJAMENTO', i: Clock, sub: '16-30 dias' },
-          { k: 'VENCIDO', i: AlertTriangle, sub: 'Expirado' },
-        ].map(item => (
-          <div key={item.k} className="card p-4" style={{ borderTop: `3px solid ${FAROL_COR[item.k]}` }}>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${FAROL_COR[item.k]}15`, color: FAROL_COR[item.k] }}>
-                <item.i size={15} />
-              </div>
-              <span className="text-[10px] font-semibold text-omega-600 uppercase tracking-wide leading-tight">{item.sub}</span>
+      {/* Tooltip flutuante com a lista de veiculos da categoria em hover */}
+      {tooltip && (
+        <div
+          className="fixed z-[70] w-[300px] max-w-[86vw] rounded-xl bg-omega-900 text-white shadow-2xl border border-white/10 overflow-hidden"
+          style={{ left: tooltip.x, top: tooltip.y }}
+          onMouseEnter={fixarTooltip}
+          onMouseLeave={() => esconderTooltip(0)}
+        >
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: tooltip.cor }} />
+            <div className="text-xs font-extrabold truncate">{tooltip.titulo}</div>
+            <div className="ml-auto text-[10px] font-bold text-white/60 tabular-nums whitespace-nowrap">
+              {tooltip.itens.length} veíc.
             </div>
-            <div className="text-2xl font-black tabular-nums" style={{ color: FAROL_COR[item.k] }}>
-              {docsPorFarol[item.k]}
-            </div>
-            <div className="text-[11px] font-semibold text-omega-500 mt-0.5">{FAROL_LABEL[item.k].split('(')[0].trim()}</div>
           </div>
-        ))}
-      </div>
+          <div className="max-h-64 overflow-auto p-1.5 space-y-1">
+            {tooltip.itens.slice(0, 25).map((d) => (
+              <div key={d.id} className="rounded-lg bg-white/5 px-2.5 py-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black">{d.tag}</span>
+                  <span className="text-[10px] font-mono text-white/50">{d.placa}</span>
+                  <span className="ml-auto text-[10px] font-bold whitespace-nowrap" style={{ color: tooltip.cor }}>
+                    {FAROL_LABEL_CURTO[d.farol]}
+                  </span>
+                </div>
+                <div className="text-[11px] text-white/80 truncate">{d.modeloNorm} • {d.documento}</div>
+                <div className="text-[10px] text-white/50 tabular-nums">
+                  Vence {formataData(d.validade)} • {textoDias(d.dias)}
+                </div>
+              </div>
+            ))}
+            {tooltip.itens.length === 0 && (
+              <div className="text-[11px] text-white/60 px-2 py-3 text-center">Nenhum veículo nesta categoria.</div>
+            )}
+            {tooltip.itens.length > 25 && (
+              <div className="text-[10px] text-white/50 text-center py-1">+{tooltip.itens.length - 25} outros…</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

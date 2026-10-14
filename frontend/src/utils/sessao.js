@@ -1,0 +1,50 @@
+// Sessao do usuario logado (JWT 12h em localStorage).
+const CHAVE = 'omegatrack_sessao';
+
+export function lerSessao() {
+  try {
+    const raw = localStorage.getItem(CHAVE);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    return s?.token ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+export function salvarSessao(token, usuario) {
+  localStorage.setItem(CHAVE, JSON.stringify({ token, usuario }));
+}
+
+export function encerrarSessao() {
+  try {
+    localStorage.removeItem(CHAVE);
+  } catch {
+    /* sem armazenamento */
+  }
+}
+
+export async function fazerLogin(matricula, senha) {
+  const resp = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ matricula, senha }),
+  });
+  const corpo = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(corpo.message || `Falha no login (${resp.status})`);
+  salvarSessao(corpo.data.token, corpo.data.usuario);
+  return corpo.data;
+}
+
+export function authHeaders(sessao) {
+  const h = { 'Content-Type': 'application/json' };
+  if (sessao?.token) h.Authorization = `Bearer ${sessao.token}`;
+  if (sessao?.usuario?.matricula) h['x-acting-matricula'] = sessao.usuario.matricula;
+  return h;
+}
+
+export function rotaInicialPorSetor(usuario) {
+  if (usuario?.setor === 'MEIO_AMBIENTE') return '/controle-ambiental';
+  if (usuario?.setor === 'TRANSPORTE') return '/inicio';
+  return '/inicio';
+}

@@ -1,11 +1,64 @@
 import { NavLink } from 'react-router-dom';
-import { Truck, ClipboardList, ShieldAlert, ChevronLeft, ChevronRight, Menu } from 'lucide-react';
+import { Home, Building2, Truck, ClipboardList, ShieldAlert, Leaf, Sprout, Users, ChevronLeft, Menu } from 'lucide-react';
 
-const MENU = [
-  { to: '/frota', label: 'Mobilizacao & Frota', icon: Truck, exact: false },
-  { to: '/pendencias-parte-diaria', label: 'Partes Diarias', icon: ClipboardList, exact: true },
-  { to: '/telemetria', label: 'Telemetria & Seguranca', icon: ShieldAlert, exact: true },
+const SECTIONS = [
+  {
+    titulo: 'Transporte',
+    theme: 'base',
+    itens: [
+      { to: '/inicio', label: 'Início', icon: Home, exact: true },
+      { to: '/obras', label: 'Obras', icon: Building2, exact: true },
+      { to: '/frota', label: 'Mobilizacao & Frota', icon: Truck, exact: false },
+      { to: '/pendencias-parte-diaria', label: 'Controle & Eficiencia', icon: ClipboardList, exact: true },
+      { to: '/telemetria', label: 'Telemetria & Seguranca', icon: ShieldAlert, exact: true },
+    ],
+  },
+  {
+    titulo: 'Meio Ambiente',
+    theme: 'eco',
+    itens: [
+      { to: '/controle-ambiental', label: 'Controle Ambiental da Frota', icon: Leaf, exact: true },
+      { to: '/ecogestao', label: 'EcoGestao', icon: Sprout, exact: true },
+    ],
+  },
+  {
+    titulo: 'Administracao',
+    theme: 'admin',
+    itens: [
+      { to: '/usuarios', label: 'Gestao de Usuarios', icon: Users, exact: true },
+    ],
+  },
 ];
+
+const THEMES = {
+  base: {
+    active: 'bg-omega-accent text-white shadow-sm',
+    idle: 'text-omega-700 hover:bg-omega-100 hover:text-omega-900',
+    iconIdle: '',
+    header: 'text-omega-400',
+    bar: 'bg-omega-300',
+  },
+  eco: {
+    active: 'bg-emerald-500 text-white shadow-sm',
+    idle: 'text-omega-700 hover:bg-emerald-50 hover:text-emerald-800',
+    iconIdle: 'text-emerald-500',
+    header: 'text-emerald-600',
+    bar: 'bg-emerald-300',
+  },
+  admin: {
+    active: 'bg-violet-500 text-white shadow-sm',
+    idle: 'text-omega-700 hover:bg-violet-50 hover:text-violet-800',
+    iconIdle: 'text-violet-500',
+    header: 'text-violet-600',
+    bar: 'bg-violet-300',
+  },
+};
+
+function itemClasses(isActive, open, theme) {
+  const t = THEMES[theme] || THEMES.base;
+  const base = 'flex items-center gap-3 rounded-lg text-sm font-medium transition-colors relative';
+  return [base, isActive ? t.active : t.idle, open ? 'px-3 py-2.5' : 'px-0 py-2.5 justify-center'].join(' ');
+}
 
 export default function Sidebar({ open, onToggle }) {
   return (
@@ -37,26 +90,39 @@ export default function Sidebar({ open, onToggle }) {
       </div>
 
       <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-        {MENU.map(item => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.exact}
-            className={({ isActive }) => {
-              const base = 'flex items-center gap-3 rounded-lg text-sm font-medium transition-colors';
-              const active = isActive
-                ? 'bg-omega-accent text-white shadow-sm'
-                : 'text-omega-700 hover:bg-omega-100 hover:text-omega-900';
-              return [
-                base,
-                active,
-                open ? 'px-3 py-2.5' : 'px-0 py-2.5 justify-center',
-              ].join(' ');
-            }}
-          >
-            <item.icon size={20} className="shrink-0" />
-            {open && <span className="truncate">{item.label}</span>}
-          </NavLink>
+        {SECTIONS.map((sec) => (
+          <div key={sec.titulo}>
+            {open ? (
+              <div className={'pb-1 px-3 text-[10px] font-bold uppercase tracking-widest ' + THEMES[sec.theme].header}>
+                {sec.titulo}
+              </div>
+            ) : (
+              <div className="pb-1 flex justify-center">
+                <span className={'w-6 h-px ' + THEMES[sec.theme].bar} />
+              </div>
+            )}
+            <div className="space-y-1 pb-2">
+              {sec.itens.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.exact}
+                  title={item.label}
+                  className={({ isActive }) => itemClasses(isActive, open, sec.theme)}
+                >
+                  {({ isActive }) => (
+                    <>
+                      <item.icon
+                        size={20}
+                        className={'shrink-0 ' + (isActive ? 'text-white' : THEMES[sec.theme].iconIdle)}
+                      />
+                      {open && <span className="truncate">{item.label}</span>}
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 

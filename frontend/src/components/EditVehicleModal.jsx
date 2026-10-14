@@ -59,6 +59,29 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
     setSalvando(true);
     setErro(null);
     try {
+      // Transicao para Desmobilizado passa pela purga oficial (apaga docs/anexos).
+      const indoParaDesmob = form.status === 'Desmobilizado' && veiculo.status !== 'Desmobilizado';
+      if (indoParaDesmob) {
+        const ok = window.confirm(
+          `Desmobilizar ${veiculo.tag}? Toda a documentação e anexos vinculados serão apagados do controle de vencimentos. O registro da desmobilização será mantido no histórico.`
+        );
+        if (!ok) {
+          setSalvando(false);
+          return;
+        }
+        const respDesmob = await fetch(`/api/mob-desmob/${encodeURIComponent(veiculo.tag)}/desmobilizar`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data_desmob: form.data_desmob || null, observacao: null }),
+        });
+        if (!respDesmob.ok) {
+          const corpo = await respDesmob.json().catch(() => ({}));
+          throw new Error(corpo.message || `API respondeu ${respDesmob.status}`);
+        }
+        const { data } = await respDesmob.json();
+        onSaved?.(data.veiculo);
+        return;
+      }
       // 1) Atualiza dados textuais (PUT /api/mob-desmob/:tag).
       const payload = {
         placa: form.placa.toUpperCase().trim(),
@@ -203,6 +226,11 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
               <option>Mobilizado</option>
               <option>Desmobilizado</option>
             </select>
+            {form.status === 'Desmobilizado' && veiculo.status !== 'Desmobilizado' && (
+              <div className="mt-1.5 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200/60 rounded-lg px-2 py-1.5">
+                Ao salvar, a documentação e os anexos serão apagados do controle de vencimentos.
+              </div>
+            )}
           </div>
           <div>
             <label className="label">Data MOB</label>

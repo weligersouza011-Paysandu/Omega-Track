@@ -19,9 +19,10 @@ function errorHandler(err, req, res, next) {
       });
     }
     if (err.code === 'P2003') {
+      const campo = err.meta?.field_name || err.meta?.constraint || '';
       return res.status(400).json({
         error: 'Referencia invalida',
-        message: 'Chave estrangeira invalida. Verifique os campos relacionados.',
+        message: `Chave estrangeira invalida${campo ? ` (${campo})` : ''}. Verifique TAG do veículo, obra e demais campos relacionados.`,
       });
     }
     if (err.code === 'P2025') {
@@ -44,9 +45,11 @@ function errorHandler(err, req, res, next) {
   const message = statusCode === 500 ? 'Erro interno no servidor.' : err.message;
 
   res.status(statusCode).json({
-    error: err.error || 'Erro interno',
+    error: statusCode === 500 ? 'Erro interno no servidor' : (err.error || 'Erro interno'),
     message,
-    ...(config.nodeEnv === 'development' && { stack: err.stack }),
+    // Em desenvolvimento, expõe a mensagem exata do PostgreSQL/Neon + stack
+    ...(config.nodeEnv === 'development' && statusCode === 500 && { details: err.message, stack: err.stack }),
+    ...(config.nodeEnv === 'development' && statusCode !== 500 && { stack: err.stack }),
   });
 }
 

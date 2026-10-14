@@ -1,10 +1,17 @@
 import app from './app.js';
 import config from './config/index.js';
 import { testConnection } from './config/database.js';
+import { expurgarDocumentosDesmobilizados } from './controllers/documentacaoController.js';
 
 async function startServer() {
   try {
     await testConnection();
+
+    try {
+      await expurgarDocumentosDesmobilizados();
+    } catch (e) {
+      console.error('[BOOT-PURGA] falha (boot segue normalmente):', e.message);
+    }
 
     const server = app.listen(config.port, () => {
       console.log(`\n========================================`);

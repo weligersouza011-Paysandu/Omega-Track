@@ -60,6 +60,8 @@ export default function MobDesmobView() {
   const [modalDesmob, setModalDesmob] = useState(null);
   const [form, setForm] = useState({ tag: '', placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: new Date().toISOString().slice(0, 10) });
   const [dataDesmob, setDataDesmob] = useState(new Date().toISOString().slice(0, 10));
+  const [motivoDesmob, setMotivoDesmob] = useState('');
+  const [desmobilizando, setDesmobilizando] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [erroApi, setErroApi] = useState(null);
 
@@ -202,22 +204,32 @@ export default function MobDesmobView() {
   };
 
   const confirmarDesmob = async () => {
-    if (!modalDesmob) return;
+    if (!modalDesmob || desmobilizando) return;
+    setDesmobilizando(true);
     try {
-      const resp = await fetch(`/api/mob-desmob/${encodeURIComponent(modalDesmob.tag)}`, {
+      // Endpoint dedicado: atualiza status + data/responsavel/observacao e
+      // purga documentos e anexos do controle de vencimentos (transacao).
+      const resp = await fetch(`/api/mob-desmob/${encodeURIComponent(modalDesmob.tag)}/desmobilizar`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Desmobilizado', data_desmob: dataDesmob }),
+        body: JSON.stringify({ data_desmob: dataDesmob, observacao: motivoDesmob.trim() || null }),
       });
       if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
       const { data } = await resp.json();
-      setVeiculos(veiculos.map(v => v.tag === data.tag ? data : v));
+      setVeiculos(veiculos.map(v => v.tag === data.veiculo.tag ? data.veiculo : v));
+      setToast(
+        `${data.veiculo.tag} desmobilizado. ${data.documentos_apagados} documento(s) e ${data.anexos_apagados} anexo(s) apagados do controle.`
+      );
     } catch (e) {
       setVeiculos(veiculos.map(v =>
         v.tag === modalDesmob.tag ? { ...v, status: 'Desmobilizado', data_desmob: dataDesmob } : v
       ));
+      setToast('Veículo desmobilizado localmente (falha na API — sincronize depois).');
+    } finally {
+      setDesmobilizando(false);
+      setModalDesmob(null);
+      setMotivoDesmob('');
     }
-    setModalDesmob(null);
   };
 
   const selecionarVeiculo = (v) => {
@@ -553,6 +565,10 @@ export default function MobDesmobView() {
                 veiculo={veiculoSelecionado}
                 onClose={() => setVeiculoSelecionado(null)}
                 onEdit={() => abrirEdicao(veiculoSelecionado)}
+                onDesmob={(v) => {
+                  setModalDesmob(v || veiculoSelecionado);
+                  setDataDesmob(new Date().toISOString().slice(0, 10));
+                }}
               />
             </div>
           )}
@@ -626,20 +642,28 @@ export default function MobDesmobView() {
 
       <Modal
         open={!!modalDesmob}
-        onClose={() => setModalDesmob(null)}
-        title="Registrar Desmobilizacao"
+        onClose={() => { if (!desmobilizando) { setModalDesmob(null); setMotivoDesmob(''); } }}
+        title="Desmobilizar Veículo"
         subtitle={modalDesmob ? (modalDesmob.tag + ' • ' + modalDesmob.modelo + ' • ' + modalDesmob.placa) : ''}
         size="sm"
         footer={
           <>
-            <button onClick={() => setModalDesmob(null)} className="btn-secondary">Cancelar</button>
-            <button onClick={confirmarDesmob} className="btn-danger">Confirmar DESMOB</button>
+            <button onClick={() => { if (!desmobilizando) { setModalDesmob(null); setMotivoDesmob(''); } }} disabled={desmobilizando} className="btn-secondary disabled:opacity-50">Cancelar</button>
+            <button onClick={confirmarDesmob} disabled={desmobilizando} className="btn-danger disabled:opacity-50 inline-flex items-center gap-2">
+              {desmobilizando && <Loader2 size={15} className="animate-spin" />}
+              {desmobilizando ? 'Desmobilizando...' : 'Sim, desmobilizar e apagar documentos'}
+            </button>
           </>
         }
       >
         <div className="space-y-4">
           <div className="p-4 rounded-xl bg-red-50 border border-red-200/60 text-sm text-red-800">
-            A desmobilizacao altera o status do veiculo e registra a data de saida da operacao.
+            <span className="font-bold">
+              Tem certeza que deseja desmobilizar este veículo{modalDesmob ? ` (TAG: ${modalDesmob.tag})` : ''}?
+            </span>{' '}
+            Toda a documentação e anexos vinculados a ele serão apagados do controle de vencimentos.
+            O registro da desmobilização será mantido no histórico, mas o veículo não constará mais
+            no controle de documentação.
           </div>
           <div>
             <label className="label">Data da Desmobilizacao</label>
@@ -647,7 +671,12 @@ export default function MobDesmobView() {
           </div>
           <div>
             <label className="label">Motivo / Observacao</label>
-            <textarea className="input min-h-[88px]" placeholder="Troca de contrato, manutencao pesada, etc." />
+            <textarea
+              value={motivoDesmob}
+              onChange={e => setMotivoDesmob(e.target.value)}
+              className="input min-h-[88px]"
+              placeholder="Troca de contrato, manutencao pesada, etc."
+            />
           </div>
         </div>
       </Modal>

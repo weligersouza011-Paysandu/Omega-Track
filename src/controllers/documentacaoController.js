@@ -1,7 +1,7 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import config from '../config/index.js';
-import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
+import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
 
 function calcularFarol(validade) {
   const hoje = new Date();
@@ -27,6 +27,8 @@ export const listarDocumentacoes = asyncHandler(async (req, res) => {
   const where = {};
   if (tag) where.tag = tag;
   if (documento) where.documento = documento;
+  // Controle de vencimentos considera SOMENTE veiculos mobilizados.
+  where.veiculo = { status: 'Mobilizado' };
 
   const docs = await prisma.documentacaoVeiculo.findMany({
     where,
@@ -65,6 +67,8 @@ export const farolVencimentos = asyncHandler(async (req, res) => {
 
   const where = {};
   if (tag) where.tag = tag;
+  // Farol considera SOMENTE veiculos mobilizados.
+  where.veiculo = { status: 'Mobilizado' };
 
   const docs = await prisma.documentacaoVeiculo.findMany({
     where,
@@ -201,3 +205,33 @@ export const anexarArquivo = (req, res, next) => {
     }
   });
 };
+
+// ============================================================================
+// Expurgo retroativo: remove do controle todo documento vinculado a veiculo
+// DESMOBILIZADO (anexos no Cloudinary + registros), preservando o historico
+// do veiculo. Executado no boot do servidor; nunca derruba a inicializacao.
+// ============================================================================
+export async function expurgarDocumentosDesmobilizados() {
+  const pendentes = await prisma.documentacaoVeiculo.findMany({
+    where: { veiculo: { status: 'Desmobilizado' } },
+    select: { id: true, tag: true, anexo_url: true },
+  });
+  if (pendentes.length === 0) {
+    console.log('[BOOT-PURGA] nenhum documento de desmobilizado pendente.');
+    return { documentos: 0, anexos: 0 };
+  }
+  const tags = [...new Set(pendentes.map((d) => d.tag))];
+  const comAnexo = pendentes.filter((d) => d.anexo_url);
+  const resultados = await Promise.allSettled(comAnexo.map((d) => excluirAssetCloudinary(d.anexo_url)));
+  const anexos = resultados.filter(
+    (r) => r.status === 'fulfilled' && ['ok', 'deleted'].includes(r.value.status)
+  ).length;
+  const del = await prisma.documentacaoVeiculo.deleteMany({
+    where: { id: { in: pendentes.map((d) => d.id) } },
+  });
+  console.log(
+    `[BOOT-PURGA] ${del.count} documento(s) de veiculos desmobilizados expurgados ` +
+    `(tags: ${tags.join(', ')}; anexos removidos: ${anexos}/${comAnexo.length}).`
+  );
+  return { documentos: del.count, anexos };
+}

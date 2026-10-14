@@ -1,6 +1,6 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
-import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
+import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
 
 export const listarVeiculos = asyncHandler(async (req, res) => {
   const { status, contrato, page = 1, limit = 50 } = req.query;
@@ -126,6 +126,61 @@ export const deletarVeiculo = asyncHandler(async (req, res) => {
   const { tag } = req.params;
   await prisma.mobDesmob.delete({ where: { tag } });
   res.status(204).send();
+});
+
+// ============================================================================
+// PUT /api/mob-desmob/:tag/desmobilizar — purga da documentacao na DESMOB.
+// Regra de negocio: ao desmobilizar, os documentos e anexos do veiculo saem
+// do controle de vencimentos, mas o registro do veiculo (historico, datas e
+// status) e preservado. Partes diarias sao mantidas (historico operacional).
+// Body JSON: { data_desmob?, responsavel?, observacao? }
+// ============================================================================
+function excluirAnexoCloudinary(url) {
+  return excluirAssetCloudinary(url);
+}
+
+export const desmobilizarVeiculo = asyncHandler(async (req, res) => {
+  const { tag } = req.params;
+  const { data_desmob, responsavel, observacao } = req.body || {};
+
+  const veiculo = await prisma.mobDesmob.findUnique({ where: { tag } });
+  if (!veiculo) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
+  }
+
+  // 1. Anexos no Cloudinary: busca docs com URL e exclui (falha isolada nao trava).
+  const docs = await prisma.documentacaoVeiculo.findMany({
+    where: { tag },
+    select: { id: true, anexo_url: true },
+  });
+  const comAnexo = docs.filter((d) => d.anexo_url);
+  const resultados = await Promise.allSettled(comAnexo.map((d) => excluirAnexoCloudinary(d.anexo_url)));
+  const anexosApagados = resultados.filter(
+    (r) => r.status === 'fulfilled' && ['ok', 'deleted'].includes(r.value.status)
+  ).length;
+
+  // 2 + 3. Transacao: apaga docs do controle + registra a desmobilizacao.
+  const [purga, atualizado] = await prisma.$transaction([
+    prisma.documentacaoVeiculo.deleteMany({ where: { tag } }),
+    prisma.mobDesmob.update({
+      where: { tag },
+      data: {
+        status: 'Desmobilizado',
+        data_desmob: data_desmob ? new Date(data_desmob) : new Date(),
+        responsavel_desmob: responsavel ? String(responsavel).slice(0, 255) : null,
+        observacao_desmob: observacao ? String(observacao) : null,
+      },
+    }),
+  ]);
+
+  res.json({
+    data: {
+      veiculo: atualizado,
+      documentos_apagados: purga.count,
+      anexos_encontrados: comAnexo.length,
+      anexos_apagados: anexosApagados,
+    },
+  });
 });
 
 // POST /api/mob-desmob/:tag/foto — campo `arquivo` (imagem).
