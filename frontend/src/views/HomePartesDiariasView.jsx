@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Plus, Search, Eye, Pencil, X, RefreshCw, AlertTriangle,
-  CheckCircle2, Calendar, ClipboardList, Filter,
+  Plus, Search, Eye, Pencil, Trash2, X, RefreshCw, AlertTriangle,
+  CheckCircle2, Calendar, ClipboardList, Filter, FileText, Loader2,
 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
 import StatCard from '../components/StatCard.jsx';
 import ParteDiariaForm from '../components/ParteDiariaForm.jsx';
+import RelatorioParteDiariaPreview from '../components/RelatorioParteDiariaPreview.jsx';
 import { authHeaders } from '../utils/sessao.js';
-import { podeVerTodasPartes } from '../utils/permissoes.js';
+import { podeVerTodasPartes, ehMaster } from '../utils/permissoes.js';
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
@@ -49,6 +50,7 @@ function pertenceAoUsuario(p, usuario) {
 export default function HomePartesDiariasView({ sessao }) {
   const usuario = sessao?.usuario || null;
   const visaoTotal = podeVerTodasPartes(usuario);
+  const souMaster = ehMaster(usuario);
 
   const [partes, setPartes] = useState([]);
   const [veiculos, setVeiculos] = useState([]);
@@ -64,6 +66,12 @@ export default function HomePartesDiariasView({ sessao }) {
   // Formulario completo (modelo Omega Service): { aberto: bool, id: string|null }
   const [formState, setFormState] = useState({ aberto: false, id: null });
   const [toast, setToast] = useState(null);
+  // Exclusão (somente MASTER): parte alvo da confirmação + estado de envio.
+  const [excluir, setExcluir] = useState(null);
+  const [excluindo, setExcluindo] = useState(false);
+  // Relatório oficial PDF/HTML
+  const [relatorioPreview, setRelatorioPreview] = useState(null);
+  const [carregandoRelatorioId, setCarregandoRelatorioId] = useState(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -117,7 +125,7 @@ export default function HomePartesDiariasView({ sessao }) {
     const base = visaoTotal ? partes : partes.filter((p) => pertenceAoUsuario(p, usuario));
     const q = busca.trim().toUpperCase();
     return base.filter((p) => {
-      if (filtroStatus !== 'todos' && p.status !== filtroStatus) return false;
+      if (filtroStatus !== 'todos' && (p.status_aprovacao || p.status) !== filtroStatus) return false;
       if (filtroAssinatura !== 'todos' && p.status_assinatura !== filtroAssinatura) return false;
       if (filtroData && paraInputData(p.data) !== filtroData) return false;
       if (!q) return true;
@@ -138,7 +146,7 @@ export default function HomePartesDiariasView({ sessao }) {
   }, [visiveis]);
 
   const statusDisponiveis = useMemo(() => {
-    const set = new Set(partes.map((p) => p.status).filter(Boolean));
+    const set = new Set(partes.map((p) => p.status_aprovacao || p.status).filter(Boolean));
     return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   }, [partes]);
 
@@ -158,9 +166,52 @@ export default function HomePartesDiariasView({ sessao }) {
 
   const podeEditar = (p) => visaoTotal || pertenceAoUsuario(p, usuario);
 
-  const aoSalvarForm = (msg) => {
-    setToast(msg || 'Relatório salvo!');
+  const aoSalvarForm = (msg, opts) => {
+    // Feedback visual de sucesso: fecha o modal do formulário e exibe o toast.
+    // Assinaturas de etapa passam { manterAberto: true } para seguir no formulário.
+    if (!opts?.manterAberto) setFormState({ aberto: false, id: null });
+    setToast(msg || 'Parte Diária salva com sucesso!');
     carregar();
+  };
+
+  const confirmarExcluir = async () => {
+    if (!excluir || excluindo) return;
+    setExcluindo(true);
+    try {
+      const resp = await fetch(`/api/partes-diarias/${excluir.id}`, {
+        method: 'DELETE',
+        headers: authHeaders(sessao),
+      });
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}));
+        throw new Error(corpo.message || `Falha ao excluir (API ${resp.status})`);
+      }
+      setExcluir(null);
+      setToast('Parte Diária excluída com sucesso!');
+      carregar();
+    } catch (e) {
+      setToast(`Falha ao excluir: ${e.message}`);
+    } finally {
+      setExcluindo(false);
+    }
+  };
+
+  const abrirRelatorio = async (p) => {
+    if (!p?.id) return;
+    setCarregandoRelatorioId(p.id);
+    try {
+      const resp = await fetch(`/api/partes-diarias/${p.id}`, {
+        headers: authHeaders(sessao),
+      });
+      if (!resp.ok) throw new Error(`Falha ao carregar relatório (${resp.status})`);
+      const corpo = await resp.json();
+      const completo = corpo?.data || p;
+      setRelatorioPreview(completo);
+    } catch (e) {
+      setToast(`Erro ao carregar relatório: ${e.message}`);
+    } finally {
+      setCarregandoRelatorioId(null);
+    }
   };
 
   const limparFiltros = () => {
@@ -211,7 +262,7 @@ export default function HomePartesDiariasView({ sessao }) {
           />
         </div>
         <div className="flex flex-wrap gap-2">
-          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="input !w-auto" title="Tipo de operação">
+          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="input !w-auto" title="Status">
             <option value="todos">Todos os status</option>
             {statusDisponiveis.map((s) => (
               <option key={s} value={s}>{s}</option>
@@ -282,18 +333,17 @@ export default function HomePartesDiariasView({ sessao }) {
             <table className="w-full text-sm min-w-[960px]">
               <thead className="bg-omega-50/70">
                 <tr className="text-left text-[11px] uppercase tracking-wider text-omega-500 font-bold border-b border-omega-100">
-                  <th className="px-4 py-3">Data / Turno</th>
+                  <th className="px-4 py-3">Data</th>
                   <th className="px-4 py-3">Veículo (TAG / Placa)</th>
                   <th className="px-4 py-3">Operador (Nome / Matrícula)</th>
                   <th className="px-4 py-3">KM Inicial / Final</th>
-                  <th className="px-4 py-3">Status / Tipo de Operação</th>
+                  <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-omega-100">
                 {visiveis.map((p) => {
                   const placa = p.veiculo?.placa || placaPorTag.get(normalizar(p.tag)) || '—';
-                  const turno = p.turno || '—';
                   const kmI = p.km_inicial ?? p.kmInicial ?? null;
                   const kmF = p.km_final ?? p.kmFinal ?? null;
                   const editavel = podeEditar(p);
@@ -301,7 +351,6 @@ export default function HomePartesDiariasView({ sessao }) {
                     <tr key={p.id} className="hover:bg-omega-50/60">
                       <td className="px-4 py-2.5">
                         <div className="font-bold text-omega-900 tabular-nums">{formatarData(p.data)}</div>
-                        <div className="text-[11px] text-omega-500">Turno: {turno}</div>
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="font-bold text-omega-900">{p.tag}</div>
@@ -316,8 +365,7 @@ export default function HomePartesDiariasView({ sessao }) {
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex flex-col items-start gap-1">
-                          <BadgeStatus status={p.status} />
-                          <BadgeStatus status={p.status_assinatura} />
+                          <BadgeStatus status={p.status_aprovacao || p.status} />
                           {p.possui_pendencia && (
                             <span className="chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25" title="Checklist sem foto ou atividade pendente">
                               Pendente
@@ -327,6 +375,18 @@ export default function HomePartesDiariasView({ sessao }) {
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex justify-end gap-1">
+                          <button
+                            onClick={() => abrirRelatorio(p)}
+                            disabled={carregandoRelatorioId === p.id}
+                            title="Visualizar Relatório Oficial / Baixar PDF"
+                            className="p-1.5 rounded-md hover:bg-omega-100 text-omega-600 hover:text-omega-accent disabled:opacity-50 transition-colors"
+                          >
+                            {carregandoRelatorioId === p.id ? (
+                              <Loader2 size={15} className="animate-spin text-omega-accent" />
+                            ) : (
+                              <FileText size={15} />
+                            )}
+                          </button>
                           <button
                             onClick={() => setDetalhe(p)}
                             title="Visualizar"
@@ -342,6 +402,15 @@ export default function HomePartesDiariasView({ sessao }) {
                           >
                             <Pencil size={15} />
                           </button>
+                          {souMaster && (
+                            <button
+                              onClick={() => setExcluir(p)}
+                              title="Excluir (somente Master)"
+                              className="p-1.5 rounded-md hover:bg-red-50 text-omega-400 hover:text-status-vermelho transition-colors"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -362,6 +431,21 @@ export default function HomePartesDiariasView({ sessao }) {
         size="md"
         footer={
           <>
+            <button
+              onClick={() => {
+                const p = detalhe;
+                abrirRelatorio(p);
+              }}
+              disabled={carregandoRelatorioId === detalhe?.id}
+              className="btn-secondary inline-flex items-center gap-1.5"
+              title="Abrir relatório oficial para impressão ou download em PDF"
+            >
+              {carregandoRelatorioId === detalhe?.id ? (
+                <><Loader2 size={15} className="animate-spin" /> Carregando...</>
+              ) : (
+                <><FileText size={15} /> Relatório / PDF</>
+              )}
+            </button>
             {(detalhe && podeEditar(detalhe)) && (
               <button
                 onClick={() => { const p = detalhe; setDetalhe(null); abrirEdicao(p); }}
@@ -406,7 +490,7 @@ export default function HomePartesDiariasView({ sessao }) {
             <div className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2">
               <dt className="text-[11px] font-bold uppercase tracking-wider text-omega-500">Status</dt>
               <dd className="mt-1 flex gap-1 flex-wrap">
-                <BadgeStatus status={detalhe.status} />
+                <BadgeStatus status={detalhe.status_aprovacao || detalhe.status} />
                 <BadgeStatus status={detalhe.status_assinatura} />
                 {detalhe.status_relatorio && <BadgeStatus status={detalhe.status_relatorio} />}
                 {detalhe.possui_pendencia && (
@@ -428,7 +512,7 @@ export default function HomePartesDiariasView({ sessao }) {
         )}
       </Modal>
 
-      {/* Formulário completo — Parte Diária (Veículos Leves), modelo Omega Service */}
+      {/* Formulário completo — Parte Diária, modelo Omega Service */}
       <ParteDiariaForm
         open={formState.aberto}
         onClose={() => setFormState({ aberto: false, id: null })}
@@ -438,6 +522,27 @@ export default function HomePartesDiariasView({ sessao }) {
         onSalvo={aoSalvarForm}
       />
 
+      {/* Confirmação de exclusão — somente MASTER enxerga o botão */}
+      <Modal
+        open={!!excluir}
+        onClose={() => { if (!excluindo) setExcluir(null); }}
+        title="Excluir Parte Diária"
+        subtitle={excluir ? `${excluir.tag || ''} • ${formatarData(excluir.data)} • ${excluir.funcionario || '—'}` : ''}
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setExcluir(null)} disabled={excluindo} className="btn-secondary disabled:opacity-50">Cancelar</button>
+            <button onClick={confirmarExcluir} disabled={excluindo} className="btn-danger disabled:opacity-50">
+              {excluindo ? 'Excluindo...' : 'Excluir'}
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-omega-700">
+          Remover esta Parte Diária do sistema? Esta ação não pode ser desfeita.
+        </p>
+      </Modal>
+
       {toast && (
         <div className="fixed bottom-5 right-5 z-[60] flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-xl bg-omega-900 text-white shadow-2xl text-sm font-semibold max-w-md">
           <CheckCircle2 size={17} className="text-status-verde shrink-0" />
@@ -446,6 +551,14 @@ export default function HomePartesDiariasView({ sessao }) {
             <X size={14} />
           </button>
         </div>
+      )}
+
+      {/* Visualização e exportação direta do Relatório Oficial (PDF / Impressão) */}
+      {relatorioPreview && (
+        <RelatorioParteDiariaPreview
+          relatorio={relatorioPreview}
+          onFechar={() => setRelatorioPreview(null)}
+        />
       )}
     </div>
   );

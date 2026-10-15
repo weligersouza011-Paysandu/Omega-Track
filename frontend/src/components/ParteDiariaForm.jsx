@@ -2,26 +2,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Trash2, ChevronDown, Clock, Users, Truck, ClipboardList,
   AlertTriangle, ListChecks, Camera, PenLine, Save,
-  Upload, History, Eye, X, Loader2, CheckCircle2, Search, Check, Gauge,
+  Upload, History, Eye, X, Loader2, CheckCircle2, Search, Check, Gauge, FileText,
 } from 'lucide-react';
 import Modal from './Modal.jsx';
 import BadgeStatus from './BadgeStatus.jsx';
 import ModalAssinaturaDigital from './ModalAssinaturaDigital.jsx';
+import RelatorioParteDiariaPreview from './RelatorioParteDiariaPreview.jsx';
 import { authHeaders } from '../utils/sessao.js';
 
 // Status internos do fluxo de aprovação (mapeados para exibição)
 const STATUS_APROVACAO = {
-  EM_PREENCHIMENTO:      { rotulo: 'Em Preenchimento',       cor: { bg: 'bg-slate-100',  text: 'text-slate-700',  ring: 'ring-slate-300'  } },
-  FINALIZADO_OPERADOR:   { rotulo: 'Finalizado pelo Operador', cor: { bg: 'bg-amber-50',   text: 'text-amber-800',  ring: 'ring-amber-300'  } },
-  REVISADO_TRANSPORTE:   { rotulo: 'Revisado pelo Transporte', cor: { bg: 'bg-red-50',     text: 'text-red-800',    ring: 'ring-red-300'    } },
-  APROVADO:              { rotulo: 'Aprovado',                 cor: { bg: 'bg-green-50',  text: 'text-green-800',  ring: 'ring-green-300'  } },
+  EM_PREENCHIMENTO: { rotulo: 'Em Preenchimento', cor: { bg: 'bg-slate-100', text: 'text-slate-700', ring: 'ring-slate-300' } },
+  FINALIZADO_OPERADOR: { rotulo: 'Finalizado pelo Operador', cor: { bg: 'bg-amber-50', text: 'text-amber-800', ring: 'ring-amber-300' } },
+  REVISADO_TRANSPORTE: { rotulo: 'Revisado pelo Transporte', cor: { bg: 'bg-red-50', text: 'text-red-800', ring: 'ring-red-300' } },
+  APROVADO: { rotulo: 'Aprovado', cor: { bg: 'bg-green-50', text: 'text-green-800', ring: 'ring-green-300' } },
 };
 
 // Status legados (mantidos para retrocompatibilidade de leitura)
 const STATUS_RELATORIO = [
   { valor: 'PREENCHENDO', rotulo: 'Em Preenchimento' },
-  { valor: 'REVISAO',     rotulo: 'Em Revisão' },
-  { valor: 'APROVADO',    rotulo: 'Aprovado' },
+  { valor: 'REVISAO', rotulo: 'Em Revisão' },
+  { valor: 'APROVADO', rotulo: 'Aprovado' },
 ];
 
 // Mapeia status_relatorio → aprovacao key
@@ -118,12 +119,12 @@ function estadoVazio(usuario) {
     // Primeiro registro = usuário logado (autoria/rastreabilidade do lançamento)
     mao_obra: usuario?.nome || usuario?.matricula
       ? [{
-          nome: usuario?.nome || '',
-          matricula: usuario?.matricula || '',
-          funcao: usuario?.funcao || '',
-          horario: '',
-          observacao: '',
-        }]
+        nome: usuario?.nome || '',
+        matricula: usuario?.matricula || '',
+        funcao: usuario?.funcao || '',
+        horario: '',
+        observacao: '',
+      }]
       : [],
     equipamentos: [],
     atividades: [],
@@ -282,6 +283,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const [nomesAssinatura, setNomesAssinatura] = useState({});
   const [secoes, setSecoes] = useState({ cabecalho: true, horario: true, mao: true, equip: false, ativ: true, ocor: false, fotos: false, assin: true });
   const [verLogs, setVerLogs] = useState(false);
+  const [verRelatorio, setVerRelatorio] = useState(false);
   const [obras, setObras] = useState([]);
 
   const sujoRef = useRef(false);
@@ -358,7 +360,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     })();
     return () => { vivo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open ]);
+  }, [open]);
 
   // ------- carregar relatório existente (edição) -------
   useEffect(() => {
@@ -622,7 +624,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     }
     setErro(null);
     clearTimeout(timerRef.current);
-    const antesEraNovo = !parteId;
     const assinaturasLocais = [...(assinaturas || [])];
     const salvo = await persistir();
     if (salvo) {
@@ -632,7 +633,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         aplicarResposta(final);
         setForm((f) => ({ ...f, status_relatorio: final.status_relatorio || f.status_relatorio }));
       }
-      onSalvo?.(antesEraNovo ? 'Relatório criado com sucesso!' : 'Relatório salvo!');
+      onSalvo?.('Parte Diária salva com sucesso!');
     }
   };
 
@@ -683,7 +684,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const temPendencia = useMemo(() =>
     (form.checklist || []).some((c) => !c.foto_url) ||
     (form.atividades || []).some((a) => !a.status || a.status === 'Pendente'),
-  [form.checklist, form.atividades]);
+    [form.checklist, form.atividades]);
 
   const frotaAtiva = useMemo(() => {
     const norm = (v) => String(v || '').toUpperCase();
@@ -782,7 +783,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         method: 'PUT',
         headers: authHeaders(sessao),
         body: JSON.stringify({ fotos: restantes }),
-      }).catch(() => {});
+      }).catch(() => { });
     }
     // Tenta liberar o asset na nuvem (falha isolada não trava a UI).
     if (alvo?.public_id) {
@@ -790,7 +791,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         method: 'DELETE',
         headers: authHeaders(sessao),
         body: JSON.stringify({ public_id: alvo.public_id }),
-      }).catch(() => {});
+      }).catch(() => { });
     }
   };
 
@@ -835,7 +836,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         method: 'DELETE',
         headers: authHeaders(sessao),
         body: JSON.stringify({ public_id: alvo.foto_public_id }),
-      }).catch(() => {});
+      }).catch(() => { });
     }
   };
 
@@ -933,7 +934,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         setForm((f) => ({ ...f, status_relatorio: statusRelatorioParaEtapa(etapaNorm) }));
         sujoRef.current = true;
         setModalAssin(null);
-        onSalvo?.(`Etapa ${etapaNorm} assinada!`);
+        onSalvo?.(`Etapa ${etapaNorm} assinada!`, { manterAberto: true });
         return;
       }
 
@@ -956,7 +957,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       aplicarResposta(corpo.data);
       setForm((f) => ({ ...f, status_relatorio: corpo.data.status_relatorio || f.status_relatorio }));
       setModalAssin(null);
-      onSalvo?.(`Etapa ${etapaNorm} assinada!`);
+      onSalvo?.(`Etapa ${etapaNorm} assinada!`, { manterAberto: true });
     } catch (e) {
       console.error("Erro completo ao salvar:", e);
       setErro(`Erro ao salvar: ${e.details || e.message || 'Falha ao assinar.'}`);
@@ -1018,706 +1019,730 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
 
   return (
     <>
-    <Modal
-      open={open}
-      onClose={fechar}
-      title="Parte Diária (Veículos Leves)"
-      subtitle={parteId ? `${(form.equipamentos || []).find((e) => String(e.tag_patrimonio || '').trim())?.tag_patrimonio || 'Relatório'} • ${form.obra || ''} • ${rotuloStatus}` : 'Novo relatório • preencha e salve'}
-      size="full"
-      footer={
-        <>
-          <span className="mr-auto text-xs text-omega-400 hidden sm:block">
-            {autosave === 'salvando' && 'Salvando automaticamente...'}
-            {typeof autosave === 'string' && autosave.startsWith('salvo') && `Salvo automaticamente às ${autosave.slice(6)}`}
-            {autosave === 'erro' && 'Falha no salvamento automático — use Salvar Relatório.'}
-          </span>
-          <button onClick={fechar} disabled={salvando} className="btn-secondary disabled:opacity-50">Fechar</button>
-          <button onClick={solicitarEnvio} disabled={salvando || carregando} className="btn-primary disabled:opacity-50">
-            {salvando ? <><Loader2 size={15} className="animate-spin" /> Salvando...</> : <><Save size={15} /> Salvar Relatório</>}
-          </button>
-        </>
-      }
-    >
-      {carregando ? (
-        <div className="flex items-center justify-center p-10 text-omega-500 text-sm font-semibold">
-          <Loader2 size={20} className="animate-spin mr-2" /> Carregando relatório...
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {erro && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200/60 text-sm text-red-800 flex items-start gap-2">
-              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              <span>{erro}</span>
-            </div>
-          )}
-
-          {/* Barra superior fixa: badge de aprovação + salvar */}
-          <div className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-white/95 backdrop-blur flex flex-col sm:flex-row sm:items-center gap-2 border-b border-omega-100">
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Badge de aprovação colorido por etapa */}
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold ring-1 ring-inset ${infoAprovacao.cor.bg} ${infoAprovacao.cor.text} ${infoAprovacao.cor.ring}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${infoAprovacao.cor.text.replace('text-', 'bg-')}`} />
-                {infoAprovacao.rotulo}
-              </span>
-              {temPendencia && (
-                <span className="chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25" title="Checklist sem foto ou atividade pendente">
-                  ⚠ Pendências
-                </span>
-              )}
-              {!parteId && (
-                <span className="chip bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-300">Novo</span>
-              )}
-            </div>
-            <button onClick={solicitarEnvio} disabled={salvando} className="btn-primary !py-2 text-sm sm:ml-auto disabled:opacity-50">
+      <Modal
+        open={open}
+        onClose={fechar}
+        title="Parte Diária"
+        subtitle={parteId ? `${(form.equipamentos || []).find((e) => String(e.tag_patrimonio || '').trim())?.tag_patrimonio || 'Relatório'} • ${form.obra || ''} • ${rotuloStatus}` : 'Novo relatório • preencha e salve'}
+        size="full"
+        footer={
+          <>
+            <span className="mr-auto text-xs text-omega-400 hidden sm:block">
+              {autosave === 'salvando' && 'Salvando automaticamente...'}
+              {typeof autosave === 'string' && autosave.startsWith('salvo') && `Salvo automaticamente às ${autosave.slice(6)}`}
+              {autosave === 'erro' && 'Falha no salvamento automático — use Salvar Relatório.'}
+            </span>
+            <button onClick={fechar} disabled={salvando} className="btn-secondary disabled:opacity-50">Fechar</button>
+            <button onClick={solicitarEnvio} disabled={salvando || carregando} className="btn-primary disabled:opacity-50">
               {salvando ? <><Loader2 size={15} className="animate-spin" /> Salvando...</> : <><Save size={15} /> Salvar Relatório</>}
             </button>
+          </>
+        }
+      >
+        {carregando ? (
+          <div className="flex items-center justify-center p-10 text-omega-500 text-sm font-semibold">
+            <Loader2 size={20} className="animate-spin mr-2" /> Carregando relatório...
           </div>
-
-          {/* 1. CABEÇALHO / DETALHES DO RELATÓRIO */}
-          <div className="card overflow-hidden">
-            <div className="px-4 pt-4 pb-3 text-center border-b border-omega-100 bg-omega-50/40">
-              <div className="inline-flex items-center gap-2">
-                <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center text-lg font-black">Ω</span>
-                <span className="text-left leading-tight">
-                  <span className="block text-[11px] font-extrabold tracking-widest text-omega-900">OMEGA SERVICE</span>
-                  <span className="block text-[10px] text-omega-400 font-medium">Gestão de Transporte</span>
-                </span>
+        ) : (
+          <div className="space-y-4">
+            {erro && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200/60 text-sm text-red-800 flex items-start gap-2">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <span>{erro}</span>
               </div>
-              <h3 className="mt-2 text-base font-extrabold text-omega-900">Parte Diária (Veículos Leves)</h3>
-              <p className="text-[11px] text-omega-400">{diaSemanaDe(form.data)}</p>
-            </div>
-            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="label">Data</label>
-                <input type="date" value={form.data} onChange={(e) => definirData(e.target.value)} className={`${inputCls} ${erroData ? '!border-red-400' : ''}`} />
-                {erroData && <p className="mt-1 text-[11px] font-semibold text-red-600">{erroData}</p>}
-              </div>
-              <div>
-                <label className="label">Dia da Semana</label>
-                <input value={diaSemanaDe(form.data)} readOnly className={`${inputCls} bg-omega-50 text-omega-500`} />
-              </div>
-              <div>
-                <label className="label">Status Operacional do Dia <span className="text-status-vermelho">*</span></label>
-                <select
-                  value={form.status_operacional || ''}
-                  onChange={(e) => definir('status_operacional', e.target.value)}
-                  className={`${inputCls} ${!STATUS_OPERACIONAL_DIA.includes(form.status_operacional) ? '!border-red-400' : ''}`}
-                  required
-                  title="Situação operacional da frente de serviço no dia"
-                >
-                  <option value="">Selecionar status...</option>
-                  {STATUS_OPERACIONAL_DIA.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">Obra <span className="text-status-vermelho">*</span></label>
-                <select
-                  value={form.obra_id || (form.obra ? '__legado__' : '')}
-                  onChange={(e) => selecionarObra(e.target.value)}
-                  className={inputCls}
-                  title="Obras ativas do cadastro — preenche contrato, contratante, gestão e planejador"
-                >
-                  <option value="">Selecionar obra...</option>
-                  {obras.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.nome}{o.numeroContrato ? ` • ${o.numeroContrato}` : ''}
-                    </option>
-                  ))}
-                  {/* Compatibilidade: obra textual de lançamentos antigos fora do cadastro */}
-                  {form.obra && !obras.some((o) => o.id === form.obra_id || o.nome === form.obra) && (
-                    <option value="__legado__">{form.obra} (cadastro anterior)</option>
-                  )}
-                </select>
-                <p className="mt-1 text-[11px] text-omega-400">Ao selecionar, contrato, contratante, gestão e planejador são preenchidos automaticamente.</p>
-              </div>
-              <div>
-                <label className="label">Contratante</label>
-                <input value={form.contratante} readOnly title="Preenchido automaticamente pela obra selecionada" className={`${inputCls} bg-omega-50 text-omega-500`} placeholder="Ex: Vale" />
-              </div>
-              <div>
-                <label className="label">Responsável</label>
-                <input value={form.responsavel} readOnly title="Preenchido automaticamente pela obra selecionada" className={`${inputCls} bg-omega-50 text-omega-500`} placeholder="Ex: Denilson Silva" />
-              </div>
-              <div>
-                <label className="label">Planejador</label>
-                <input value={form.planejador} readOnly title="Preenchido automaticamente pela obra selecionada" className={`${inputCls} bg-omega-50 text-omega-500`} placeholder="Preenchido pela obra" />
-              </div>
-            </div>
-          </div>
-
-          {/* 2. HORÁRIO DE TRABALHO */}
-          <div className="card p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="p-1.5 rounded-lg bg-omega-900 text-white"><Clock size={14} /></span>
-              <span className="text-sm font-bold text-omega-900">Horário de Trabalho</span>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div>
-                <label className="label">Entrada (Jornada)</label>
-                <input type="time" value={form.horario_entrada} onChange={(e) => definir('horario_entrada', e.target.value)} className={`${inputCls} tabular-nums`} />
-              </div>
-              <div>
-                <label className="label">Saída (Jornada)</label>
-                <input type="time" value={form.horario_saida} onChange={(e) => definir('horario_saida', e.target.value)} className={`${inputCls} tabular-nums`} />
-              </div>
-              <div>
-                <label className="label">Intervalo Entrada</label>
-                <input type="time" value={form.intervalo_entrada} onChange={(e) => definir('intervalo_entrada', e.target.value)} className={`${inputCls} tabular-nums`} />
-              </div>
-              <div>
-                <label className="label">Intervalo Saída</label>
-                <input type="time" value={form.intervalo_saida} onChange={(e) => definir('intervalo_saida', e.target.value)} className={`${inputCls} tabular-nums`} />
-              </div>
-            </div>
-          </div>
-
-          {/* 3. MÃO DE OBRA */}
-          <Secao icone={Users} titulo="Mão de Obra" count={form.mao_obra.length} aberto={secoes.mao} onToggle={() => alternarSecao('mao')} onAdicionar={() => adicionar('mao_obra', { nome: '', matricula: '', funcao: 'Sinaleiro' })}>
-            {form.mao_obra.length === 0 && <LinhaVazia texto="Nenhum colaborador lançado. Use + Adicionar." />}
-            {form.mao_obra.length > 0 && (
-              <p className="text-[11px] text-omega-400 -mb-1">O primeiro registro é o usuário logado (autoria do lançamento). Use + Adicionar para auxiliares. A função é preenchida pelo cadastro.</p>
             )}
-            <datalist id="mao-matriculas">
-              {usuarios.map((u) => (
-                <option key={u.id} value={u.matricula}>{`${u.nome}${u.funcao ? ` • ${u.funcao}` : ''}`}</option>
-              ))}
-            </datalist>
-            <datalist id="mao-nomes">
-              {usuarios.map((u) => (
-                <option key={u.id} value={u.nome}>{`${u.matricula}${u.funcao ? ` • ${u.funcao}` : ''}`}</option>
-              ))}
-            </datalist>
-            {form.mao_obra.map((it, i) => {
-              const travado = i === 0;
-              const val = (f, fb) => (travado ? (f || fb || '') : (f ?? ''));
-              return (
-                <div key={i} className={`grid grid-cols-1 md:grid-cols-12 gap-2 p-2.5 rounded-xl border ${travado ? 'border-omega-900/20 bg-omega-900/[0.03]' : 'border-omega-100 bg-omega-50/40'}`}>
-                  <input
-                    value={val(it.matricula, usuario?.matricula)}
-                    onChange={(e) => atualizarColaborador(i, 'matricula', e.target.value)}
-                    readOnly={travado}
-                    title={travado ? 'Usuário logado (travado)' : undefined}
-                    className={`${inputCls} md:col-span-3 font-mono ${travado ? 'bg-omega-50 text-omega-500' : ''}`}
-                    placeholder="Matrícula *"
-                    list={travado ? undefined : 'mao-matriculas'}
-                  />
-                  <input
-                    value={val(it.nome, usuario?.nome)}
-                    onChange={(e) => atualizarColaborador(i, 'nome', e.target.value)}
-                    readOnly={travado}
-                    title={travado ? 'Usuário logado (travado)' : undefined}
-                    className={`${inputCls} md:col-span-4 ${travado ? 'bg-omega-50 text-omega-500' : ''}`}
-                    placeholder="Nome *"
-                    list={travado ? undefined : 'mao-nomes'}
-                  />
-                  <input
-                    value={val(it.funcao, funcaoDoLogado)}
-                    readOnly
-                    title={travado ? 'Função do usuário logado' : 'Preenchida automaticamente pelo cadastro do colaborador'}
-                    className={`${inputCls} md:col-span-4 bg-omega-50 text-omega-500`}
-                    placeholder="Função (automática)"
-                  />
-                  <div className="md:col-span-1 flex md:justify-end">
-                    {!travado && <button onClick={() => removerItem('mao_obra', i)} className={btnIcone} title="Remover"><Trash2 size={15} /></button>}
-                  </div>
-                </div>
-              );
-            })}
-          </Secao>
 
-          {/* 4. EQUIPAMENTOS */}
-          <Secao icone={Truck} titulo="Equipamentos" count={form.equipamentos.length} aberto={secoes.equip} onToggle={() => alternarSecao('equip')} onAdicionar={() => { setBuscaEquip(''); setModalEquip(true); }}>
-            {form.equipamentos.length === 0 && <LinhaVazia texto="Nenhum veículo/equipamento lançado. Use + Adicionar para escolher da frota." />}
-            {form.equipamentos.map((it, i) => {
-              const norm = (v) => String(v || '').trim().toUpperCase();
-              const ficha = (veiculos || []).find((v) => norm(v.tag) === norm(it.tag_patrimonio));
-              const identificacao = [
-                it.tag_patrimonio || '—',
-                ficha?.placa,
-                it.descricao || ficha?.modelo,
-              ].filter(Boolean).join(' • ');
-              return (
-                <div key={i} className="flex items-center gap-3 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
-                  <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
-                    <Truck size={15} />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block font-mono font-extrabold text-omega-900 text-sm truncate">{identificacao}</span>
-                    {ficha?.status && <span className="block text-[11px] text-omega-400">{ficha.status}</span>}
-                  </span>
-                  <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} ml-auto`} title="Remover"><Trash2 size={15} /></button>
-                </div>
-              );
-            })}
-          </Secao>
-
-          {/* 5. QUILOMETRAGEM */}
-          <div className="card p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="p-1.5 rounded-lg bg-omega-900 text-white"><Gauge size={14} /></span>
-              <span className="text-sm font-bold text-omega-900">Quilometragem</span>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">KM Inicial</label>
-                <input type="number" min="0" value={form.km_inicial} onChange={(e) => definir('km_inicial', e.target.value)} className={`${inputCls} tabular-nums`} placeholder="0" />
-              </div>
-              <div>
-                <label className="label">KM Final</label>
-                <input type="number" min="0" value={form.km_final} onChange={(e) => definir('km_final', e.target.value)} className={`${inputCls} tabular-nums`} placeholder="0" />
-              </div>
-            </div>
-          </div>
-
-          {/* 6. OCORRÊNCIA (atividades executadas + ocorrências do dia) */}
-          <div className="pt-1">
-            <h5 className="text-sm font-extrabold text-omega-900">Ocorrência</h5>
-            <p className="text-[11px] text-omega-400">Atividades executadas e ocorrências registradas no dia</p>
-          </div>
-          <Secao icone={ClipboardList} titulo="Atividades" count={form.atividades.length} aberto={secoes.ativ} onToggle={() => alternarSecao('ativ')} onAdicionar={abrirModalAtiv}>
-            {form.atividades.length === 0 && <LinhaVazia texto="Nenhuma atividade lançada. Use + Adicionar." />}
-            {form.atividades.map((it, i) => (
-              <div key={i} className="flex flex-col md:flex-row md:items-center gap-2 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
-                <input value={it.descricao} onChange={(e) => atualizarItem('atividades', i, 'descricao', e.target.value)} className={`${inputCls} flex-1 min-w-0`} placeholder="Descrição da atividade *" />
-                <span className={`chip shrink-0 ring-1 ring-inset ${COR_STATUS_ATIV[it.status] || 'bg-omega-100 text-omega-600 ring-omega-700/10'}`}>
-                  {it.status || 'Sem status'}
+            {/* Barra superior fixa: badge de aprovação + botões */}
+            <div className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-white/95 backdrop-blur flex flex-col sm:flex-row sm:items-center gap-2 border-b border-omega-100">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Badge de aprovação colorido por etapa */}
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold ring-1 ring-inset ${infoAprovacao.cor.bg} ${infoAprovacao.cor.text} ${infoAprovacao.cor.ring}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${infoAprovacao.cor.text.replace('text-', 'bg-')}`} />
+                  {infoAprovacao.rotulo}
                 </span>
-                <select value={it.status} onChange={(e) => atualizarItem('atividades', i, 'status', e.target.value)} className={`${inputCls} md:w-40`} title="Status">
-                  {STATUS_ATIVIDADE.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <button onClick={() => removerItem('atividades', i)} className={`${btnIcone} self-end md:self-center`} title="Remover"><Trash2 size={15} /></button>
-              </div>
-            ))}
-          </Secao>
-
-          <Secao icone={AlertTriangle} titulo="Ocorrências" count={form.ocorrencias.length} aberto={secoes.ocor} onToggle={() => alternarSecao('ocor')} onAdicionar={abrirModalOcor}>
-            {form.ocorrencias.length === 0 && <LinhaVazia texto="Nenhuma ocorrência registrada. Use + Adicionar." />}
-            {form.ocorrencias.map((it, i) => (
-              <div key={i} className="flex flex-col md:flex-row gap-2 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
-                <select value={it.tipo} onChange={(e) => atualizarItem('ocorrencias', i, 'tipo', e.target.value)} className={`${inputCls} md:w-44`} title="Tipo">
-                  {TIPOS_OCORRENCIA.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <input value={it.descricao} onChange={(e) => atualizarItem('ocorrencias', i, 'descricao', e.target.value)} className={`${inputCls} flex-1 min-w-0`} placeholder="Descrição *" />
-                <button onClick={() => removerItem('ocorrencias', i)} className={`${btnIcone} self-end md:self-center`} title="Remover"><Trash2 size={15} /></button>
-              </div>
-            ))}
-          </Secao>
-
-          {/* Checklist sempre visível e expandido (sem colapso) */}
-          <div className="card overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3">
-              <span className="p-1.5 rounded-lg bg-omega-900 text-white shrink-0">
-                <ListChecks size={14} />
-              </span>
-              <span className="text-sm font-bold text-omega-900 truncate">Checklist</span>
-              <span className="chip bg-omega-100 text-omega-700 shrink-0">({form.checklist.length})</span>
-            </div>
-            <div className="px-4 pb-4 pt-1 border-t border-omega-100 space-y-3">
-            {form.checklist.map((it, i) => {
-              const anexada = !!it.foto_url;
-              const enviando = uploadingCheck === i;
-              return (
-                <div key={it.item} className="flex flex-col md:flex-row md:items-center gap-2 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
-                  <div className="flex-1 min-w-0 text-sm font-bold text-omega-900">{it.item}</div>
-                  <span className={`chip shrink-0 ${anexada ? 'bg-green-50 text-status-verde ring-1 ring-inset ring-green-600/20' : 'bg-amber-50 text-status-amarelo ring-1 ring-inset ring-amber-600/20'}`}>
-                    {anexada ? 'Anexado • Concluído' : 'Pendente'}
+                {temPendencia && (
+                  <span className="chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25" title="Checklist sem foto ou atividade pendente">
+                    ⚠ Pendências
                   </span>
-                  {anexada && (
-                    <a href={it.foto_url} target="_blank" rel="noreferrer" title="Abrir comprovação" className="shrink-0 block w-14 h-14 rounded-lg overflow-hidden border border-omega-200 bg-omega-100">
-                      <img src={it.foto_url} alt={`Comprovação — ${it.item}`} className="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy" />
-                    </a>
-                  )}
-                  <div className="flex md:flex-col gap-1 shrink-0">
-                    <label
-                      htmlFor={`check-foto-${i}`}
-                      className={`btn-secondary !py-1.5 !px-2.5 text-xs whitespace-nowrap cursor-pointer ${enviando ? 'opacity-50 pointer-events-none' : ''}`}
-                      title="Anexar foto / tirar foto"
-                    >
-                      {enviando ? <><Loader2 size={13} className="animate-spin" /> Enviando...</> : <><Camera size={13} /> {anexada ? 'Substituir' : 'Anexar Foto / Tirar Foto'}</>}
-                    </label>
-                    <input
-                      id={`check-foto-${i}`}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      disabled={enviando}
-                      onChange={(e) => { enviarFotoChecklist(i, e.target.files?.[0]); e.target.value = ''; }}
-                    />
-                    {anexada && (
-                      <button onClick={() => removerFotoChecklist(i)} className="btn-secondary !py-1.5 !px-2.5 text-xs whitespace-nowrap" title="Remover foto">
-                        <X size={13} /> Remover
-                      </button>
+                )}
+                {!parteId && (
+                  <span className="chip bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-300">Novo</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 sm:ml-auto">
+                {parteId && (
+                  <button
+                    id="btn-ver-relatorio"
+                    onClick={() => setVerRelatorio(true)}
+                    className="btn-secondary !py-2 text-sm"
+                    title="Visualizar e exportar o relatório em PDF"
+                  >
+                    <FileText size={15} /> Ver Relatório
+                  </button>
+                )}
+                <button onClick={solicitarEnvio} disabled={salvando} className="btn-primary !py-2 text-sm disabled:opacity-50">
+                  {salvando ? <><Loader2 size={15} className="animate-spin" /> Salvando...</> : <><Save size={15} /> Salvar Relatório</>}
+                </button>
+              </div>
+            </div>
+
+            {/* 1. CABEÇALHO / DETALHES DO RELATÓRIO */}
+            <div className="card overflow-hidden">
+              <div className="px-4 pt-4 pb-3 text-center border-b border-omega-100 bg-omega-50/40">
+                <div className="inline-flex items-center gap-2">
+                  <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center text-lg font-black">Ω</span>
+                  <span className="text-left leading-tight">
+                    <span className="block text-[11px] font-extrabold tracking-widest text-omega-900">OMEGA SERVICE</span>
+                    <span className="block text-[10px] text-omega-400 font-medium">Gestão de Transporte</span>
+                  </span>
+                </div>
+                <h3 className="mt-2 text-base font-extrabold text-omega-900">Parte Diária</h3>
+                <p className="text-[11px] text-omega-400">{diaSemanaDe(form.data)}</p>
+              </div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="label">Data</label>
+                  <input type="date" value={form.data} onChange={(e) => definirData(e.target.value)} className={`${inputCls} ${erroData ? '!border-red-400' : ''}`} />
+                  {erroData && <p className="mt-1 text-[11px] font-semibold text-red-600">{erroData}</p>}
+                </div>
+                <div>
+                  <label className="label">Dia da Semana</label>
+                  <input value={diaSemanaDe(form.data)} readOnly className={`${inputCls} bg-omega-50 text-omega-500`} />
+                </div>
+                <div>
+                  <label className="label">Status Operacional do Dia <span className="text-status-vermelho">*</span></label>
+                  <select
+                    value={form.status_operacional || ''}
+                    onChange={(e) => definir('status_operacional', e.target.value)}
+                    className={`${inputCls} ${!STATUS_OPERACIONAL_DIA.includes(form.status_operacional) ? '!border-red-400' : ''}`}
+                    required
+                    title="Situação operacional da frente de serviço no dia"
+                  >
+                    <option value="">Selecionar status...</option>
+                    {STATUS_OPERACIONAL_DIA.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Obra <span className="text-status-vermelho">*</span></label>
+                  <select
+                    value={form.obra_id || (form.obra ? '__legado__' : '')}
+                    onChange={(e) => selecionarObra(e.target.value)}
+                    className={inputCls}
+                    title="Obras ativas do cadastro — preenche contrato, contratante, gestão e planejador"
+                  >
+                    <option value="">Selecionar obra...</option>
+                    {obras.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.nome}{o.numeroContrato ? ` • ${o.numeroContrato}` : ''}
+                      </option>
+                    ))}
+                    {/* Compatibilidade: obra textual de lançamentos antigos fora do cadastro */}
+                    {form.obra && !obras.some((o) => o.id === form.obra_id || o.nome === form.obra) && (
+                      <option value="__legado__">{form.obra} (cadastro anterior)</option>
                     )}
-                  </div>
+                  </select>
+                  <p className="mt-1 text-[11px] text-omega-400">Ao selecionar, contrato, contratante, gestão e planejador são preenchidos automaticamente.</p>
                 </div>
-              );
-            })}
-            </div>
-          </div>
-
-          <Secao icone={Camera} titulo="Fotos" count={form.fotos.length} aberto={secoes.fotos} onToggle={() => alternarSecao('fotos')} onAdicionar={() => fileRef.current?.click()} labelAdicionar="Enviar foto">
-            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => enviarFotos(e.target.files)} />
-            {uploading && (
-              <div className="flex items-center gap-2 text-xs font-semibold text-omega-500">
-                <Loader2 size={14} className="animate-spin" /> Enviando para a nuvem (Cloudinary)...
-              </div>
-            )}
-            {form.fotos.length === 0 && !uploading && <LinhaVazia texto="Nenhuma foto anexada. Use Enviar foto." />}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {form.fotos.map((f, i) => (
-                <div key={i} className="rounded-xl border border-omega-100 overflow-hidden bg-omega-50/40">
-                  <a href={f.url} target="_blank" rel="noreferrer" className="block aspect-video bg-omega-100 overflow-hidden">
-                    <img src={f.url} alt={f.legenda || `Foto ${i + 1}`} className="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy" />
-                  </a>
-                  <div className="p-2 flex items-center gap-1">
-                    <input value={f.legenda} onChange={(e) => atualizarItem('fotos', i, 'legenda', e.target.value)} className="input !py-1 !px-2 text-xs flex-1 min-w-0" placeholder="Legenda" />
-                    <button onClick={() => removerFoto(i)} className={btnIcone} title="Remover foto"><Trash2 size={14} /></button>
-                  </div>
+                <div>
+                  <label className="label">Contratante</label>
+                  <input value={form.contratante} readOnly title="Preenchido automaticamente pela obra selecionada" className={`${inputCls} bg-omega-50 text-omega-500`} placeholder="Ex: Vale" />
                 </div>
-              ))}
-            </div>
-            <button onClick={() => fileRef.current?.click()} disabled={uploading} className="btn-secondary !py-2 text-xs w-full justify-center disabled:opacity-50">
-              <Upload size={14} /> {uploading ? 'Enviando...' : 'Enviar foto (Cloudinary)'}
-            </button>
-          </Secao>
-
-          {/* 7. ASSINATURAS DIGITAIS – FLUXO DE APROVAÇÃO */}
-          <div className="card p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 rounded-lg bg-omega-900 text-white"><PenLine size={14} /></span>
-                <span className="text-sm font-bold text-omega-900">Assinaturas – Fluxo de Aprovação</span>
+                <div>
+                  <label className="label">Responsável</label>
+                  <input value={form.responsavel} readOnly title="Preenchido automaticamente pela obra selecionada" className={`${inputCls} bg-omega-50 text-omega-500`} placeholder="Ex: Denilson Silva" />
+                </div>
+                <div>
+                  <label className="label">Planejador</label>
+                  <input value={form.planejador} readOnly title="Preenchido automaticamente pela obra selecionada" className={`${inputCls} bg-omega-50 text-omega-500`} placeholder="Preenchido pela obra" />
+                </div>
               </div>
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold ring-1 ring-inset ${infoAprovacao.cor.bg} ${infoAprovacao.cor.text} ${infoAprovacao.cor.ring}`}>
-                {infoAprovacao.rotulo}
-              </span>
             </div>
-            {/* Grid das 3 etapas */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {ETAPAS.map((et) => {
-                const a = assinaturaDe(et.valor);
-                const COR_ETAPA_CARD = {
-                  OPERADOR:   { border: 'border-amber-200',  bg: 'bg-amber-50/60',  badge: 'bg-amber-50 text-amber-800 ring-amber-300',  dot: 'bg-amber-400',  btnCls: 'bg-amber-500 hover:bg-amber-600 text-white' },
-                  TRANSPORTE: { border: 'border-red-200',    bg: 'bg-red-50/60',    badge: 'bg-red-50 text-red-800 ring-red-300',          dot: 'bg-red-500',    btnCls: 'bg-red-600 hover:bg-red-700 text-white'    },
-                  PLANEJADOR: { border: 'border-green-200',  bg: 'bg-green-50/60',  badge: 'bg-green-50 text-green-800 ring-green-300',    dot: 'bg-green-500',  btnCls: 'bg-green-600 hover:bg-green-700 text-white' },
-                };
-                const cf = a ? COR_ETAPA_CARD[et.valor] : { border: 'border-omega-100', bg: 'bg-omega-50/40', badge: '', dot: '', btnCls: '' };
+
+            {/* 2. HORÁRIO DE TRABALHO */}
+            <div className="card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="p-1.5 rounded-lg bg-omega-900 text-white"><Clock size={14} /></span>
+                <span className="text-sm font-bold text-omega-900">Horário de Trabalho</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="label">Entrada (Jornada)</label>
+                  <input type="time" value={form.horario_entrada} onChange={(e) => definir('horario_entrada', e.target.value)} className={`${inputCls} tabular-nums`} />
+                </div>
+                <div>
+                  <label className="label">Saída (Jornada)</label>
+                  <input type="time" value={form.horario_saida} onChange={(e) => definir('horario_saida', e.target.value)} className={`${inputCls} tabular-nums`} />
+                </div>
+                <div>
+                  <label className="label">Intervalo Entrada</label>
+                  <input type="time" value={form.intervalo_entrada} onChange={(e) => definir('intervalo_entrada', e.target.value)} className={`${inputCls} tabular-nums`} />
+                </div>
+                <div>
+                  <label className="label">Intervalo Saída</label>
+                  <input type="time" value={form.intervalo_saida} onChange={(e) => definir('intervalo_saida', e.target.value)} className={`${inputCls} tabular-nums`} />
+                </div>
+              </div>
+            </div>
+
+            {/* 3. MÃO DE OBRA */}
+            <Secao icone={Users} titulo="Mão de Obra" count={form.mao_obra.length} aberto={secoes.mao} onToggle={() => alternarSecao('mao')} onAdicionar={() => adicionar('mao_obra', { nome: '', matricula: '', funcao: 'Sinaleiro' })}>
+              {form.mao_obra.length === 0 && <LinhaVazia texto="Nenhum colaborador lançado. Use + Adicionar." />}
+              {form.mao_obra.length > 0 && (
+                <p className="text-[11px] text-omega-400 -mb-1">O primeiro registro é o usuário logado (autoria do lançamento). Use + Adicionar para auxiliares. A função é preenchida pelo cadastro.</p>
+              )}
+              <datalist id="mao-matriculas">
+                {usuarios.map((u) => (
+                  <option key={u.id} value={u.matricula}>{`${u.nome}${u.funcao ? ` • ${u.funcao}` : ''}`}</option>
+                ))}
+              </datalist>
+              <datalist id="mao-nomes">
+                {usuarios.map((u) => (
+                  <option key={u.id} value={u.nome}>{`${u.matricula}${u.funcao ? ` • ${u.funcao}` : ''}`}</option>
+                ))}
+              </datalist>
+              {form.mao_obra.map((it, i) => {
+                const travado = i === 0;
+                const val = (f, fb) => (travado ? (f || fb || '') : (f ?? ''));
                 return (
-                  <div key={et.valor} className={`rounded-xl border p-3 transition-colors ${a ? `${cf.border} ${cf.bg}` : 'border-omega-100 bg-omega-50/40'}`}>
-                    {/* Header da etapa */}
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-omega-400">{et.rotulo}</span>
-                      {a && (
-                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ring-1 ring-inset ${cf.badge}`}>
-                          <CheckCircle2 size={10} /> Assinado
-                        </span>
-                      )}
+                  <div key={i} className={`grid grid-cols-1 md:grid-cols-12 gap-2 p-2.5 rounded-xl border ${travado ? 'border-omega-900/20 bg-omega-900/[0.03]' : 'border-omega-100 bg-omega-50/40'}`}>
+                    <input
+                      value={val(it.matricula, usuario?.matricula)}
+                      onChange={(e) => atualizarColaborador(i, 'matricula', e.target.value)}
+                      readOnly={travado}
+                      title={travado ? 'Usuário logado (travado)' : undefined}
+                      className={`${inputCls} md:col-span-3 font-mono ${travado ? 'bg-omega-50 text-omega-500' : ''}`}
+                      placeholder="Matrícula *"
+                      list={travado ? undefined : 'mao-matriculas'}
+                    />
+                    <input
+                      value={val(it.nome, usuario?.nome)}
+                      onChange={(e) => atualizarColaborador(i, 'nome', e.target.value)}
+                      readOnly={travado}
+                      title={travado ? 'Usuário logado (travado)' : undefined}
+                      className={`${inputCls} md:col-span-4 ${travado ? 'bg-omega-50 text-omega-500' : ''}`}
+                      placeholder="Nome *"
+                      list={travado ? undefined : 'mao-nomes'}
+                    />
+                    <input
+                      value={val(it.funcao, funcaoDoLogado)}
+                      readOnly
+                      title={travado ? 'Função do usuário logado' : 'Preenchida automaticamente pelo cadastro do colaborador'}
+                      className={`${inputCls} md:col-span-4 bg-omega-50 text-omega-500`}
+                      placeholder="Função (automática)"
+                    />
+                    <div className="md:col-span-1 flex md:justify-end">
+                      {!travado && <button onClick={() => removerItem('mao_obra', i)} className={btnIcone} title="Remover"><Trash2 size={15} /></button>}
                     </div>
-
-                    {a ? (
-                      <div className="space-y-2">
-                        {/* Preview da assinatura digital */}
-                        {imagemAssinatura(a) ? (
-                          <div className="rounded-lg bg-white border border-omega-200 p-1.5 flex items-center justify-center min-h-[48px]">
-                            <img src={imagemAssinatura(a)} alt={`Assinatura de ${a.nome}`} className="max-h-10 max-w-full object-contain" />
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 text-sm font-bold text-omega-900">
-                            <CheckCircle2 size={15} className="text-status-verde shrink-0" />
-                            <span className="truncate">{a.nome}</span>
-                          </div>
-                        )}
-                        <div className="text-[11px] text-omega-600 font-semibold truncate">{a.nome}</div>
-                        <div className="text-[11px] text-omega-400">
-                          {a.matricula ? `Matr. ${a.matricula}` : ''}
-                          {a.matricula && a.assinado_em ? ' • ' : ''}
-                          {a.assinado_em ? formatarDataHora(a.assinado_em) : ''}
-                        </div>
-                        <button onClick={() => removerAssinatura(et.valor)} className="text-[11px] font-bold text-status-vermelho hover:underline mt-1">
-                          Remover assinatura
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <input
-                          value={nomesAssinatura[et.valor] || ''}
-                          onChange={(e) => setNomesAssinatura((n) => ({ ...n, [et.valor]: e.target.value }))}
-                          className={inputCls}
-                          placeholder={`Nome — ${et.rotulo.toLowerCase()}`}
-                        />
-                        <button
-                          onClick={() => abrirModalAssin(et.valor, et.rotulo)}
-                          disabled={false}
-                          className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all ${COR_ETAPA_CARD[et.valor]?.btnCls || 'btn-primary'}`}
-                          title={`Assinar como ${et.rotulo}`}
-                        >
-                          <PenLine size={13} /> Assinar
-                        </button>
-                        <p className="text-[10px] text-omega-400">
-                          Papel: {et.valor === 'OPERADOR' ? 'Operador' : et.valor === 'TRANSPORTE' ? 'Transporte' : 'Planejamento'}
-                        </p>
-                      </div>
-                    )}
                   </div>
                 );
               })}
+            </Secao>
+
+            {/* 4. EQUIPAMENTOS */}
+            <Secao icone={Truck} titulo="Equipamentos" count={form.equipamentos.length} aberto={secoes.equip} onToggle={() => alternarSecao('equip')} onAdicionar={() => { setBuscaEquip(''); setModalEquip(true); }}>
+              {form.equipamentos.length === 0 && <LinhaVazia texto="Nenhum veículo/equipamento lançado. Use + Adicionar para escolher da frota." />}
+              {form.equipamentos.map((it, i) => {
+                const norm = (v) => String(v || '').trim().toUpperCase();
+                const ficha = (veiculos || []).find((v) => norm(v.tag) === norm(it.tag_patrimonio));
+                const identificacao = [
+                  it.tag_patrimonio || '—',
+                  ficha?.placa,
+                  it.descricao || ficha?.modelo,
+                ].filter(Boolean).join(' • ');
+                return (
+                  <div key={i} className="flex items-center gap-3 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
+                    <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
+                      <Truck size={15} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block font-mono font-extrabold text-omega-900 text-sm truncate">{identificacao}</span>
+                      {ficha?.status && <span className="block text-[11px] text-omega-400">{ficha.status}</span>}
+                    </span>
+                    <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} ml-auto`} title="Remover"><Trash2 size={15} /></button>
+                  </div>
+                );
+              })}
+            </Secao>
+
+            {/* 5. QUILOMETRAGEM */}
+            <div className="card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="p-1.5 rounded-lg bg-omega-900 text-white"><Gauge size={14} /></span>
+                <span className="text-sm font-bold text-omega-900">Quilometragem</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">KM Inicial</label>
+                  <input type="number" min="0" value={form.km_inicial} onChange={(e) => definir('km_inicial', e.target.value)} className={`${inputCls} tabular-nums`} placeholder="0" />
+                </div>
+                <div>
+                  <label className="label">KM Final</label>
+                  <input type="number" min="0" value={form.km_final} onChange={(e) => definir('km_final', e.target.value)} className={`${inputCls} tabular-nums`} placeholder="0" />
+                </div>
+              </div>
             </div>
 
-            {/* Rodapé visual das assinaturas (quando ao menos 1 existe) */}
-            {assinaturas.length > 0 && (
-              <div className="border-t border-omega-100 pt-3">
-                <div className="text-[10px] font-extrabold uppercase tracking-wider text-omega-400 mb-2">Comprovante de Assinaturas</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {ETAPAS.map((et) => {
-                    const a = assinaturaDe(et.valor);
-                    const COR_RODAPE = {
-                      OPERADOR:   'border-amber-200 bg-amber-50/40',
-                      TRANSPORTE: 'border-red-200   bg-red-50/40',
-                      PLANEJADOR: 'border-green-200 bg-green-50/40',
-                    };
-                    return (
-                      <div key={et.valor} className={`rounded-lg border p-2 text-center text-[10px] min-h-[80px] flex flex-col items-center justify-center gap-1 ${
-                        a ? (COR_RODAPE[et.valor] || 'border-omega-100') : 'border-dashed border-omega-200 bg-omega-50/30'
-                      }`}>
-                        {a ? (
-                          <>
-                            {imagemAssinatura(a)
-                              ? <img src={imagemAssinatura(a)} alt={a.nome} className="max-h-8 max-w-full object-contain mb-0.5" />
-                              : <CheckCircle2 size={14} className="text-status-verde" />
-                            }
-                            <div className="font-bold text-omega-900 truncate w-full">{a.nome}</div>
-                            {a.matricula && <div className="text-omega-400 font-mono">Matr. {a.matricula}</div>}
-                            <div className="text-omega-400">{a.assinado_em ? formatarDataHora(a.assinado_em) : ''}</div>
-                            <div className="font-extrabold uppercase tracking-wide text-[9px] text-omega-500">{et.rotulo}</div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="w-5 h-5 rounded-full border border-dashed border-omega-300 flex items-center justify-center text-omega-300">
-                              <PenLine size={10} />
-                            </div>
-                            <div className="text-omega-400 font-extrabold uppercase tracking-wide text-[9px]">{et.rotulo}</div>
-                            <div className="text-omega-300 italic">Pendente</div>
-                          </>
+            {/* 6. OCORRÊNCIA (atividades executadas + ocorrências do dia) */}
+            <div className="pt-1">
+              <h5 className="text-sm font-extrabold text-omega-900">Ocorrência</h5>
+              <p className="text-[11px] text-omega-400">Atividades executadas e ocorrências registradas no dia</p>
+            </div>
+            <Secao icone={ClipboardList} titulo="Atividades" count={form.atividades.length} aberto={secoes.ativ} onToggle={() => alternarSecao('ativ')} onAdicionar={abrirModalAtiv}>
+              {form.atividades.length === 0 && <LinhaVazia texto="Nenhuma atividade lançada. Use + Adicionar." />}
+              {form.atividades.map((it, i) => (
+                <div key={i} className="flex flex-col md:flex-row md:items-center gap-2 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
+                  <input value={it.descricao} onChange={(e) => atualizarItem('atividades', i, 'descricao', e.target.value)} className={`${inputCls} flex-1 min-w-0`} placeholder="Descrição da atividade *" />
+                  <span className={`chip shrink-0 ring-1 ring-inset ${COR_STATUS_ATIV[it.status] || 'bg-omega-100 text-omega-600 ring-omega-700/10'}`}>
+                    {it.status || 'Sem status'}
+                  </span>
+                  <select value={it.status} onChange={(e) => atualizarItem('atividades', i, 'status', e.target.value)} className={`${inputCls} md:w-40`} title="Status">
+                    {STATUS_ATIVIDADE.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <button onClick={() => removerItem('atividades', i)} className={`${btnIcone} self-end md:self-center`} title="Remover"><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </Secao>
+
+            <Secao icone={AlertTriangle} titulo="Ocorrências" count={form.ocorrencias.length} aberto={secoes.ocor} onToggle={() => alternarSecao('ocor')} onAdicionar={abrirModalOcor}>
+              {form.ocorrencias.length === 0 && <LinhaVazia texto="Nenhuma ocorrência registrada. Use + Adicionar." />}
+              {form.ocorrencias.map((it, i) => (
+                <div key={i} className="flex flex-col md:flex-row gap-2 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
+                  <select value={it.tipo} onChange={(e) => atualizarItem('ocorrencias', i, 'tipo', e.target.value)} className={`${inputCls} md:w-44`} title="Tipo">
+                    {TIPOS_OCORRENCIA.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <input value={it.descricao} onChange={(e) => atualizarItem('ocorrencias', i, 'descricao', e.target.value)} className={`${inputCls} flex-1 min-w-0`} placeholder="Descrição *" />
+                  <button onClick={() => removerItem('ocorrencias', i)} className={`${btnIcone} self-end md:self-center`} title="Remover"><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </Secao>
+
+            {/* Checklist sempre visível e expandido (sem colapso) */}
+            <div className="card overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3">
+                <span className="p-1.5 rounded-lg bg-omega-900 text-white shrink-0">
+                  <ListChecks size={14} />
+                </span>
+                <span className="text-sm font-bold text-omega-900 truncate">Checklist</span>
+                <span className="chip bg-omega-100 text-omega-700 shrink-0">({form.checklist.length})</span>
+              </div>
+              <div className="px-4 pb-4 pt-1 border-t border-omega-100 space-y-3">
+                {form.checklist.map((it, i) => {
+                  const anexada = !!it.foto_url;
+                  const enviando = uploadingCheck === i;
+                  return (
+                    <div key={it.item} className="flex flex-col md:flex-row md:items-center gap-2 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
+                      <div className="flex-1 min-w-0 text-sm font-bold text-omega-900">{it.item}</div>
+                      <span className={`chip shrink-0 ${anexada ? 'bg-green-50 text-status-verde ring-1 ring-inset ring-green-600/20' : 'bg-amber-50 text-status-amarelo ring-1 ring-inset ring-amber-600/20'}`}>
+                        {anexada ? 'Anexado • Concluído' : 'Pendente'}
+                      </span>
+                      {anexada && (
+                        <a href={it.foto_url} target="_blank" rel="noreferrer" title="Abrir comprovação" className="shrink-0 block w-14 h-14 rounded-lg overflow-hidden border border-omega-200 bg-omega-100">
+                          <img src={it.foto_url} alt={`Comprovação — ${it.item}`} className="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy" />
+                        </a>
+                      )}
+                      <div className="flex md:flex-col gap-1 shrink-0">
+                        <label
+                          htmlFor={`check-foto-${i}`}
+                          className={`btn-secondary !py-1.5 !px-2.5 text-xs whitespace-nowrap cursor-pointer ${enviando ? 'opacity-50 pointer-events-none' : ''}`}
+                          title="Anexar foto / tirar foto"
+                        >
+                          {enviando ? <><Loader2 size={13} className="animate-spin" /> Enviando...</> : <><Camera size={13} /> {anexada ? 'Substituir' : 'Anexar Foto / Tirar Foto'}</>}
+                        </label>
+                        <input
+                          id={`check-foto-${i}`}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          disabled={enviando}
+                          onChange={(e) => { enviarFotoChecklist(i, e.target.files?.[0]); e.target.value = ''; }}
+                        />
+                        {anexada && (
+                          <button onClick={() => removerFotoChecklist(i)} className="btn-secondary !py-1.5 !px-2.5 text-xs whitespace-nowrap" title="Remover foto">
+                            <X size={13} /> Remover
+                          </button>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* 8. RODAPÉ / AUDITORIA */}
-          <div className="card p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="p-1.5 rounded-lg bg-omega-900 text-white"><History size={14} /></span>
-              <span className="text-sm font-bold text-omega-900">Auditoria</span>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-              <div className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-omega-500">Criado por</div>
-                <div className="mt-0.5 font-semibold text-omega-900 truncate">{auditoria.criado_por || '—'}</div>
-              </div>
-              <div className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-omega-500">Última modificação</div>
-                <div className="mt-0.5 font-semibold text-omega-900 truncate" title={auditoria.atualizado_por || ''}>
-                  {auditoria.updated_at ? formatarDataHora(auditoria.updated_at) : '—'}
+            <Secao icone={Camera} titulo="Fotos" count={form.fotos.length} aberto={secoes.fotos} onToggle={() => alternarSecao('fotos')} onAdicionar={() => fileRef.current?.click()} labelAdicionar="Enviar foto">
+              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => enviarFotos(e.target.files)} />
+              {uploading && (
+                <div className="flex items-center gap-2 text-xs font-semibold text-omega-500">
+                  <Loader2 size={14} className="animate-spin" /> Enviando para a nuvem (Cloudinary)...
                 </div>
-                {auditoria.atualizado_por && <div className="text-[11px] text-omega-400 truncate">{auditoria.atualizado_por}</div>}
-              </div>
-              <button onClick={() => setVerLogs((v) => !v)} className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2 text-left hover:bg-omega-50 transition-colors">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-omega-500">Log de edições ({auditoria.logs.length})</div>
-                <div className="mt-0.5 font-semibold text-omega-900">{verLogs ? 'Ocultar histórico' : 'Ver histórico'}</div>
-              </button>
-              <div className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-omega-500 flex items-center gap-1"><Eye size={11} /> Visualizações ({auditoria.visualizacoes})</div>
-                <div className="mt-0.5 font-semibold text-omega-900 tabular-nums">{auditoria.visualizacoes}</div>
-              </div>
-            </div>
-            {verLogs && (
-              <div className="mt-3 max-h-44 overflow-auto rounded-xl border border-omega-100 divide-y divide-omega-100">
-                {auditoria.logs.length === 0 && <div className="p-3 text-xs text-omega-400 italic">Nenhuma edição registrada.</div>}
-                {auditoria.logs.map((l) => (
-                  <div key={l.id} className="px-3 py-2 flex items-center gap-2 text-xs">
-                    <span className="font-bold text-omega-900 shrink-0">{l.acao}</span>
-                    <span className="text-omega-400 truncate">{l.autor || '—'}</span>
-                    <span className="ml-auto text-omega-400 tabular-nums shrink-0">{formatarDataHora(l.created_at)}</span>
+              )}
+              {form.fotos.length === 0 && !uploading && <LinhaVazia texto="Nenhuma foto anexada. Use Enviar foto." />}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {form.fotos.map((f, i) => (
+                  <div key={i} className="rounded-xl border border-omega-100 overflow-hidden bg-omega-50/40">
+                    <a href={f.url} target="_blank" rel="noreferrer" className="block aspect-video bg-omega-100 overflow-hidden">
+                      <img src={f.url} alt={f.legenda || `Foto ${i + 1}`} className="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy" />
+                    </a>
+                    <div className="p-2 flex items-center gap-1">
+                      <input value={f.legenda} onChange={(e) => atualizarItem('fotos', i, 'legenda', e.target.value)} className="input !py-1 !px-2 text-xs flex-1 min-w-0" placeholder="Legenda" />
+                      <button onClick={() => removerFoto(i)} className={btnIcone} title="Remover foto"><Trash2 size={14} /></button>
+                    </div>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+              <button onClick={() => fileRef.current?.click()} disabled={uploading} className="btn-secondary !py-2 text-xs w-full justify-center disabled:opacity-50">
+                <Upload size={14} /> {uploading ? 'Enviando...' : 'Enviar foto (Cloudinary)'}
+              </button>
+            </Secao>
 
-          {/* Ação inferior */}
-          <button onClick={solicitarEnvio} disabled={salvando || carregando} className="btn-primary w-full justify-center !py-3 text-sm disabled:opacity-50">
-            {salvando ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : <><Save size={16} /> Salvar Relatório</>}
-          </button>
-        </div>
-      )}
-    </Modal>
+            {/* 7. ASSINATURAS DIGITAIS – FLUXO DE APROVAÇÃO */}
+            <div className="card p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-omega-900 text-white"><PenLine size={14} /></span>
+                  <span className="text-sm font-bold text-omega-900">Assinaturas – Fluxo de Aprovação</span>
+                </div>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold ring-1 ring-inset ${infoAprovacao.cor.bg} ${infoAprovacao.cor.text} ${infoAprovacao.cor.ring}`}>
+                  {infoAprovacao.rotulo}
+                </span>
+              </div>
+              {/* Grid das 3 etapas */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {ETAPAS.map((et) => {
+                  const a = assinaturaDe(et.valor);
+                  const COR_ETAPA_CARD = {
+                    OPERADOR: { border: 'border-amber-200', bg: 'bg-amber-50/60', badge: 'bg-amber-50 text-amber-800 ring-amber-300', dot: 'bg-amber-400', btnCls: 'bg-amber-500 hover:bg-amber-600 text-white' },
+                    TRANSPORTE: { border: 'border-red-200', bg: 'bg-red-50/60', badge: 'bg-red-50 text-red-800 ring-red-300', dot: 'bg-red-500', btnCls: 'bg-red-600 hover:bg-red-700 text-white' },
+                    PLANEJADOR: { border: 'border-green-200', bg: 'bg-green-50/60', badge: 'bg-green-50 text-green-800 ring-green-300', dot: 'bg-green-500', btnCls: 'bg-green-600 hover:bg-green-700 text-white' },
+                  };
+                  const cf = a ? COR_ETAPA_CARD[et.valor] : { border: 'border-omega-100', bg: 'bg-omega-50/40', badge: '', dot: '', btnCls: '' };
+                  return (
+                    <div key={et.valor} className={`rounded-xl border p-3 transition-colors ${a ? `${cf.border} ${cf.bg}` : 'border-omega-100 bg-omega-50/40'}`}>
+                      {/* Header da etapa */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-omega-400">{et.rotulo}</span>
+                        {a && (
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ring-1 ring-inset ${cf.badge}`}>
+                            <CheckCircle2 size={10} /> Assinado
+                          </span>
+                        )}
+                      </div>
 
-    {/* Modal de seleção de equipamentos (frota ativa) */}
-    <Modal
-      open={modalEquip}
-      onClose={() => setModalEquip(false)}
-      title="Selecionar Veículo"
-      subtitle="Clique no veículo para vinculá-lo como equipamento"
-      size="md"
-    >
-      <div className="space-y-3">
-        <div className="relative">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-omega-400" />
-          <input
-            value={buscaEquip}
-            onChange={(e) => setBuscaEquip(e.target.value)}
-            className="input pl-9"
-            placeholder="Buscar TAG, placa ou modelo..."
-            autoFocus
-          />
-        </div>
-        <div className="max-h-80 overflow-auto rounded-xl border border-omega-100 divide-y divide-omega-100">
-          {frotaAtiva.length === 0 && (
-            <div className="p-6 text-center text-xs text-omega-400 italic">
-              Nenhum veículo ativo encontrado na frota.
+                      {a ? (
+                        <div className="space-y-2">
+                          {/* Preview da assinatura digital */}
+                          {imagemAssinatura(a) ? (
+                            <div className="rounded-lg bg-white border border-omega-200 p-1.5 flex items-center justify-center min-h-[48px]">
+                              <img src={imagemAssinatura(a)} alt={`Assinatura de ${a.nome}`} className="max-h-10 max-w-full object-contain" />
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 text-sm font-bold text-omega-900">
+                              <CheckCircle2 size={15} className="text-status-verde shrink-0" />
+                              <span className="truncate">{a.nome}</span>
+                            </div>
+                          )}
+                          <div className="text-[11px] text-omega-600 font-semibold truncate">{a.nome}</div>
+                          <div className="text-[11px] text-omega-400">
+                            {a.matricula ? `Matr. ${a.matricula}` : ''}
+                            {a.matricula && a.assinado_em ? ' • ' : ''}
+                            {a.assinado_em ? formatarDataHora(a.assinado_em) : ''}
+                          </div>
+                          <button onClick={() => removerAssinatura(et.valor)} className="text-[11px] font-bold text-status-vermelho hover:underline mt-1">
+                            Remover assinatura
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <input
+                            value={nomesAssinatura[et.valor] || ''}
+                            onChange={(e) => setNomesAssinatura((n) => ({ ...n, [et.valor]: e.target.value }))}
+                            className={inputCls}
+                            placeholder={`Nome — ${et.rotulo.toLowerCase()}`}
+                          />
+                          <button
+                            onClick={() => abrirModalAssin(et.valor, et.rotulo)}
+                            disabled={false}
+                            className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all ${COR_ETAPA_CARD[et.valor]?.btnCls || 'btn-primary'}`}
+                            title={`Assinar como ${et.rotulo}`}
+                          >
+                            <PenLine size={13} /> Assinar
+                          </button>
+                          <p className="text-[10px] text-omega-400">
+                            Papel: {et.valor === 'OPERADOR' ? 'Operador' : et.valor === 'TRANSPORTE' ? 'Transporte' : 'Planejamento'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Rodapé visual das assinaturas (quando ao menos 1 existe) */}
+              {assinaturas.length > 0 && (
+                <div className="border-t border-omega-100 pt-3">
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-omega-400 mb-2">Comprovante de Assinaturas</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {ETAPAS.map((et) => {
+                      const a = assinaturaDe(et.valor);
+                      const COR_RODAPE = {
+                        OPERADOR: 'border-amber-200 bg-amber-50/40',
+                        TRANSPORTE: 'border-red-200   bg-red-50/40',
+                        PLANEJADOR: 'border-green-200 bg-green-50/40',
+                      };
+                      return (
+                        <div key={et.valor} className={`rounded-lg border p-2 text-center text-[10px] min-h-[80px] flex flex-col items-center justify-center gap-1 ${a ? (COR_RODAPE[et.valor] || 'border-omega-100') : 'border-dashed border-omega-200 bg-omega-50/30'
+                          }`}>
+                          {a ? (
+                            <>
+                              {imagemAssinatura(a)
+                                ? <img src={imagemAssinatura(a)} alt={a.nome} className="max-h-8 max-w-full object-contain mb-0.5" />
+                                : <CheckCircle2 size={14} className="text-status-verde" />
+                              }
+                              <div className="font-bold text-omega-900 truncate w-full">{a.nome}</div>
+                              {a.matricula && <div className="text-omega-400 font-mono">Matr. {a.matricula}</div>}
+                              <div className="text-omega-400">{a.assinado_em ? formatarDataHora(a.assinado_em) : ''}</div>
+                              <div className="font-extrabold uppercase tracking-wide text-[9px] text-omega-500">{et.rotulo}</div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-5 h-5 rounded-full border border-dashed border-omega-300 flex items-center justify-center text-omega-300">
+                                <PenLine size={10} />
+                              </div>
+                              <div className="text-omega-400 font-extrabold uppercase tracking-wide text-[9px]">{et.rotulo}</div>
+                              <div className="text-omega-300 italic">Pendente</div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-          {frotaAtiva.map((v) => (
-            <button
-              key={v.tag}
-              onClick={() => vincularEquipamento(v)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-omega-50 transition-colors"
-            >
-              <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
-                <Truck size={16} />
-              </span>
-              <span className="min-w-0">
-                <span className="block font-mono font-extrabold text-omega-900 text-sm">
-                  {v.tag} <span className="font-semibold text-omega-400">• {v.placa || '—'}</span>
-                </span>
-                <span className="block text-xs text-omega-500 truncate">
-                  {v.modelo || 'Modelo não informado'}{v.status ? ` • ${v.status}` : ''}
-                </span>
-              </span>
-              <Plus size={16} className="ml-auto text-omega-300 shrink-0" />
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-omega-400 text-center">
-          {frotaAtiva.length} veículo(s) ativo(s) • horímetro e status podem ser ajustados na linha após vincular
-        </p>
-      </div>
-    </Modal>
 
-    {/* Modal de inserção de atividade */}
-    <Modal
-      open={!!modalAtiv}
-      onClose={() => setModalAtiv(null)}
-      title="Adicionar Atividade"
-      subtitle="Preencha a descrição e o status"
-      size="sm"
-      footer={
-        <>
-          <button onClick={() => setModalAtiv(null)} className="btn-secondary">Cancelar</button>
-          <button
-            onClick={confirmarModalAtiv}
-            disabled={!modalAtiv?.descricao.trim() || !modalAtiv?.status}
-            className="btn-primary disabled:opacity-40"
-          >
-            <Plus size={15} /> Adicionar
-          </button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <div>
-          <label className="label">Descrição da Atividade <span className="text-status-vermelho">*</span></label>
-          <input
-            value={modalAtiv?.descricao || ''}
-            onChange={(e) => setModalAtiv({ ...modalAtiv, descricao: e.target.value })}
-            className="input"
-            placeholder="Ex: Transporte de pessoal"
-            autoFocus
-          />
-        </div>
-        <div>
-          <label className="label">Status <span className="text-status-vermelho">*</span></label>
-          <select
-            value={modalAtiv?.status || ''}
-            onChange={(e) => setModalAtiv({ ...modalAtiv, status: e.target.value })}
-            className="input"
-          >
-            <option value="">Selecionar status...</option>
-            {STATUS_ATIVIDADE.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        {modalAtiv?.status && (
-          <div>
-            <span className={`chip ring-1 ring-inset ${COR_STATUS_ATIV[modalAtiv.status]}`}>
-              {modalAtiv.status}
-            </span>
+            {/* 8. RODAPÉ / AUDITORIA */}
+            <div className="card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="p-1.5 rounded-lg bg-omega-900 text-white"><History size={14} /></span>
+                <span className="text-sm font-bold text-omega-900">Auditoria</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                <div className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-omega-500">Criado por</div>
+                  <div className="mt-0.5 font-semibold text-omega-900 truncate">{auditoria.criado_por || '—'}</div>
+                </div>
+                <div className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-omega-500">Última modificação</div>
+                  <div className="mt-0.5 font-semibold text-omega-900 truncate" title={auditoria.atualizado_por || ''}>
+                    {auditoria.updated_at ? formatarDataHora(auditoria.updated_at) : '—'}
+                  </div>
+                  {auditoria.atualizado_por && <div className="text-[11px] text-omega-400 truncate">{auditoria.atualizado_por}</div>}
+                </div>
+                <button onClick={() => setVerLogs((v) => !v)} className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2 text-left hover:bg-omega-50 transition-colors">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-omega-500">Log de edições ({auditoria.logs.length})</div>
+                  <div className="mt-0.5 font-semibold text-omega-900">{verLogs ? 'Ocultar histórico' : 'Ver histórico'}</div>
+                </button>
+                <div className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-omega-500 flex items-center gap-1"><Eye size={11} /> Visualizações ({auditoria.visualizacoes})</div>
+                  <div className="mt-0.5 font-semibold text-omega-900 tabular-nums">{auditoria.visualizacoes}</div>
+                </div>
+              </div>
+              {verLogs && (
+                <div className="mt-3 max-h-44 overflow-auto rounded-xl border border-omega-100 divide-y divide-omega-100">
+                  {auditoria.logs.length === 0 && <div className="p-3 text-xs text-omega-400 italic">Nenhuma edição registrada.</div>}
+                  {auditoria.logs.map((l) => (
+                    <div key={l.id} className="px-3 py-2 flex items-center gap-2 text-xs">
+                      <span className="font-bold text-omega-900 shrink-0">{l.acao}</span>
+                      <span className="text-omega-400 truncate">{l.autor || '—'}</span>
+                      <span className="ml-auto text-omega-400 tabular-nums shrink-0">{formatarDataHora(l.created_at)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Ação inferior */}
+            <button onClick={solicitarEnvio} disabled={salvando || carregando} className="btn-primary w-full justify-center !py-3 text-sm disabled:opacity-50">
+              {salvando ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : <><Save size={16} /> Salvar Relatório</>}
+            </button>
           </div>
         )}
-      </div>
-    </Modal>
+      </Modal>
 
-    {/* Modal de inserção de ocorrência */}
-    <Modal
-      open={!!modalOcor}
-      onClose={() => setModalOcor(null)}
-      title="Adicionar Ocorrência"
-      subtitle="Selecione o tipo e descreva"
-      size="sm"
-      footer={
-        <>
-          <button onClick={() => setModalOcor(null)} className="btn-secondary">Cancelar</button>
-          <button
-            onClick={confirmarModalOcor}
-            disabled={!modalOcor?.tipo || !modalOcor?.descricao.trim()}
-            className="btn-primary disabled:opacity-40"
-          >
-            <Plus size={15} /> Adicionar
-          </button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <div>
-          <label className="label">Tipo <span className="text-status-vermelho">*</span></label>
-          <select
-            value={modalOcor?.tipo || ''}
-            onChange={(e) => setModalOcor({ ...modalOcor, tipo: e.target.value })}
-            className="input"
-            autoFocus
-          >
-            <option value="">Selecionar tipo...</option>
-            {TIPOS_OCORRENCIA.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+      {/* Modal de seleção de equipamentos (frota ativa) */}
+      <Modal
+        open={modalEquip}
+        onClose={() => setModalEquip(false)}
+        title="Selecionar Veículo"
+        subtitle="Clique no veículo para vinculá-lo como equipamento"
+        size="md"
+      >
+        <div className="space-y-3">
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-omega-400" />
+            <input
+              value={buscaEquip}
+              onChange={(e) => setBuscaEquip(e.target.value)}
+              className="input pl-9"
+              placeholder="Buscar TAG, placa ou modelo..."
+              autoFocus
+            />
+          </div>
+          <div className="max-h-80 overflow-auto rounded-xl border border-omega-100 divide-y divide-omega-100">
+            {frotaAtiva.length === 0 && (
+              <div className="p-6 text-center text-xs text-omega-400 italic">
+                Nenhum veículo ativo encontrado na frota.
+              </div>
+            )}
+            {frotaAtiva.map((v) => (
+              <button
+                key={v.tag}
+                onClick={() => vincularEquipamento(v)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-omega-50 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
+                  <Truck size={16} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-mono font-extrabold text-omega-900 text-sm">
+                    {v.tag} <span className="font-semibold text-omega-400">• {v.placa || '—'}</span>
+                  </span>
+                  <span className="block text-xs text-omega-500 truncate">
+                    {v.modelo || 'Modelo não informado'}{v.status ? ` • ${v.status}` : ''}
+                  </span>
+                </span>
+                <Plus size={16} className="ml-auto text-omega-300 shrink-0" />
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-omega-400 text-center">
+            {frotaAtiva.length} veículo(s) ativo(s) • horímetro e status podem ser ajustados na linha após vincular
+          </p>
         </div>
-        <div>
-          <label className="label">Descrição <span className="text-status-vermelho">*</span></label>
-          <textarea
-            value={modalOcor?.descricao || ''}
-            onChange={(e) => setModalOcor({ ...modalOcor, descricao: e.target.value })}
-            className="input min-h-[90px]"
-            placeholder="Descreva a ocorrência..."
-          />
-        </div>
-      </div>
-    </Modal>
+      </Modal>
 
-    {/* Modal de Assinatura Digital */}
-    <ModalAssinaturaDigital
-      open={!!modalAssin}
-      onClose={() => setModalAssin(null)}
-      onConfirmar={confirmarAssinatura}
-      etapa={modalAssin?.etapa}
-      rotuloEtapa={modalAssin?.rotulo || ''}
-      usuario={usuario}
-      salvando={assinando}
-    />
+      {/* Modal de inserção de atividade */}
+      <Modal
+        open={!!modalAtiv}
+        onClose={() => setModalAtiv(null)}
+        title="Adicionar Atividade"
+        subtitle="Preencha a descrição e o status"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setModalAtiv(null)} className="btn-secondary">Cancelar</button>
+            <button
+              onClick={confirmarModalAtiv}
+              disabled={!modalAtiv?.descricao.trim() || !modalAtiv?.status}
+              className="btn-primary disabled:opacity-40"
+            >
+              <Plus size={15} /> Adicionar
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="label">Descrição da Atividade <span className="text-status-vermelho">*</span></label>
+            <input
+              value={modalAtiv?.descricao || ''}
+              onChange={(e) => setModalAtiv({ ...modalAtiv, descricao: e.target.value })}
+              className="input"
+              placeholder="Ex: Transporte de pessoal"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="label">Status <span className="text-status-vermelho">*</span></label>
+            <select
+              value={modalAtiv?.status || ''}
+              onChange={(e) => setModalAtiv({ ...modalAtiv, status: e.target.value })}
+              className="input"
+            >
+              <option value="">Selecionar status...</option>
+              {STATUS_ATIVIDADE.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          {modalAtiv?.status && (
+            <div>
+              <span className={`chip ring-1 ring-inset ${COR_STATUS_ATIV[modalAtiv.status]}`}>
+                {modalAtiv.status}
+              </span>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* Modal de inserção de ocorrência */}
+      <Modal
+        open={!!modalOcor}
+        onClose={() => setModalOcor(null)}
+        title="Adicionar Ocorrência"
+        subtitle="Selecione o tipo e descreva"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setModalOcor(null)} className="btn-secondary">Cancelar</button>
+            <button
+              onClick={confirmarModalOcor}
+              disabled={!modalOcor?.tipo || !modalOcor?.descricao.trim()}
+              className="btn-primary disabled:opacity-40"
+            >
+              <Plus size={15} /> Adicionar
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="label">Tipo <span className="text-status-vermelho">*</span></label>
+            <select
+              value={modalOcor?.tipo || ''}
+              onChange={(e) => setModalOcor({ ...modalOcor, tipo: e.target.value })}
+              className="input"
+              autoFocus
+            >
+              <option value="">Selecionar tipo...</option>
+              {TIPOS_OCORRENCIA.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Descrição <span className="text-status-vermelho">*</span></label>
+            <textarea
+              value={modalOcor?.descricao || ''}
+              onChange={(e) => setModalOcor({ ...modalOcor, descricao: e.target.value })}
+              className="input min-h-[90px]"
+              placeholder="Descreva a ocorrência..."
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal de Assinatura Digital */}
+      <ModalAssinaturaDigital
+        open={!!modalAssin}
+        onClose={() => setModalAssin(null)}
+        onConfirmar={confirmarAssinatura}
+        etapa={modalAssin?.etapa}
+        rotuloEtapa={modalAssin?.rotulo || ''}
+        usuario={usuario}
+        salvando={assinando}
+      />
+
+      {/* Preview do relatório (exportação PDF/HTML) */}
+      {verRelatorio && (
+        <RelatorioParteDiariaPreview
+          relatorio={{
+            ...form,
+            id: parteId,
+            numero_relatorio: parteId ? String(parteId).split('-')[0].toUpperCase() : undefined,
+            assinaturas,
+          }}
+          onFechar={() => setVerRelatorio(false)}
+        />
+      )}
     </>
   );
 }
