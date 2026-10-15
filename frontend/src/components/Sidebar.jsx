@@ -70,8 +70,8 @@ export default function Sidebar({ open, onToggle, usuario }) {
   return (
     <aside
       className={
-        'fixed left-0 top-0 h-screen bg-white border-r border-omega-200 flex flex-col transition-all duration-200 z-30 ' +
-        (open ? 'w-72' : 'w-16')
+        'fixed left-0 top-0 h-screen bg-white border-r border-omega-200 flex flex-col transition-all duration-200 z-40 ' +
+        (open ? 'w-72' : 'w-72 -translate-x-full md:w-16 md:translate-x-0')
       }
     >
       <div className={'h-14 flex items-center justify-between px-4 border-b border-omega-200 shrink-0'}>

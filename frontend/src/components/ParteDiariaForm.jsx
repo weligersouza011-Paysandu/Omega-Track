@@ -137,23 +137,26 @@ function estadoVazio(usuario) {
 function Secao({ icone: Icone, titulo, count, aberto, onToggle, onAdicionar, labelAdicionar, children }) {
   return (
     <div className="card overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3">
-        <button onClick={onToggle} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-          <span className="p-1.5 rounded-lg bg-omega-900 text-white shrink-0">
-            <Icone size={14} />
-          </span>
-          <span className="text-sm font-bold text-omega-900 truncate">{titulo}</span>
-          <span className="chip bg-omega-100 text-omega-700 shrink-0">({count})</span>
-          <ChevronDown size={15} className={`ml-auto text-omega-400 transition-transform shrink-0 ${aberto ? 'rotate-180' : ''}`} />
-        </button>
-        {onAdicionar && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onAdicionar(); }}
-            className="btn-secondary !py-1.5 !px-2.5 text-xs shrink-0"
-          >
-            <Plus size={14} /> {labelAdicionar || 'Adicionar'}
+      {/* Título em linha própria (nunca corta) + "+ Adicionar" abaixo no mobile */}
+      <div className="px-4 py-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full">
+          <button onClick={onToggle} className="flex items-center gap-2 flex-1 min-w-0 w-full text-left">
+            <span className="p-1.5 rounded-lg bg-omega-900 text-white shrink-0">
+              <Icone size={14} />
+            </span>
+            <span className="text-base font-bold text-omega-900">{titulo}</span>
+            <span className="chip bg-omega-100 text-omega-700 shrink-0">({count})</span>
+            <ChevronDown size={15} className={`ml-auto text-omega-400 transition-transform shrink-0 ${aberto ? 'rotate-180' : ''}`} />
           </button>
-        )}
+          {onAdicionar && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onAdicionar(); }}
+              className="btn-secondary !py-1.5 !px-2.5 text-xs w-full sm:w-auto mt-1 sm:mt-0 justify-center shrink-0"
+            >
+              <Plus size={14} /> {labelAdicionar || 'Adicionar'}
+            </button>
+          )}
+        </div>
       </div>
       {aberto && <div className="px-4 pb-4 pt-1 border-t border-omega-100 space-y-3">{children}</div>}
     </div>
@@ -680,12 +683,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     setModalOcor(null);
   };
 
-  // Pendência geral (destaque visual): checklist sem foto ou atividade pendente.
-  const temPendencia = useMemo(() =>
-    (form.checklist || []).some((c) => !c.foto_url) ||
-    (form.atividades || []).some((a) => !a.status || a.status === 'Pendente'),
-    [form.checklist, form.atividades]);
-
   const frotaAtiva = useMemo(() => {
     const norm = (v) => String(v || '').toUpperCase();
     const q = norm(buscaEquip);
@@ -1052,40 +1049,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               </div>
             )}
 
-            {/* Barra superior fixa: badge de aprovação + botões */}
-            <div className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-white/95 backdrop-blur flex flex-col sm:flex-row sm:items-center gap-2 border-b border-omega-100">
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Badge de aprovação colorido por etapa */}
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold ring-1 ring-inset ${infoAprovacao.cor.bg} ${infoAprovacao.cor.text} ${infoAprovacao.cor.ring}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${infoAprovacao.cor.text.replace('text-', 'bg-')}`} />
-                  {infoAprovacao.rotulo}
-                </span>
-                {temPendencia && (
-                  <span className="chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25" title="Checklist sem foto ou atividade pendente">
-                    ⚠ Pendências
-                  </span>
-                )}
-                {!parteId && (
-                  <span className="chip bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-300">Novo</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 sm:ml-auto">
-                {parteId && (
-                  <button
-                    id="btn-ver-relatorio"
-                    onClick={() => setVerRelatorio(true)}
-                    className="btn-secondary !py-2 text-sm"
-                    title="Visualizar e exportar o relatório em PDF"
-                  >
-                    <FileText size={15} /> Ver Relatório
-                  </button>
-                )}
-                <button onClick={solicitarEnvio} disabled={salvando} className="btn-primary !py-2 text-sm disabled:opacity-50">
-                  {salvando ? <><Loader2 size={15} className="animate-spin" /> Salvando...</> : <><Save size={15} /> Salvar Relatório</>}
-                </button>
-              </div>
-            </div>
-
             {/* 1. CABEÇALHO / DETALHES DO RELATÓRIO */}
             <div className="card overflow-hidden">
               <div className="px-4 pt-4 pb-3 text-center border-b border-omega-100 bg-omega-50/40">
@@ -1167,19 +1130,19 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 <span className="text-sm font-bold text-omega-900">Horário de Trabalho</span>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div>
+                <div className="min-w-0">
                   <label className="label">Entrada (Jornada)</label>
                   <input type="time" value={form.horario_entrada} onChange={(e) => definir('horario_entrada', e.target.value)} className={`${inputCls} tabular-nums`} />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="label">Saída (Jornada)</label>
                   <input type="time" value={form.horario_saida} onChange={(e) => definir('horario_saida', e.target.value)} className={`${inputCls} tabular-nums`} />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="label">Intervalo Entrada</label>
                   <input type="time" value={form.intervalo_entrada} onChange={(e) => definir('intervalo_entrada', e.target.value)} className={`${inputCls} tabular-nums`} />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="label">Intervalo Saída</label>
                   <input type="time" value={form.intervalo_saida} onChange={(e) => definir('intervalo_saida', e.target.value)} className={`${inputCls} tabular-nums`} />
                 </div>
@@ -1212,7 +1175,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                       onChange={(e) => atualizarColaborador(i, 'matricula', e.target.value)}
                       readOnly={travado}
                       title={travado ? 'Usuário logado (travado)' : undefined}
-                      className={`${inputCls} md:col-span-3 font-mono ${travado ? 'bg-omega-50 text-omega-500' : ''}`}
+                      className={`${inputCls} w-full md:col-span-3 font-mono ${travado ? 'bg-omega-50 text-omega-500' : ''}`}
                       placeholder="Matrícula *"
                       list={travado ? undefined : 'mao-matriculas'}
                     />
@@ -1221,7 +1184,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                       onChange={(e) => atualizarColaborador(i, 'nome', e.target.value)}
                       readOnly={travado}
                       title={travado ? 'Usuário logado (travado)' : undefined}
-                      className={`${inputCls} md:col-span-4 ${travado ? 'bg-omega-50 text-omega-500' : ''}`}
+                      className={`${inputCls} w-full font-medium md:col-span-4 ${travado ? 'bg-omega-50 text-omega-500' : 'text-omega-900'}`}
                       placeholder="Nome *"
                       list={travado ? undefined : 'mao-nomes'}
                     />
@@ -1229,7 +1192,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                       value={val(it.funcao, funcaoDoLogado)}
                       readOnly
                       title={travado ? 'Função do usuário logado' : 'Preenchida automaticamente pelo cadastro do colaborador'}
-                      className={`${inputCls} md:col-span-4 bg-omega-50 text-omega-500`}
+                      className={`${inputCls} w-full md:col-span-4 bg-omega-50 text-omega-500`}
                       placeholder="Função (automática)"
                     />
                     <div className="md:col-span-1 flex md:justify-end">
@@ -1252,15 +1215,17 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   it.descricao || ficha?.modelo,
                 ].filter(Boolean).join(' • ');
                 return (
-                  <div key={i} className="flex items-center gap-3 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
-                    <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
-                      <Truck size={15} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block font-mono font-extrabold text-omega-900 text-sm truncate">{identificacao}</span>
-                      {ficha?.status && <span className="block text-[11px] text-omega-400">{ficha.status}</span>}
-                    </span>
-                    <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} ml-auto`} title="Remover"><Trash2 size={15} /></button>
+                  <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
+                    <div className="flex items-center gap-3 min-w-0 w-full">
+                      <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
+                        <Truck size={15} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-mono font-extrabold text-omega-900 text-sm break-words">{identificacao}</span>
+                        {ficha?.status && <span className="block text-[11px] text-omega-400">{ficha.status}</span>}
+                      </span>
+                    </div>
+                    <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} self-end sm:self-center sm:ml-auto shrink-0`} title="Remover"><Trash2 size={15} /></button>
                   </div>
                 );
               })}
@@ -1563,10 +1528,21 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               )}
             </div>
 
-            {/* Ação inferior */}
-            <button onClick={solicitarEnvio} disabled={salvando || carregando} className="btn-primary w-full justify-center !py-3 text-sm disabled:opacity-50">
-              {salvando ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : <><Save size={16} /> Salvar Relatório</>}
-            </button>
+            {/* Ações inferiores (salvar fica só aqui, sem duplicata no topo) */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              {parteId && (
+                <button
+                  onClick={() => setVerRelatorio(true)}
+                  className="btn-secondary justify-center !py-3 text-sm sm:w-auto w-full"
+                  title="Visualizar e exportar o relatório em PDF"
+                >
+                  <FileText size={16} /> Ver Relatório
+                </button>
+              )}
+              <button onClick={solicitarEnvio} disabled={salvando || carregando} className="btn-primary flex-1 justify-center !py-3 text-sm disabled:opacity-50">
+                {salvando ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : <><Save size={16} /> Salvar Relatório</>}
+              </button>
+            </div>
           </div>
         )}
       </Modal>

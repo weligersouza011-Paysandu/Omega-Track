@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Plus, Search, Eye, Pencil, Trash2, X, RefreshCw, AlertTriangle,
-  CheckCircle2, Calendar, ClipboardList, Filter, FileText, Loader2,
+  CheckCircle2, ClipboardList, Filter, FileText, Loader2,
 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
-import StatCard from '../components/StatCard.jsx';
 import ParteDiariaForm from '../components/ParteDiariaForm.jsx';
 import RelatorioParteDiariaPreview from '../components/RelatorioParteDiariaPreview.jsx';
 import { authHeaders } from '../utils/sessao.js';
@@ -135,16 +134,6 @@ export default function HomePartesDiariasView({ sessao }) {
     });
   }, [partes, visaoTotal, usuario, busca, filtroStatus, filtroAssinatura, filtroData]);
 
-  const kpis = useMemo(() => {
-    const hoje = hojeISO();
-    return {
-      total: visiveis.length,
-      hoje: visiveis.filter((p) => paraInputData(p.data) === hoje).length,
-      pendentes: visiveis.filter((p) => p.status_assinatura === 'PENDENTE').length,
-      assinadas: visiveis.filter((p) => p.status_assinatura === 'ASSINADO').length,
-    };
-  }, [visiveis]);
-
   const statusDisponiveis = useMemo(() => {
     const set = new Set(partes.map((p) => p.status_aprovacao || p.status).filter(Boolean));
     return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
@@ -223,15 +212,15 @@ export default function HomePartesDiariasView({ sessao }) {
   const temFiltro = busca.trim() !== '' || filtroStatus !== 'todos' || filtroAssinatura !== 'todos' || filtroData !== '';
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3 md:space-y-5">
       {/* Cabecalho + acao rapida */}
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-2 md:gap-3">
         <div>
-          <div className="text-xs font-semibold text-omega-accent uppercase tracking-wider">Transporte</div>
-          <h1 className="mt-0.5 text-xl font-extrabold text-omega-900 tracking-tight sm:text-2xl">
+          <div className="text-[11px] md:text-xs font-semibold text-omega-accent uppercase tracking-wider">Transporte</div>
+          <h1 className="mt-0.5 text-lg md:text-2xl font-extrabold text-omega-900 tracking-tight">
             Início — Partes Diárias
           </h1>
-          <p className="mt-1 text-sm text-omega-500">
+          <p className="mt-0.5 md:mt-1 text-xs md:text-sm text-omega-500">
             {visaoTotal
               ? 'Visão geral da operação: todas as Partes Diárias cadastradas.'
               : 'Seus lançamentos: você visualiza apenas as Partes Diárias que cadastrou.'}
@@ -242,16 +231,8 @@ export default function HomePartesDiariasView({ sessao }) {
         </button>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard title="Visíveis" value={kpis.total} sub={visaoTotal ? 'Todas da operação' : 'Apenas meus lançamentos'} icon={ClipboardList} iconBg="bg-omega-900" />
-        <StatCard title="Lançadas hoje" value={kpis.hoje} sub={hojeISO().split('-').reverse().join('/')} icon={Calendar} iconBg="bg-omega-accent" />
-        <StatCard title="Pendentes assinatura" value={kpis.pendentes} sub="Aguardando Synapse" icon={AlertTriangle} iconBg="bg-status-amarelo" />
-        <StatCard title="Assinadas" value={kpis.assinadas} sub="Aprovadas" icon={CheckCircle2} iconBg="bg-status-verde" />
-      </div>
-
       {/* Filtros */}
-      <div className="card p-4 flex flex-col md:flex-row gap-3 md:items-center">
+      <div className="card p-3 md:p-4 flex flex-col md:flex-row gap-2 md:gap-3 md:items-center">
         <div className="relative flex-1 min-w-0">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-omega-400" />
           <input
@@ -261,7 +242,7 @@ export default function HomePartesDiariasView({ sessao }) {
             placeholder="Buscar TAG, placa, operador, obra..."
           />
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="input !w-auto" title="Status">
             <option value="todos">Todos os status</option>
             {statusDisponiveis.map((s) => (
@@ -630,15 +611,17 @@ export default function HomePartesDiariasView({ sessao }) {
         />
       )}
 
-      {/* FAB mobile: nova Parte Diária (desktop usa o botão do cabeçalho) */}
-      <button
-        onClick={abrirNovo}
-        title="Adicionar Parte Diária"
-        aria-label="Adicionar Parte Diária"
-        className="md:hidden fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-omega-accent text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
-      >
-        <Plus size={26} />
-      </button>
+      {/* FAB mobile: nova Parte Diária (oculto com o modal aberto) */}
+      {!formState.aberto && (
+        <button
+          onClick={abrirNovo}
+          title="Adicionar Parte Diária"
+          aria-label="Adicionar Parte Diária"
+          className="md:hidden fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-omega-accent text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+        >
+          <Plus size={26} />
+        </button>
+      )}
     </div>
   );
 }

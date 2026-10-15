@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Search, Menu, Clock, LogOut, ShieldCheck } from 'lucide-react';
 
-export default function Header({ usuario, onSair }) {
+export default function Header({ usuario, onSair, onMenu }) {
   const hoje = new Date();
   const dataFormatada = hoje.toLocaleDateString('pt-BR', {
     weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
@@ -10,7 +10,12 @@ export default function Header({ usuario, onSair }) {
 
   return (
     <header className="h-16 bg-white border-b border-omega-200 px-6 flex items-center gap-4 sticky top-0 z-20 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
-      <button className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-omega-100 text-omega-600">
+      <button
+        onClick={onMenu}
+        title="Abrir menu"
+        aria-label="Abrir menu"
+        className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-omega-100 text-omega-600"
+      >
         <Menu size={20} />
       </button>
 
