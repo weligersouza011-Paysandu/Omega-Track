@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { Home, Building2, Truck, ClipboardList, ShieldAlert, Leaf, Sprout, Users, ChevronLeft, Menu } from 'lucide-react';
+import { ehOperacional } from '../utils/permissoes.js';
 
 const SECTIONS = [
   {
@@ -60,7 +61,12 @@ function itemClasses(isActive, open, theme) {
   return [base, isActive ? t.active : t.idle, open ? 'px-3 py-2.5' : 'px-0 py-2.5 justify-center'].join(' ');
 }
 
-export default function Sidebar({ open, onToggle }) {
+export default function Sidebar({ open, onToggle, usuario }) {
+  // Perfil operacional: enxerga APENAS o Início. Todo o resto (frota,
+  // ambiental, gestão) fica oculto no menu E bloqueado nas rotas (App.jsx).
+  const secoes = ehOperacional(usuario)
+    ? [{ titulo: 'Principal', theme: 'base', itens: [{ to: '/inicio', label: 'Início', icon: Home, exact: true }] }]
+    : SECTIONS;
   return (
     <aside
       className={
@@ -90,7 +96,7 @@ export default function Sidebar({ open, onToggle }) {
       </div>
 
       <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-        {SECTIONS.map((sec) => (
+        {secoes.map((sec) => (
           <div key={sec.titulo}>
             {open ? (
               <div className={'pb-1 px-3 text-[10px] font-bold uppercase tracking-widest ' + THEMES[sec.theme].header}>

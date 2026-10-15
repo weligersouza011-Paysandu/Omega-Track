@@ -329,7 +329,75 @@ export default function HomePartesDiariasView({ sessao }) {
               : <button onClick={abrirNovo} className="btn-primary !py-2 text-xs inline-flex items-center gap-1.5"><Plus size={14} /> Adicionar Parte Diária</button>}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Cards mobile (sm): Data + Status / TAG-Placa + KM / ações rápidas */}
+          <div className="md:hidden divide-y divide-omega-100">
+            {visiveis.map((p) => {
+              const placa = p.veiculo?.placa || placaPorTag.get(normalizar(p.tag)) || '—';
+              const kmI = p.km_inicial ?? p.kmInicial ?? null;
+              const kmF = p.km_final ?? p.kmFinal ?? null;
+              const editavel = podeEditar(p);
+              return (
+                <div key={p.id} className="px-4 py-3 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-omega-900 tabular-nums text-sm">{formatarData(p.data)}</span>
+                    <BadgeStatus status={p.status_aprovacao || p.status} />
+                  </div>
+                  {p.possui_pendencia && (
+                    <span className="inline-block chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25" title="Checklist sem foto ou atividade pendente">
+                      Pendente
+                    </span>
+                  )}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-omega-900 text-sm truncate">{p.tag}</div>
+                      <div className="text-xs text-omega-500 font-mono">{placa}</div>
+                    </div>
+                    <div className="text-right shrink-0 tabular-nums">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-omega-400">KM Ini / Fim</div>
+                      <div className="text-xs text-omega-700 font-semibold">
+                        {kmI == null && kmF == null ? '—' : `${kmI ?? '—'} / ${kmF ?? '—'}`}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 pt-2 border-t border-omega-100">
+                    <button
+                      onClick={() => abrirRelatorio(p)}
+                      disabled={carregandoRelatorioId === p.id}
+                      title="Relatório / PDF"
+                      aria-label="Relatório / PDF"
+                      className="p-2 rounded-md hover:bg-omega-100 text-omega-600 hover:text-omega-accent disabled:opacity-50 transition-colors"
+                    >
+                      {carregandoRelatorioId === p.id ? (
+                        <Loader2 size={17} className="animate-spin text-omega-accent" />
+                      ) : (
+                        <FileText size={17} />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setDetalhe(p)}
+                      title="Visualizar"
+                      aria-label="Visualizar"
+                      className="p-2 rounded-md hover:bg-omega-100 text-omega-600 hover:text-omega-900 transition-colors"
+                    >
+                      <Eye size={17} />
+                    </button>
+                    <button
+                      onClick={() => editavel && abrirEdicao(p)}
+                      disabled={!editavel}
+                      title={editavel ? 'Editar' : 'Somente o autor ou ADM pode editar'}
+                      aria-label="Editar"
+                      className="p-2 rounded-md hover:bg-omega-100 text-omega-600 hover:text-omega-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Pencil size={17} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Tabela desktop (inalterada) */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full text-sm min-w-[960px]">
               <thead className="bg-omega-50/70">
                 <tr className="text-left text-[11px] uppercase tracking-wider text-omega-500 font-bold border-b border-omega-100">
@@ -419,6 +487,7 @@ export default function HomePartesDiariasView({ sessao }) {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
@@ -560,6 +629,16 @@ export default function HomePartesDiariasView({ sessao }) {
           onFechar={() => setRelatorioPreview(null)}
         />
       )}
+
+      {/* FAB mobile: nova Parte Diária (desktop usa o botão do cabeçalho) */}
+      <button
+        onClick={abrirNovo}
+        title="Adicionar Parte Diária"
+        aria-label="Adicionar Parte Diária"
+        className="md:hidden fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-omega-accent text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+      >
+        <Plus size={26} />
+      </button>
     </div>
   );
 }

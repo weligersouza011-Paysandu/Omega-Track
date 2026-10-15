@@ -45,18 +45,33 @@ const DIAS_PT = [
   'Quinta-Feira','Sexta-Feira','Sábado',
 ];
 
-function diaSemanaDe(iso) {
-  if (!iso) return '—';
-  const d = new Date(`${iso}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return '—';
-  return DIAS_PT[d.getDay()];
+// Aceita 'yyyy-mm-dd', datetime ISO completo (ex.: '2026-10-13T03:00:00.000Z')
+// e 'dd/mm/yyyy' — o campo `data` chega em formatos variados (form/API/banco).
+function parseDataRelatorio(valor) {
+  if (!valor) return null;
+  const s = String(valor).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const d = new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00`);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (m) {
+    const d = new Date(`${m[3]}-${m[2]}-${m[1]}T12:00:00`);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function formatarDataBR(iso) {
-  if (!iso) return '—';
-  const d = new Date(`${iso}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('pt-BR');
+function diaSemanaDe(valor) {
+  const d = parseDataRelatorio(valor);
+  return d ? DIAS_PT[d.getDay()] : '—';
+}
+
+function formatarDataBR(valor) {
+  const d = parseDataRelatorio(valor);
+  return d ? d.toLocaleDateString('pt-BR') : '—';
 }
 
 function formatarDataHora(valor) {
@@ -114,7 +129,7 @@ function badgeStyle(statusKey) {
     'Aprovado':                  { bg: '#dcfce7', color: '#166534', border: '#86efac' },
     'Revisado pelo Transporte':  { bg: '#fee2e2', color: '#991b1b', border: '#fca5a5' },
     'Finalizado pelo Operador':  { bg: '#fef3c7', color: '#92400e', border: '#fcd34d' },
-    'Em Preenchimento':          { bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' },
+    'Em Preenchimento':          { bg: '#f1f5f9', color: '#0f172a', border: '#cbd5e1' },
   };
   return map[statusKey] || map['Em Preenchimento'];
 }
@@ -125,17 +140,20 @@ function badgeAtivStyle(status) {
     'Em Andamento': { bg: '#dbeafe', color: '#1e40af' },
     'Concluído':    { bg: '#dcfce7', color: '#166534' },
   };
-  return map[status] || { bg: '#f1f5f9', color: '#475569' };
+  return map[status] || { bg: '#f1f5f9', color: '#0f172a' };
 }
 
 // ─── Micro-componentes de tabela ──────────────────────────────────────────────
-// Células padronizadas p/ PDF legível: padding 6px 10px, bordas suaves,
-// box-sizing global, table-layout fixo com larguras em % por coluna.
+// Células padronizadas p/ PDF legível: padding 4px 8px (conteúdo cabe na
+// página), bordas definidas, box-sizing global, table-layout fixo com
+// larguras em % por coluna. Textos 13px em alto contraste (#0f172a);
+// rótulos 12px (#0f172a) com font-weight 600.
 const BASE_CELL = {
-  fontSize: 10,
-  lineHeight: 1.45,
-  padding: '6px 10px',
-  border: '1px solid #e2e8f0',
+  fontSize: 13,
+  lineHeight: 1.5,
+  padding: '4px 8px',
+  border: '1px solid #cbd5e1',
+  color: '#0f172a',
   verticalAlign: 'middle',
   boxSizing: 'border-box',
   overflowWrap: 'break-word',
@@ -147,7 +165,9 @@ function ThCell({ children, style }) {
     <th style={{
       ...BASE_CELL,
       background: '#f1f5f9',
-      fontWeight: 700,
+      fontWeight: 600,
+      fontSize: 12,
+      color: '#0f172a',
       textAlign: 'left',
       whiteSpace: 'nowrap',
       ...style,
@@ -172,6 +192,8 @@ function SectionHeader({ title, count }) {
         ...BASE_CELL,
         background: '#f1f5f9',
         fontWeight: 700,
+        fontSize: 13,
+        color: '#0f172a',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
@@ -186,7 +208,7 @@ function SectionHeader({ title, count }) {
 function EmptyRow({ cols, text }) {
   return (
     <tr>
-      <TdCell colSpan={cols} style={{ textAlign: 'center', color: '#94a3b8', fontStyle: 'italic', whiteSpace: 'nowrap' }}>
+      <TdCell colSpan={cols} style={{ textAlign: 'center', color: '#0f172a', fontStyle: 'italic', fontSize: 12, whiteSpace: 'nowrap' }}>
         {text}
       </TdCell>
     </tr>
@@ -198,14 +220,14 @@ const TAB = {
   width: '100%',
   borderCollapse: 'collapse',
   tableLayout: 'fixed',
-  fontSize: 10,
+  fontSize: 13,
   boxSizing: 'border-box',
 };
-const OUTER = { border: '1px solid #e2e8f0', marginBottom: 8, boxSizing: 'border-box' };
+const OUTER = { border: '1px solid #cbd5e1', marginBottom: 8, boxSizing: 'border-box' };
 
 // Larguras proporcionais explícitas (somam 100%) — evitam sobreposição.
 const COLS_MAO_OBRA = ['24%', '46%', '30%'];          // Matrícula | Nome | Função
-const COLS_EQUIP    = ['22%', '38%', '13%', '13%', '14%']; // TAG | Descrição | Hor.Ini | Hor.Fim | Status
+const COLS_EQUIP    = ['20%', '60%', '20%'];          // TAG | Descrição | Status
 
 function ColGroup({ widths }) {
   return (
@@ -222,6 +244,7 @@ function ColGroup({ widths }) {
 // ═════════════════════════════════════════════════════════════════════════════
 export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
   const printRef = useRef(null);
+  const overlayRef = useRef(null);
   const [gerandoPdf, setGerandoPdf] = useState(false);
 
   if (!relatorio) return null;
@@ -256,11 +279,17 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
     assinaturas   = [],
   } = relatorio;
 
-  // ── Download direto em PDF via html2pdf.js ──────────────────────────────────
+  // ── Download direto em PDF via html2pdf.js (alta resolução / sem corte) ───
   const baixarPdf = async () => {
     if (!printRef.current || gerandoPdf) return;
     setGerandoPdf(true);
     try {
+      // Zera o scroll do modal/overlay e da janela ANTES de capturar:
+      // o html2canvas captura com offset de scroll e cortava o cabeçalho.
+      if (overlayRef.current) overlayRef.current.scrollTop = 0;
+      window.scrollTo(0, 0);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
       const html2pdfModule = await import('html2pdf.js');
       const html2pdf = html2pdfModule.default || html2pdfModule;
 
@@ -270,20 +299,25 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
       const nomeArquivo = `Parte_Diaria_${tagLimpa}_${dataLimpa}.pdf`;
 
       const opt = {
-        margin: [6, 6, 8, 6],
+        margin: [8, 8, 8, 8],
         filename: nomeArquivo,
-        image: { type: 'jpeg', quality: 0.98 },
+        // PNG: sem artefatos de compressão em textos/tabelas (JPEG borrava).
+        image: { type: 'png' },
         html2canvas: {
-          scale: 2,
-          useCORS: true,
+          scale: 3, // High-DPI (~300 DPI) — texto nítido, sem pixelado
+          useCORS: true, // logo/imagens carregam corretamente
+          scrollY: 0, // ignora deslocamento vertical do scroll
+          scrollX: 0,
+          windowWidth: 1200, // viewport fixo e amplo na captura
+          dpi: 300,
           letterRendering: true,
           logging: false,
-          scrollY: 0,
         },
         jsPDF: {
           unit: 'mm',
           format: 'a4',
           orientation: 'portrait',
+          compress: true,
         },
         pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
       };
@@ -323,9 +357,12 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
 
         #omega-pd-print {
           font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
-          color: #1e293b;
-          font-size: 10px;
-          line-height: 1.45;
+          color: #0f172a;
+          font-size: 13px;
+          line-height: 1.5;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
         }
@@ -339,16 +376,19 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
         }
         #omega-pd-print th,
         #omega-pd-print td {
-          padding: 6px 10px;
-          border: 1px solid #e2e8f0;
-          font-size: 10px;
-          line-height: 1.45;
+          padding: 4px 8px;
+          border: 1px solid #cbd5e1;
+          font-size: 13px;
+          line-height: 1.5;
+          color: #0f172a;
           overflow-wrap: break-word;
           word-wrap: break-word;
         }
         #omega-pd-print th {
           background: #f1f5f9;
           font-weight: 700;
+          font-size: 12px;
+          color: #0f172a;
           white-space: nowrap;
         }
         #omega-pd-print tr { break-inside: avoid; }
@@ -374,9 +414,9 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
           }
           #omega-pd-print th,
           #omega-pd-print td {
-            padding: 6px 10px !important;
-            border: 1px solid #e2e8f0 !important;
-            font-size: 10px !important;
+            padding: 4px 8px !important;
+            border: 1px solid #cbd5e1 !important;
+            font-size: 13px !important;
           }
           .omega-no-print { display: none !important; }
           @page {
@@ -387,7 +427,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
       `}</style>
 
       {/* ── Overlay backdrop ─────────────────────────────────────────────── */}
-      <div style={{
+      <div ref={overlayRef} style={{
         position: 'fixed', inset: 0, zIndex: 9000,
         background: 'rgba(15,23,42,0.72)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
@@ -463,9 +503,10 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
           id="omega-pd-print"
           ref={printRef}
           style={{
-            width: 794, minHeight: 1123,
+            width: '100%', maxWidth: 794, minHeight: 1123,
+            margin: '0 auto',
             background: '#fff',
-            padding: '16px 20px',
+            padding: '20px',
             boxSizing: 'border-box',
             boxShadow: '0 12px 50px rgba(0,0,0,0.5)',
             borderRadius: 5,
@@ -479,11 +520,11 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
             alignItems: 'center', marginBottom: 8, gap: 12,
             boxSizing: 'border-box',
           }}>
-            <span style={{ fontSize: 10, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              Parte Diária <strong>{dataFormatada}</strong> n° <strong>{numRelatorio}</strong>
+            <span style={{ fontSize: 12, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              Parte Diária <strong style={{ color: '#0f172a' }}>{dataFormatada}</strong> n° <strong style={{ color: '#0f172a' }}>{numRelatorio}</strong>
             </span>
             <span style={{
-              fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0,
+              fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0,
               padding: '3px 14px', borderRadius: 5,
               background: badgeSt.bg, color: badgeSt.color,
               border: `1px solid ${badgeSt.border}`,
@@ -500,35 +541,33 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
             </colgroup>
             <tbody>
               <tr>
-                {/* Coluna logo + título */}
+                {/* Coluna logo oficial + título */}
                 <td style={{
-                  width: '54%', border: '1px solid #e2e8f0',
+                  width: '54%', border: '1px solid #cbd5e1',
                   padding: '12px 16px', textAlign: 'center', verticalAlign: 'middle',
                   boxSizing: 'border-box',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-                    <img
-                      src="/logo/01.png"
-                      alt="Omega Service"
-                      style={{ height: 52, objectFit: 'contain' }}
-                      onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }}
-                    />
-                    <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontWeight: 900, fontSize: 15, letterSpacing: 1, color: '#1e293b' }}>
-                        OMEGA
-                      </div>
-                      <div style={{ fontSize: 9, color: '#64748b', letterSpacing: 2, fontWeight: 600 }}>
-                        SERVICE
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ fontWeight: 700, fontSize: 12, color: '#1e293b', marginTop: 8 }}>
+                  <img
+                    src="/logo/0.png"
+                    alt="Omega Service"
+                    style={{ maxHeight: 80, width: 'auto', objectFit: 'contain', margin: '0 auto', display: 'block' }}
+                    onError={(e) => {
+                      if (!e.target.dataset.fb) {
+                        e.target.dataset.fb = '1';
+                        e.target.src = '/logo/01.png';
+                      } else {
+                        e.target.onerror = null;
+                        e.target.style.display = 'none';
+                      }
+                    }}
+                  />
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a', marginTop: 8, textAlign: 'center' }}>
                     Parte Diária
                   </div>
                 </td>
 
                 {/* Coluna metadados — Relatório nº / Data / Dia / Status operacional / Contrato */}
-                <td style={{ width: '46%', border: '1px solid #e2e8f0', padding: 0, verticalAlign: 'top', boxSizing: 'border-box' }}>
+                <td style={{ width: '46%', border: '1px solid #cbd5e1', padding: 0, verticalAlign: 'top', boxSizing: 'border-box' }}>
                   <table style={TAB}>
                     <colgroup>
                       <col style={{ width: '50%' }} />
@@ -586,7 +625,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
               <SectionHeader title="Horário de trabalho" />
               <tr>
                 {/* Esquerda: jornada + intervalo */}
-                <td style={{ width: '68%', padding: 0, border: '1px solid #e2e8f0', verticalAlign: 'top', boxSizing: 'border-box' }}>
+                <td style={{ width: '68%', padding: 0, border: '1px solid #cbd5e1', verticalAlign: 'top', boxSizing: 'border-box' }}>
                   <table style={TAB}>
                     <colgroup>
                       <col style={{ width: '42%' }} />
@@ -606,7 +645,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                 </td>
                 {/* Direita: total em destaque — etiqueta separada do valor */}
                 <td style={{
-                  width: '32%', border: '1px solid #e2e8f0',
+                  width: '32%', border: '1px solid #cbd5e1',
                   textAlign: 'center', verticalAlign: 'middle',
                   padding: '10px 12px', boxSizing: 'border-box',
                 }}>
@@ -616,7 +655,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                     gap: 6, minHeight: 62, boxSizing: 'border-box',
                   }}>
                     <div style={{
-                      fontSize: 9, fontWeight: 700, color: '#64748b',
+                      fontSize: 11, fontWeight: 700, color: '#0f172a',
                       textTransform: 'uppercase', letterSpacing: 0.5,
                       lineHeight: 1.2, whiteSpace: 'nowrap',
                       margin: 0, padding: 0,
@@ -624,7 +663,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                       Horas trabalhadas
                     </div>
                     <div style={{
-                      fontSize: 26, fontWeight: 900, color: '#1e293b',
+                      fontSize: 26, fontWeight: 900, color: '#0f172a',
                       fontVariantNumeric: 'tabular-nums', letterSpacing: 1,
                       lineHeight: 1, whiteSpace: 'nowrap',
                       marginTop: 4, paddingTop: 2,
@@ -657,7 +696,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                       <TdCell style={{ whiteSpace: 'normal' }}>
                         {m.nome || '—'}
                         {m.observacao ? (
-                          <span style={{ display: 'block', fontSize: 9, color: '#64748b', marginTop: 2 }}>
+                          <span style={{ display: 'block', fontSize: 11, color: '#0f172a', marginTop: 2 }}>
                             {m.observacao}
                           </span>
                         ) : null}
@@ -675,22 +714,18 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
             <tbody>
               <SectionHeader title="Equipamentos" count={equipamentosView.length} />
               <tr>
-                <ThCell style={{ width: '22%', whiteSpace: 'nowrap' }}>TAG</ThCell>
-                <ThCell style={{ width: '38%', whiteSpace: 'nowrap' }}>Descrição</ThCell>
-                <ThCell style={{ width: '13%', whiteSpace: 'nowrap', textAlign: 'center' }}>Hor. Inicial</ThCell>
-                <ThCell style={{ width: '13%', whiteSpace: 'nowrap', textAlign: 'center' }}>Hor. Final</ThCell>
-                <ThCell style={{ width: '14%', whiteSpace: 'nowrap' }}>Status</ThCell>
+                <ThCell style={{ width: '20%', whiteSpace: 'nowrap' }}>TAG</ThCell>
+                <ThCell style={{ width: '60%', whiteSpace: 'nowrap' }}>Descrição</ThCell>
+                <ThCell style={{ width: '20%', whiteSpace: 'nowrap' }}>Status</ThCell>
               </tr>
               {equipamentosView.length === 0
-                ? <EmptyRow cols={5} text="Nenhum veículo/equipamento lançado." />
+                ? <EmptyRow cols={3} text="Nenhum veículo/equipamento lançado." />
                 : equipamentosView.map((e, i) => (
                     <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#fafcff' }}>
                       <TdCell style={{ fontWeight: 700, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                         {e.tag_patrimonio || '—'}
                       </TdCell>
                       <TdCell style={{ whiteSpace: 'normal' }}>{e.descricao || '—'}</TdCell>
-                      <TdCell style={{ textAlign: 'center', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{e.horimetro_inicial || '—'}</TdCell>
-                      <TdCell style={{ textAlign: 'center', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{e.horimetro_final || '—'}</TdCell>
                       <TdCell style={{ whiteSpace: 'nowrap' }}>{e.status || '—'}</TdCell>
                     </tr>
                   ))
@@ -734,8 +769,8 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                         <TdCell style={{ lineHeight: 1.55, whiteSpace: 'normal', width: '82%' }}>{a.descricao || '—'}</TdCell>
                         <TdCell style={{
                           width: '18%', textAlign: 'right', fontWeight: 700,
-                          fontSize: 9, color: ast.color, background: ast.bg,
-                          whiteSpace: 'nowrap', borderLeft: '2px solid #e2e8f0',
+                          fontSize: 11, color: ast.color, background: ast.bg,
+                          whiteSpace: 'nowrap', borderLeft: '2px solid #cbd5e1',
                         }}>
                           {a.status || '—'}
                         </TdCell>
@@ -786,7 +821,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                           {c.item || '—'}
                         </TdCell>
                         <TdCell style={{
-                          width: '28%', textAlign: 'right', fontWeight: 700, fontSize: 9,
+                          width: '28%', textAlign: 'right', fontWeight: 700, fontSize: 11,
                           whiteSpace: 'nowrap',
                           color: anexada ? '#166534' : '#92400e',
                           background: anexada ? '#dcfce7' : '#fef3c7',
@@ -799,7 +834,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
               }
               {checklist.some((c) => c.foto_url) && (
                 <tr>
-                  <TdCell colSpan={2} style={{ textAlign: 'center', padding: '6px 10px' }}>
+                  <TdCell colSpan={2} style={{ textAlign: 'center', padding: '4px 8px' }}>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center', boxSizing: 'border-box' }}>
                       {checklist.filter((c) => c.foto_url).map((c, i) => (
                         <div key={i} style={{ textAlign: 'center', boxSizing: 'border-box' }}>
@@ -808,10 +843,10 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                             alt={`Comprovação — ${c.item}`}
                             style={{
                               width: 210, height: 158, objectFit: 'cover',
-                              borderRadius: 4, border: '1px solid #e2e8f0', display: 'block',
+                              borderRadius: 4, border: '1px solid #cbd5e1', display: 'block',
                             }}
                           />
-                          <div style={{ fontSize: 9, color: '#64748b', marginTop: 3, maxWidth: 210 }}>
+                          <div style={{ fontSize: 10, color: '#0f172a', marginTop: 3, maxWidth: 210 }}>
                             {c.item}
                           </div>
                         </div>
@@ -829,7 +864,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
               <tbody>
                 <SectionHeader title="Fotos" count={fotos.length} />
                 <tr>
-                  <td style={{ ...BASE_CELL, padding: '6px 10px' }}>
+                  <td style={{ ...BASE_CELL, padding: '4px 8px' }}>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, boxSizing: 'border-box' }}>
                       {fotos.map((foto, i) => (
                         <div key={i} style={{ textAlign: 'center', boxSizing: 'border-box' }}>
@@ -838,11 +873,11 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                             alt={foto.legenda || `Foto ${i + 1}`}
                             style={{
                               width: 210, height: 158, objectFit: 'cover',
-                              borderRadius: 4, border: '1px solid #e2e8f0', display: 'block',
+                              borderRadius: 4, border: '1px solid #cbd5e1', display: 'block',
                             }}
                           />
                           {foto.legenda && (
-                            <div style={{ fontSize: 9, color: '#64748b', marginTop: 3, maxWidth: 210 }}>
+                            <div style={{ fontSize: 10, color: '#0f172a', marginTop: 3, maxWidth: 210 }}>
                               {foto.legenda}
                             </div>
                           )}
@@ -855,37 +890,63 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
             </table>
           )}
 
-          {/* ── Assinaturas (só se existirem — fluxo Operador/Transporte/Planejador) */}
+          {/* ── Assinaturas (só se existirem — fluxo Operador/Transporte/Planejador)
+              Grid flexível: cada bloco tem área própria, imagem ou espaço limpo,
+              linha superior e textos centralizados sem sobreposição. */}
           {assinaturas.length > 0 && (
             <table style={{ ...TAB, ...OUTER }}>
               <tbody>
                 <SectionHeader title="Assinaturas" count={assinaturas.length} />
                 <tr>
-                  {assinaturas.map((a, i) => {
-                    const imgSrc = a.assinatura_dado || a.assinatura_url || null;
-                    return (
-                      <TdCell key={i} style={{ textAlign: 'center', verticalAlign: 'bottom', padding: '12px 16px', whiteSpace: 'normal' }}>
-                        {imgSrc && (
-                          <img
-                            src={imgSrc}
-                            alt={`Assinatura ${a.etapa}`}
-                            style={{ height: 64, maxWidth: '100%', objectFit: 'contain', marginBottom: 6 }}
-                          />
-                        )}
-                        <div style={{ borderTop: '1px solid #334155', paddingTop: 4, marginTop: 4 }}>
-                          <div style={{ fontWeight: 700, fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.nome || '—'}</div>
-                          <div style={{ fontSize: 8, color: '#64748b', marginTop: 1, whiteSpace: 'nowrap' }}>
-                            {a.etapa}{a.matricula ? ` — ${a.matricula}` : ''}
-                          </div>
-                          {a.assinado_em && (
-                            <div style={{ fontSize: 8, color: '#94a3b8', marginTop: 1, whiteSpace: 'nowrap' }}>
-                              {formatarDataHora(a.assinado_em)}
+                  <TdCell colSpan={99} style={{ padding: '10px 12px' }}>
+                    <div style={{
+                      display: 'flex', flexWrap: 'wrap', width: '100%',
+                      justifyContent: 'space-around', alignItems: 'flex-start',
+                      gap: 24, boxSizing: 'border-box',
+                    }}>
+                      {assinaturas.map((a, i) => {
+                        const imgSrc = a.assinatura_dado || a.assinatura_url || null;
+                        return (
+                          <div key={i} style={{
+                            flex: '1 1 200px', minWidth: 200, maxWidth: 240,
+                            textAlign: 'center', boxSizing: 'border-box',
+                          }}>
+                            <div style={{
+                              height: 72, display: 'flex',
+                              alignItems: 'flex-end', justifyContent: 'center',
+                            }}>
+                              {imgSrc && (
+                                <img
+                                  src={imgSrc}
+                                  alt={`Assinatura ${a.etapa}`}
+                                  style={{ maxHeight: 72, maxWidth: '100%', width: 'auto', objectFit: 'contain', display: 'block' }}
+                                />
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </TdCell>
-                    );
-                  })}
+                            <div style={{
+                              borderTop: '1px solid #334155',
+                              paddingTop: 10, marginTop: 10,
+                            }}>
+                              <div style={{
+                                fontWeight: 600, fontSize: 13, color: '#0f172a',
+                                lineHeight: 1.4, overflowWrap: 'break-word', wordWrap: 'break-word',
+                              }}>
+                                {a.nome || '—'}
+                              </div>
+                              <div style={{ fontSize: 11, color: '#0f172a', marginTop: 4, lineHeight: 1.5 }}>
+                                {a.etapa}{a.matricula ? ` — ${a.matricula}` : ''}
+                              </div>
+                              {a.assinado_em && (
+                                <div style={{ fontSize: 11, color: '#0f172a', marginTop: 4, lineHeight: 1.5 }}>
+                                  {formatarDataHora(a.assinado_em)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </TdCell>
                 </tr>
               </tbody>
             </table>
@@ -893,17 +954,11 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
 
           {/* ── Rodapé ──────────────────────────────────────────────── */}
           <div style={{
-            marginTop: 10, borderTop: '1px solid #e2e8f0', paddingTop: 6,
-            display: 'flex', justifyContent: 'space-between', gap: 12,
-            fontSize: 8, color: '#94a3b8', boxSizing: 'border-box',
+            marginTop: 10, borderTop: '1px solid #cbd5e1', paddingTop: 8,
+            textAlign: 'center',
+            fontSize: 10, color: '#0f172a', boxSizing: 'border-box',
           }}>
-            <span style={{ whiteSpace: 'nowrap' }}>Omega Track — Omega Service Gestão de Transporte</span>
-            <span style={{ whiteSpace: 'nowrap' }}>
-              Gerado em {new Date().toLocaleString('pt-BR', {
-                day: '2-digit', month: '2-digit', year: 'numeric',
-                hour: '2-digit', minute: '2-digit',
-              })}
-            </span>
+            Omega Track — Omega Service Gestão de Transporte
           </div>
 
         </div>

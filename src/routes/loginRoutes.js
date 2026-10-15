@@ -1,13 +1,15 @@
 // ============================================================================
-// src/routes/loginRoutes.js — POST /api/login | GET /api/login/eu |
-// POST /api/login/senha (troca a propria senha, requer Bearer).
+// src/routes/loginRoutes.js — POST /api/login | POST /api/login/verificar |
+// GET /api/login/eu | POST /api/login/senha (troca a propria senha, requer
+// Bearer) | POST /api/login/assinatura.
 // ============================================================================
 import { Router } from 'express';
-import { login, eu, trocarSenha, salvarMinhaAssinatura } from '../controllers/authController.js';
+import { login, verificarPerfil, eu, trocarSenha, salvarMinhaAssinatura } from '../controllers/authController.js';
 
 const router = Router();
 
 router.post('/', login);
+router.post('/verificar', verificarPerfil);
 router.get('/eu', ...eu);
 router.post('/senha', ...trocarSenha);
 router.post('/assinatura', ...salvarMinhaAssinatura);

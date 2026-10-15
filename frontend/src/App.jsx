@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './layouts/AppLayout.jsx';
 import HomePartesDiariasView from './views/HomePartesDiariasView.jsx';
 import ObrasView from './views/ObrasView.jsx';
@@ -15,6 +15,14 @@ import UsuariosView from './views/UsuariosView.jsx';
 import PerfilView from './views/PerfilView.jsx';
 import LoginView from './views/LoginView.jsx';
 import { lerSessao, encerrarSessao } from './utils/sessao.js';
+import { ehOperacional } from './utils/permissoes.js';
+
+// Guarda de rota: perfil OPERACIONAL só acessa o Início (/ e /inicio).
+// Qualquer URL direta restrita redireciona para /inicio.
+function RestritoAdmin({ children, operacional }) {
+  if (operacional) return <Navigate to="/inicio" replace />;
+  return children;
+}
 
 export default function App() {
   const [sessao, setSessao] = useState(() => lerSessao());
@@ -28,22 +36,24 @@ export default function App() {
     setSessao(null);
   };
 
+  const operacional = ehOperacional(sessao?.usuario);
+
   return (
     <Routes>
       <Route path="/" element={<AppLayout sessao={sessao} onSair={sair} />}>
         <Route index element={<HomePartesDiariasView sessao={sessao} />} />
         <Route path="inicio" element={<HomePartesDiariasView sessao={sessao} />} />
-        <Route path="obras" element={<ObrasView sessao={sessao} />} />
-        <Route path="visao-geral" element={<DashboardView />} />
-        <Route path="executivo" element={<DashboardExecutivoView />} />
-        <Route path="frota" element={<MobDesmobView />} />
-        <Route path="farol-documentos" element={<FarolDocumentosView />} />
-        <Route path="pendencias-parte-diaria" element={<PendenciasParteDiariaView />} />
-        <Route path="telemetria" element={<TelemetriaView />} />
-        <Route path="controle-ambiental" element={<ControleAmbientalView />} />
-        <Route path="ecogestao" element={<EcoGestaoView />} />
-        <Route path="usuarios" element={<UsuariosView sessao={sessao} />} />
-        <Route path="perfil" element={<PerfilView sessao={sessao} />} />
+        <Route path="obras" element={<RestritoAdmin operacional={operacional}><ObrasView sessao={sessao} /></RestritoAdmin>} />
+        <Route path="visao-geral" element={<RestritoAdmin operacional={operacional}><DashboardView /></RestritoAdmin>} />
+        <Route path="executivo" element={<RestritoAdmin operacional={operacional}><DashboardExecutivoView /></RestritoAdmin>} />
+        <Route path="frota" element={<RestritoAdmin operacional={operacional}><MobDesmobView /></RestritoAdmin>} />
+        <Route path="farol-documentos" element={<RestritoAdmin operacional={operacional}><FarolDocumentosView /></RestritoAdmin>} />
+        <Route path="pendencias-parte-diaria" element={<RestritoAdmin operacional={operacional}><PendenciasParteDiariaView /></RestritoAdmin>} />
+        <Route path="telemetria" element={<RestritoAdmin operacional={operacional}><TelemetriaView /></RestritoAdmin>} />
+        <Route path="controle-ambiental" element={<RestritoAdmin operacional={operacional}><ControleAmbientalView /></RestritoAdmin>} />
+        <Route path="ecogestao" element={<RestritoAdmin operacional={operacional}><EcoGestaoView /></RestritoAdmin>} />
+        <Route path="usuarios" element={<RestritoAdmin operacional={operacional}><UsuariosView sessao={sessao} /></RestritoAdmin>} />
+        <Route path="perfil" element={<RestritoAdmin operacional={operacional}><PerfilView sessao={sessao} /></RestritoAdmin>} />
       </Route>
     </Routes>
   );

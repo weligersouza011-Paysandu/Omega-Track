@@ -25,14 +25,30 @@ export function encerrarSessao() {
 }
 
 export async function fazerLogin(matricula, senha) {
+  const corpo = { matricula };
+  // Operacional autentica só com a matrícula (senha opcional/ignorada).
+  if (senha) corpo.senha = senha;
   const resp = await fetch('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ matricula, senha }),
+    body: JSON.stringify(corpo),
+  });
+  const dados = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(dados.message || `Falha no login (${resp.status})`);
+  salvarSessao(dados.data.token, dados.data.usuario);
+  return dados.data;
+}
+
+// Etapa 1 do login dinâmico: checa o perfil da matrícula no banco.
+// Retorna { cadastrada, exigeSenha, nome, tipo } ou lança o erro legível.
+export async function verificarMatricula(matricula) {
+  const resp = await fetch('/api/login/verificar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ matricula }),
   });
   const corpo = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(corpo.message || `Falha no login (${resp.status})`);
-  salvarSessao(corpo.data.token, corpo.data.usuario);
+  if (!resp.ok) throw new Error(corpo.message || 'Matrícula não cadastrada no sistema.');
   return corpo.data;
 }
 

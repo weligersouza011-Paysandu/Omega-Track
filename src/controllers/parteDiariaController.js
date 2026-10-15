@@ -1,7 +1,7 @@
 import prisma from '../config/database.js';
-import jwt from 'jsonwebtoken';
 import config from '../config/index.js';
 import { asyncHandler } from '../middleware/error.js';
+import { sessaoOperacional } from '../middleware/sessao.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 
 // ============================================================================
@@ -289,31 +289,22 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
     ];
   }
 
-  // Escopo por papel (defesa em profundidade — o frontend tambem filtra):
-  // se a sessao JWT for de um usuario OPERACIONAL, restringe aos proprios
-  // lancamentos (operador = matricula ou funcionario contem o nome).
-  // Hoje o login emite token apenas para ADMINISTRADOR (visao total),
-  // entao este bloco e no-op ate o login operacional existir.
-  try {
-    const auth = req.headers.authorization || '';
-    if (auth.startsWith('Bearer ')) {
-      const sessao = jwt.verify(auth.slice(7).trim(), config.loginSecret);
-      if (sessao?.tipo === 'OPERACIONAL' && sessao?.matricula) {
-        where.AND = [
-          ...(where.AND || []),
-          {
-            OR: [
-              { operador: String(sessao.matricula) },
-              ...(sessao?.nome
-                ? [{ funcionario: { contains: String(sessao.nome), mode: 'insensitive' } }]
-                : []),
-            ],
-          },
-        ];
-      }
-    }
-  } catch {
-    /* token ausente/invalido: segue sem escopo adicional */
+  // Escopo por papel (defesa em profundidade — o frontend também filtra):
+  // sessão JWT de OPERACIONAL restringe aos próprios lançamentos
+  // (operador = matrícula ou funcionario contém matrícula/nome).
+  const op = sessaoOperacional(req);
+  if (op) {
+    where.AND = [
+      ...(where.AND || []),
+      {
+        OR: [
+          { operador: op.matricula },
+          ...(op.nome
+            ? [{ funcionario: { contains: op.nome, mode: 'insensitive' } }]
+            : []),
+        ],
+      },
+    ];
   }
 
   const [partes, total] = await Promise.all([
@@ -363,6 +354,21 @@ export const buscarParteDiaria = asyncHandler(async (req, res) => {
 
   if (!parte) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
+  }
+
+  // Escopo por papel: operacional só abre os próprios registros
+  // (bloqueia acesso direto via URL/ID de terceiros).
+  const op = sessaoOperacional(req);
+  if (op) {
+    const mat = op.matricula.toUpperCase();
+    const funcionario = String(parte.funcionario || '').toUpperCase();
+    const ehMeu =
+      String(parte.operador || '').toUpperCase() === mat ||
+      funcionario.includes(mat) ||
+      (op.nome && funcionario.includes(op.nome.toUpperCase()));
+    if (!ehMeu) {
+      return res.status(403).json({ error: 'Sem permissao', message: 'Você só pode visualizar suas próprias partes diárias.' });
+    }
   }
 
   // Auditoria: contabiliza visualizacao (rodapé do formulário).

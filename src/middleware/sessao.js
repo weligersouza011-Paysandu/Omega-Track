@@ -9,10 +9,26 @@ import prisma from '../config/database.js';
 
 export function assinarSessao(usuario) {
   return jwt.sign(
-    { sub: usuario.id, matricula: usuario.matricula, tipo: usuario.tipo, setor: usuario.setor, nivel: usuario.nivel },
+    { sub: usuario.id, matricula: usuario.matricula, nome: usuario.nome, tipo: usuario.tipo, setor: usuario.setor, nivel: usuario.nivel },
     config.loginSecret,
     { expiresIn: '12h' }
   );
+}
+
+// Sessão operacional extraída do JWT (para escopo de dados). Retorna
+// { matricula, nome } quando o token é de um OPERACIONAL, ou null.
+export function sessaoOperacional(req) {
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ')) return null;
+  try {
+    const sessao = jwt.verify(auth.slice(7).trim(), config.loginSecret);
+    if (sessao?.tipo === 'OPERACIONAL' && sessao?.matricula) {
+      return { matricula: String(sessao.matricula), nome: sessao.nome ? String(sessao.nome) : null };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function lerSessao(req) {
