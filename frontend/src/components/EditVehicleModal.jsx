@@ -11,7 +11,7 @@ function paraInputDate(valor) {
 }
 
 export default function EditVehicleModal({ open, veiculo, contratos = [], modelos = [], onClose, onSaved }) {
-  const [form, setForm] = useState({ placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: '', data_desmob: '' });
+  const [form, setForm] = useState({ placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: '', data_desmob: '', km_limite_preventiva: '', km_ultima_preventiva: '' });
   const [arquivo, setArquivo] = useState(null);
   const [previewNova, setPreviewNova] = useState(null);
   const [salvando, setSalvando] = useState(false);
@@ -26,6 +26,8 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
         status: veiculo.status || 'Mobilizado',
         data_mob: paraInputDate(veiculo.data_mob),
         data_desmob: paraInputDate(veiculo.data_desmob),
+        km_limite_preventiva: veiculo.km_limite_preventiva ?? 10000,
+        km_ultima_preventiva: veiculo.km_ultima_preventiva ?? '',
       });
       setArquivo(null);
       setPreviewNova(null);
@@ -90,6 +92,8 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
         status: form.status,
         data_mob: form.data_mob || undefined,
         data_desmob: form.data_desmob || null,
+        km_limite_preventiva: String(form.km_limite_preventiva ?? '').trim() === '' ? 10000 : Number(form.km_limite_preventiva),
+        km_ultima_preventiva: String(form.km_ultima_preventiva ?? '').trim() === '' ? null : Number(form.km_ultima_preventiva),
       };
       const resp = await fetch(`/api/mob-desmob/${encodeURIComponent(veiculo.tag)}`, {
         method: 'PUT',
@@ -239,6 +243,14 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
           <div>
             <label className="label">Data DESMOB</label>
             <input type="date" value={form.data_desmob} onChange={set('data_desmob')} className="input" />
+          </div>
+          <div>
+            <label className="label">Limite preventiva (km)</label>
+            <input type="number" min="1" value={form.km_limite_preventiva} onChange={set('km_limite_preventiva')} className="input tabular-nums" placeholder="10000" />
+          </div>
+          <div>
+            <label className="label">Última preventiva (km)</label>
+            <input type="number" min="0" value={form.km_ultima_preventiva} onChange={set('km_ultima_preventiva')} className="input tabular-nums" placeholder="Sem registro" />
           </div>
         </div>
       </div>

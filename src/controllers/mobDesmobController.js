@@ -1,5 +1,11 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import {
+  parseKm,
+  obterUltimaKmFinal,
+  calcularStatusManutencao,
+  KM_LIMITE_PREVENTIVA_PADRAO,
+} from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
 
 export const listarVeiculos = asyncHandler(async (req, res) => {
@@ -70,6 +76,105 @@ export const buscarVeiculoPorPlaca = asyncHandler(async (req, res) => {
   res.json({ data: veiculo });
 });
 
+export const buscarStatusManutencao = asyncHandler(async (req, res) => {
+  // GET /api/mob-desmob/:tag/status-manutencao?km_atual=&ignorar_parte_id=
+  // Diagnóstico da preventiva. `km_atual` projeta a leitura (ex: KM Final
+  // digitada no formulário); sem ele, usa a última KM Final registrada.
+  const tagParam = String(req.params.tag || '').trim();
+  let veiculo = await prisma.mobDesmob.findUnique({ where: { tag: tagParam } });
+  if (!veiculo && tagParam) {
+    veiculo = await prisma.mobDesmob.findUnique({ where: { tag: tagParam.toUpperCase() } });
+  }
+  if (!veiculo) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
+  }
+  const tag = veiculo.tag;
+  const ignorarId = req.query.ignorar_parte_id || req.query.ignorar_id || null;
+  const projetada = parseKm(req.query.km_atual);
+  let kmAtual = projetada;
+  let ultimaParte = null;
+  if (kmAtual === null) {
+    ultimaParte = await obterUltimaKmFinal(tag.toUpperCase(), ignorarId);
+    kmAtual = ultimaParte.ultima_km_final;
+  }
+  const diagnostico = calcularStatusManutencao({
+    kmAtual,
+    kmUltimaPreventiva: veiculo.km_ultima_preventiva,
+    kmLimite: veiculo.km_limite_preventiva,
+  });
+  res.json({
+    data: {
+      tag,
+      km_atual: kmAtual,
+      km_ultima_preventiva: veiculo.km_ultima_preventiva,
+      km_projetada: projetada,
+      ultima_parte: ultimaParte,
+      ...diagnostico,
+    },
+  });
+});
+
+export const registrarPreventiva = asyncHandler(async (req, res) => {
+  // POST /api/mob-desmob/:tag/preventiva { km? }
+  // Registra a preventiva realizada (zera o acumulado). Sem `km`, usa a
+  // última KM Final do veículo.
+  const tagParam = String(req.params.tag || '').trim();
+  let veiculo = await prisma.mobDesmob.findUnique({ where: { tag: tagParam } });
+  if (!veiculo && tagParam) {
+    veiculo = await prisma.mobDesmob.findUnique({ where: { tag: tagParam.toUpperCase() } });
+  }
+  if (!veiculo) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
+  }
+  let km = parseKm(req.body?.km);
+  if (km === null) {
+    const ultima = await obterUltimaKmFinal(veiculo.tag.toUpperCase());
+    km = ultima.ultima_km_final;
+  }
+  if (km === null) {
+    return res.status(400).json({
+      error: 'Sem leitura',
+      message: 'Informe a quilometragem da preventiva (`km`) — o veículo ainda não tem KM registrada.',
+    });
+  }
+  const atualizado = await prisma.mobDesmob.update({
+    where: { tag: veiculo.tag },
+    data: { km_ultima_preventiva: Math.trunc(km) },
+  });
+  res.json({ data: atualizado });
+});
+
+function validarParametrosPreventiva({ km_limite_preventiva, km_ultima_preventiva }) {
+  const dados = {};
+  if (km_limite_preventiva !== undefined) {
+    if (km_limite_preventiva === null || km_limite_preventiva === '') {
+      dados.km_limite_preventiva = KM_LIMITE_PREVENTIVA_PADRAO;
+    } else {
+      const n = Number(km_limite_preventiva);
+      if (!Number.isFinite(n) || n <= 0) {
+        const err = new Error('`km_limite_preventiva` deve ser um número maior que zero.');
+        err.statusCode = 400;
+        throw err;
+      }
+      dados.km_limite_preventiva = Math.trunc(n);
+    }
+  }
+  if (km_ultima_preventiva !== undefined) {
+    if (km_ultima_preventiva === null || km_ultima_preventiva === '') {
+      dados.km_ultima_preventiva = null;
+    } else {
+      const n = Number(km_ultima_preventiva);
+      if (!Number.isFinite(n) || n < 0) {
+        const err = new Error('`km_ultima_preventiva` deve ser um número maior ou igual a zero.');
+        err.statusCode = 400;
+        throw err;
+      }
+      dados.km_ultima_preventiva = Math.trunc(n);
+    }
+  }
+  return dados;
+}
+
 export const criarVeiculo = asyncHandler(async (req, res) => {
   const { tag, placa, foto_veiculo, status, data_mob, data_desmob, modelo, contrato } = req.body;
 
@@ -93,6 +198,7 @@ export const criarVeiculo = asyncHandler(async (req, res) => {
       data_desmob: data_desmob ? new Date(data_desmob) : null,
       modelo,
       contrato,
+      ...validarParametrosPreventiva(req.body),
     },
   });
 
@@ -116,6 +222,7 @@ export const atualizarVeiculo = asyncHandler(async (req, res) => {
       data_desmob: data_desmob ? new Date(data_desmob) : null,
       modelo,
       contrato,
+      ...validarParametrosPreventiva(req.body),
     },
   });
 

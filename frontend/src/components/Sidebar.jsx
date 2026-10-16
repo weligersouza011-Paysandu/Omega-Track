@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Building2, Truck, ClipboardList, ShieldAlert, Leaf, Sprout, Users, ChevronLeft, Menu } from 'lucide-react';
+import { Home, Building2, Truck, Gauge, ClipboardList, ShieldAlert, Leaf, Sprout, Users, ChevronLeft, Menu } from 'lucide-react';
 import { ehOperacional } from '../utils/permissoes.js';
 
 const SECTIONS = [
@@ -10,6 +10,7 @@ const SECTIONS = [
       { to: '/inicio', label: 'Início', icon: Home, exact: true },
       { to: '/obras', label: 'Obras', icon: Building2, exact: true },
       { to: '/frota', label: 'Mobilizacao & Frota', icon: Truck, exact: false },
+      { to: '/preditiva', label: 'Preditiva de Preventivas', icon: Gauge, exact: true },
       { to: '/pendencias-parte-diaria', label: 'Controle & Eficiencia', icon: ClipboardList, exact: true },
       { to: '/telemetria', label: 'Telemetria & Seguranca', icon: ShieldAlert, exact: true },
     ],

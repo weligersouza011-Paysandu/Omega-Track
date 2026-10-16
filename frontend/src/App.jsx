@@ -5,6 +5,7 @@ import HomePartesDiariasView from './views/HomePartesDiariasView.jsx';
 import ObrasView from './views/ObrasView.jsx';
 import DashboardView from './views/DashboardView.jsx';
 import MobDesmobView from './views/MobDesmobView.jsx';
+import GestaoPreditivaView from './views/GestaoPreditivaView.jsx';
 import DashboardExecutivoView from './views/DashboardExecutivoView.jsx';
 import FarolDocumentosView from './views/FarolDocumentosView.jsx';
 import PendenciasParteDiariaView from './views/PendenciasParteDiariaView.jsx';
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="visao-geral" element={<RestritoAdmin operacional={operacional}><DashboardView /></RestritoAdmin>} />
         <Route path="executivo" element={<RestritoAdmin operacional={operacional}><DashboardExecutivoView /></RestritoAdmin>} />
         <Route path="frota" element={<RestritoAdmin operacional={operacional}><MobDesmobView /></RestritoAdmin>} />
+        <Route path="preditiva" element={<RestritoAdmin operacional={operacional}><GestaoPreditivaView /></RestritoAdmin>} />
         <Route path="farol-documentos" element={<RestritoAdmin operacional={operacional}><FarolDocumentosView /></RestritoAdmin>} />
         <Route path="pendencias-parte-diaria" element={<RestritoAdmin operacional={operacional}><PendenciasParteDiariaView /></RestritoAdmin>} />
         <Route path="telemetria" element={<RestritoAdmin operacional={operacional}><TelemetriaView /></RestritoAdmin>} />

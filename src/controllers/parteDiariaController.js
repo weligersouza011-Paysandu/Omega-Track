@@ -2,6 +2,7 @@ import prisma from '../config/database.js';
 import config from '../config/index.js';
 import { asyncHandler } from '../middleware/error.js';
 import { sessaoOperacional } from '../middleware/sessao.js';
+import { parseKm, obterUltimaKmFinal } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 
 // ============================================================================
@@ -83,6 +84,17 @@ function toIntOuNull(v) {
   if (v === undefined || v === null || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+// Trava de integridade do odômetro: KM Final nunca abaixo da KM Inicial.
+function validarQuilometragem(kmInicial, kmFinal) {
+  const ini = parseKm(kmInicial);
+  const fim = parseKm(kmFinal);
+  if (ini !== null && fim !== null && fim < ini) {
+    const err = new Error(`A KM Final (${fim}) não pode ser menor que a KM Inicial (${ini}).`);
+    err.statusCode = 400;
+    throw err;
+  }
 }
 
 function strOuNull(v) {
@@ -345,6 +357,20 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
   });
 });
 
+export const buscarUltimaKm = asyncHandler(async (req, res) => {
+  // GET /api/partes-diarias/ultima-km?tag=TAG&ignorar_id=ID
+  // Herança do odômetro: última km_final do veículo (por data, desempate por created_at).
+  const tag = String(req.query.tag || '').trim().toUpperCase();
+  if (!tag) {
+    return res.status(400).json({ error: 'TAG obrigatoria', message: 'Informe a TAG do veículo (?tag=TAG).' });
+  }
+  const ignorarId = req.query.ignorar_id || req.query.excluir_id || null;
+  const ultima = await obterUltimaKmFinal(tag, ignorarId);
+  res.json({
+    data: { tag, ...ultima },
+  });
+});
+
 export const buscarParteDiaria = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const parte = await prisma.parteDiaria.findUnique({
@@ -473,6 +499,8 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   validarHorario(horario_saida ?? undefined, 'horario_saida');
   validarHorario(intervalo_entrada ?? undefined, 'intervalo_entrada');
   validarHorario(intervalo_saida ?? undefined, 'intervalo_saida');
+  // Trava do odômetro: KM Final nunca abaixo da KM Inicial.
+  validarQuilometragem(km_inicial, km_final);
 
   if (status_relatorio && !STATUS_RELATORIO_VALIDOS.includes(status_relatorio)) {
     return res.status(400).json({
@@ -624,6 +652,13 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
       error: 'Status invalido',
       message: `status_aprovacao deve ser um de: ${STATUS_APROVACAO_VALIDOS.join(', ')}.`,
     });
+  }
+  // Trava do odômetro (PUT parcial: mescla corpo + registro atual).
+  if (tem('km_inicial') || tem('km_final')) {
+    validarQuilometragem(
+      tem('km_inicial') ? corpo.km_inicial : atual.km_inicial,
+      tem('km_final') ? corpo.km_final : atual.km_final,
+    );
   }
 
   // Colunas NOT NULL: nunca persistir null/vazio (evita 500 por constraint violation)

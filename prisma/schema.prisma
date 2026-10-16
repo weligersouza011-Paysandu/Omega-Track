@@ -20,6 +20,10 @@ model MobDesmob {
   contrato           String?   @db.VarChar(100)
   created_at         DateTime  @default(now()) @db.Timestamp(6)
 
+  // === Manutenção preventiva (FASE 2) ===
+  km_limite_preventiva Int  @default(10000)
+  km_ultima_preventiva Int?
+
   documentacoes  DocumentacaoVeiculo[]
   partes_diarias ParteDiaria[]
 
@@ -114,6 +118,8 @@ model ParteDiaria {
   @@index([data])
   @@index([status_assinatura])
   @@index([tag, data])
+  // Herança do odômetro: última km_final por veículo (data + created_at DESC).
+  @@index([tag, data, created_at])
   @@index([numero_relatorio])
   @@index([status_relatorio])
   @@index([status_operacional])

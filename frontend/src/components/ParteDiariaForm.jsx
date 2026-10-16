@@ -92,6 +92,17 @@ function diaSemanaDe(iso) {
   return DIAS_PT[d.getDay()];
 }
 
+// Trava do odômetro (espelha o backend): KM Final nunca abaixo da KM Inicial.
+// Retorna a mensagem de erro ou null quando consistente.
+function erroQuilometragemTexto(kmInicial, kmFinal) {
+  const ini = kmInicial === '' || kmInicial == null ? null : Number(kmInicial);
+  const fim = kmFinal === '' || kmFinal == null ? null : Number(kmFinal);
+  if (ini !== null && fim !== null && Number.isFinite(ini) && Number.isFinite(fim) && fim < ini) {
+    return `A KM Final não pode ser menor que a KM Inicial (${kmInicial})`;
+  }
+  return null;
+}
+
 function formatarDataHora(valor) {
   if (!valor) return '—';
   const d = new Date(valor);
@@ -288,6 +299,14 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const [verLogs, setVerLogs] = useState(false);
   const [verRelatorio, setVerRelatorio] = useState(false);
   const [obras, setObras] = useState([]);
+  // Herança do odômetro: KM Inicial herdada da última KM Final do veículo.
+  const [kmHerdada, setKmHerdada] = useState(false);
+  const [kmOrigem, setKmOrigem] = useState(null); // ex: "12/10/2026 • PD-ABC123"
+  // Diagnóstico da preventiva do veículo principal (banners do bloco de KM).
+  const [manutencao, setManutencao] = useState(null);
+  const manutencaoReqRef = useRef(0);
+  const formRef = useRef(null);
+  formRef.current = form;
 
   const sujoRef = useRef(false);
   const pularAutosaveRef = useRef(true);
@@ -316,6 +335,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     }
     setErroData(null);
     definir('data', iso);
+  };
+
+  // KM Inicial manual invalida o selo de herança (valor passa a ser do operador).
+  const definirKmInicial = (valor) => {
+    setKmHerdada(false);
+    setKmOrigem(null);
+    definir('km_inicial', valor);
   };
 
   // Seleção de obra (dropdown): preenche automaticamente contrato,
@@ -377,6 +403,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       sujoRef.current = false;
       setParteId(null);
       setForm(estadoVazio(usuario));
+      setKmHerdada(false);
+      setKmOrigem(null);
       setAssinaturas([]);
       setAuditoria({ criado_por: null, atualizado_por: null, updated_at: null, visualizacoes: 0, logs: [] });
       setNomesAssinatura({});
@@ -463,6 +491,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
           checklist: checklistInicial(p.checklist),
           fotos: (p.fotos || []).map((i) => ({ url: i.url, legenda: i.legenda || '', public_id: i.public_id || '' })),
         });
+        // Registro carregado traz a própria KM (não é herança).
+        setKmHerdada(false);
+        setKmOrigem(null);
         setAssinaturas(p.assinaturas || []);
         setAuditoria({
           criado_por: p.criado_por || null,
@@ -557,6 +588,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     !!String(f.obra || '').trim() &&
     STATUS_OPERACIONAL_DIA.includes(f.status_operacional);
 
+  // Trava do odômetro em tempo real (espelha o backend).
+  const erroKm = useMemo(
+    () => erroQuilometragemTexto(form.km_inicial, form.km_final),
+    [form.km_inicial, form.km_final],
+  );
+
   // Lista exatamente quais campos obrigatórios estão pendentes (feedback visível)
   const camposPendentes = (f = form) => {
     const pendentes = [];
@@ -573,6 +610,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     if (!relatorioValido(f)) {
       const faltando = camposPendentes(f);
       if (!silencioso) setErro(`Preencha para salvar: ${faltando.join(' • ')}.`);
+      return null;
+    }
+    // Bloqueio de salvamento: KM Final menor que KM Inicial.
+    const msgKm = erroQuilometragemTexto(f.km_inicial, f.km_final);
+    if (msgKm) {
+      if (!silencioso) setErro(msgKm);
+      else setAutosave('erro');
       return null;
     }
     if (!silencioso) { setErro(null); setSalvando(true); }
@@ -660,6 +704,49 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     return '';
   };
 
+  // Veículo principal = 1º equipamento (TAG do relatório).
+  const tagPrincipal = useMemo(() => {
+    const lista = (form.equipamentos || [])
+      .map((e) => String(e.tag_patrimonio || '').trim().toUpperCase())
+      .filter(Boolean);
+    return lista[0] || '';
+  }, [form.equipamentos]);
+
+  // Diagnóstico da preventiva (conveniência — nunca bloqueia o formulário).
+  const consultarManutencao = useCallback(async (tag, kmFinal) => {
+    const t = String(tag || '').trim().toUpperCase();
+    if (!t) { setManutencao(null); return; }
+    const idReq = ++manutencaoReqRef.current;
+    try {
+      const qs = new URLSearchParams();
+      if (String(kmFinal ?? '').trim() !== '' && Number.isFinite(Number(kmFinal))) {
+        qs.set('km_atual', String(kmFinal));
+      }
+      if (parteId) qs.set('ignorar_parte_id', parteId);
+      const resp = await fetch(`/api/mob-desmob/${encodeURIComponent(t)}/status-manutencao?${qs}`, { headers: authHeaders(sessao) });
+      if (!resp.ok) return;
+      const corpo = await resp.json();
+      if (manutencaoReqRef.current === idReq) setManutencao(corpo?.data || null);
+    } catch {
+      /* diagnóstico é conveniência: falha silenciosa */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessao, parteId]);
+
+  // Troca de veículo limpa o diagnóstico anterior.
+  useEffect(() => { setManutencao(null); }, [tagPrincipal]);
+
+  // Reconsulta ao trocar de veículo ou digitar KM Final (debounce 600ms).
+  useEffect(() => {
+    if (!open || !tagPrincipal) return;
+    const timer = setTimeout(() => { consultarManutencao(tagPrincipal, form.km_final); }, 600);
+    return () => clearTimeout(timer);
+  }, [open, tagPrincipal, form.km_final, parteId, consultarManutencao]);
+
+  const fmtKm = (v) => (v === null || v === undefined || !Number.isFinite(Number(v))
+    ? '—'
+    : Number(v).toLocaleString('pt-BR'));
+
   // Modal de seleção de equipamentos (frota ativa).
   const [modalEquip, setModalEquip] = useState(false);
   const [buscaEquip, setBuscaEquip] = useState('');
@@ -694,6 +781,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const vincularEquipamento = (veiculo) => {
     if (!veiculo?.tag) return;
     sujoRef.current = true;
+    // O 1º equipamento é o veículo principal (TAG do relatório).
+    const ehPrincipal = (form.equipamentos || []).length === 0;
+    const kmVazia = String(form.km_inicial ?? '').trim() === '';
     setForm((f) => ({
       ...f,
       equipamentos: [...(f.equipamentos || []), {
@@ -706,7 +796,36 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     }));
     setModalEquip(false);
     setBuscaEquip('');
+    // Gatilho da herança: veículo principal + KM Inicial vazia.
+    if (ehPrincipal && kmVazia) herdarKmInicial(veiculo.tag);
   };
+
+  // Herança automática do odômetro: preenche KM Inicial com a última
+  // KM Final do veículo. Conveniência — nunca bloqueia o formulário.
+  const herdarKmInicial = useCallback(async (tag) => {
+    const t = String(tag || '').trim().toUpperCase();
+    if (!t) return;
+    try {
+      const qs = new URLSearchParams({ tag: t });
+      if (parteId) qs.set('ignorar_id', parteId);
+      const resp = await fetch(`/api/partes-diarias/ultima-km?${qs}`, { headers: authHeaders(sessao) });
+      if (!resp.ok) return;
+      const corpo = await resp.json();
+      const ultima = corpo?.data?.ultima_km_final;
+      if (ultima === null || ultima === undefined) return;
+      // Respeita valor digitado/enquanto isso (sem histórico prévio não herda).
+      if (String(formRef.current?.km_inicial ?? '').trim() !== '') return;
+      sujoRef.current = true;
+      setForm((f) => (String(f.km_inicial ?? '').trim() !== '' ? f : { ...f, km_inicial: String(ultima) }));
+      setKmHerdada(true);
+      const d = corpo?.data?.data ? new Date(corpo.data.data).toLocaleDateString('pt-BR') : null;
+      const rel = corpo?.data?.numero_relatorio || null;
+      setKmOrigem([d, rel].filter(Boolean).join(' • ') || null);
+    } catch {
+      /* herança é conveniência: falha silenciosa */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessao, parteId]);
 
   const atualizarColaborador = (idx, campo, valor) => {
     if (idx === 0) return; // 1º registro (logado) é travado
@@ -1237,14 +1356,45 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 <span className="p-1.5 rounded-lg bg-omega-900 text-white"><Gauge size={14} /></span>
                 <span className="text-sm font-bold text-omega-900">Quilometragem</span>
               </div>
+              {manutencao?.status_alerta === 'PROXIMO' && (
+                <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-800">
+                  ⚠️ Atenção: Este veículo está a {fmtKm(manutencao.km_restantes_para_preventiva)} km da próxima Manutenção Preventiva.
+                  <span className="block mt-0.5 font-normal text-amber-700">
+                    Rodados desde a preventiva: {fmtKm(manutencao.km_rodados_desde_preventiva)} km • Limite: {fmtKm(manutencao.km_limite_preventiva)} km
+                  </span>
+                </div>
+              )}
+              {manutencao?.status_alerta === 'VENCIDO' && (
+                <div className="mb-3 rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700">
+                  🚨 Alerta de Manutenção: Este veículo atingiu o limite para Preventiva! É necessário registrar a revisão.
+                  <span className="block mt-0.5 font-normal text-red-600">
+                    Excesso de {fmtKm(Math.abs(manutencao.km_restantes_para_preventiva))} km • Limite: {fmtKm(manutencao.km_limite_preventiva)} km
+                  </span>
+                  {form.status_operacional !== 'Manutenção Preventiva' && (
+                    <button
+                      onClick={() => definir('status_operacional', 'Manutenção Preventiva')}
+                      className="btn-secondary !py-1.5 !px-2.5 text-xs mt-2"
+                    >
+                      Usar status “Manutenção Preventiva”
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">KM Inicial</label>
-                  <input type="number" min="0" value={form.km_inicial} onChange={(e) => definir('km_inicial', e.target.value)} className={`${inputCls} tabular-nums`} placeholder="0" />
+                  <input type="number" min="0" value={form.km_inicial} onChange={(e) => definirKmInicial(e.target.value)} className={`${inputCls} tabular-nums`} placeholder="0" />
+                  {kmHerdada && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-omega-600">
+                      <History size={11} className="shrink-0" />
+                      <span className="truncate">Herdado do registro anterior{kmOrigem ? ` • ${kmOrigem}` : ''}</span>
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="label">KM Final</label>
-                  <input type="number" min="0" value={form.km_final} onChange={(e) => definir('km_final', e.target.value)} className={`${inputCls} tabular-nums`} placeholder="0" />
+                  <input type="number" min="0" value={form.km_final} onChange={(e) => definir('km_final', e.target.value)} className={`${inputCls} tabular-nums ${erroKm ? '!border-red-400' : ''}`} placeholder="0" />
+                  {erroKm && <p className="mt-1 text-[11px] font-semibold text-red-600">{erroKm}</p>}
                 </div>
               </div>
             </div>
@@ -1539,7 +1689,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   <FileText size={16} /> Ver Relatório
                 </button>
               )}
-              <button onClick={solicitarEnvio} disabled={salvando || carregando} className="btn-primary flex-1 justify-center !py-3 text-sm disabled:opacity-50">
+              <button onClick={solicitarEnvio} disabled={salvando || carregando || !!erroKm} title={erroKm || undefined} className="btn-primary flex-1 justify-center !py-3 text-sm disabled:opacity-50">
                 {salvando ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : <><Save size={16} /> Salvar Relatório</>}
               </button>
             </div>

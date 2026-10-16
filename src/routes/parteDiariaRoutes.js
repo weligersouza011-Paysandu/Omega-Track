@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   listarPartesDiarias,
   buscarParteDiaria,
+  buscarUltimaKm,
   criarParteDiaria,
   atualizarParteDiaria,
   deletarParteDiaria,
@@ -19,6 +20,8 @@ const router = Router();
 
 router.get('/', listarPartesDiarias);
 router.get('/pendentes', authApiKey, listarPendentesAssinatura);
+// Herança do odômetro (antes de `/:id` para não colidir com o parâmetro).
+router.get('/ultima-km', buscarUltimaKm);
 router.get('/:id/logs', listarLogs);
 router.get('/:id', buscarParteDiaria);
 router.post('/', criarParteDiaria);
