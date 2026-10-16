@@ -10,6 +10,14 @@ function notFoundHandler(req, res, next) {
 function errorHandler(err, req, res, next) {
   console.error('[ERROR]', err);
 
+  // Body além do limite (10 MB): orienta a usar /api/upload + URLs.
+  if (err.type === 'entity.too.large' || err.status === 413) {
+    return res.status(413).json({
+      error: 'Payload muito grande',
+      message: 'O corpo da requisição excedeu 10 MB. Envie fotos via POST /api/upload (campo `arquivo`) e persista somente as URLs retornadas.',
+    });
+  }
+
   if (err.name === 'PrismaClientKnownRequestError') {
     if (err.code === 'P2002') {
       const target = err.meta?.target || [];

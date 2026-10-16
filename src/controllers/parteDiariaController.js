@@ -162,12 +162,45 @@ async function registrarLog(txOuPrisma, parte_id, acao, autor, detalhes = null) 
   }
 }
 
+// Blindagem anti-502: teto de itens por lista filha e do JSON total.
+// Fotos trafegam como URL curta do Cloudinary (via POST /api/upload);
+// base64/data-URI é rejeitado em 400 pelo validarUrlMidia.
+const LIMITE_ITENS_LISTA = 200;
+const LIMITE_PAYLOAD_JSON_BYTES = 8 * 1024 * 1024;
+
+function limitarLista(arr, nome) {
+  if (arr.length > LIMITE_ITENS_LISTA) {
+    const err = new Error(`Lista \`${nome}\` grande demais (máximo ${LIMITE_ITENS_LISTA} itens por salvamento).`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return arr;
+}
+
+function validarTamanhoPayload(corpo) {
+  let tamanho = 0;
+  try {
+    tamanho = JSON.stringify(corpo || {}).length;
+  } catch {
+    const err = new Error('Corpo da requisição inválido (JSON não serializável).');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (tamanho > LIMITE_PAYLOAD_JSON_BYTES) {
+    const err = new Error(
+      'Corpo da requisição grande demais (máximo 8 MB em JSON). Envie fotos via POST /api/upload e persista somente as URLs.'
+    );
+    err.statusCode = 413;
+    throw err;
+  }
+}
+
 // Normaliza as listas filhas vindas do formulario (ignora linhas vazias).
 function normalizarFilhos(corpo = {}) {
   const filhos = {};
 
   if (Array.isArray(corpo.mao_obra)) {
-    filhos.mao_obra = corpo.mao_obra
+    filhos.mao_obra = limitarLista(corpo.mao_obra, 'mao_obra')
       .filter((i) => i && String(i.nome || '').trim())
       .map((i) => ({
         nome: String(i.nome).trim(),
@@ -178,7 +211,7 @@ function normalizarFilhos(corpo = {}) {
       }));
   }
   if (Array.isArray(corpo.equipamentos)) {
-    filhos.equipamentos = corpo.equipamentos
+    filhos.equipamentos = limitarLista(corpo.equipamentos, 'equipamentos')
       .filter((i) => i && (String(i.descricao || '').trim() || String(i.tag_patrimonio || '').trim()))
       // descricao é NOT NULL no banco: usa o TAG como fallback quando vazia
       .map((i) => ({
@@ -190,7 +223,7 @@ function normalizarFilhos(corpo = {}) {
       }));
   }
   if (Array.isArray(corpo.atividades)) {
-    filhos.atividades = corpo.atividades
+    filhos.atividades = limitarLista(corpo.atividades, 'atividades')
       .filter((i) => i && String(i.descricao || '').trim())
       .map((i) => {
         validarHorario(i.hora_inicio ?? undefined, 'atividades.hora_inicio');
@@ -206,7 +239,7 @@ function normalizarFilhos(corpo = {}) {
       });
   }
   if (Array.isArray(corpo.ocorrencias)) {
-    filhos.ocorrencias = corpo.ocorrencias
+    filhos.ocorrencias = limitarLista(corpo.ocorrencias, 'ocorrencias')
       .filter((i) => i && String(i.descricao || '').trim())
       .map((i) => {
         validarHorario(i.hora ?? undefined, 'ocorrencias.hora');
@@ -219,7 +252,7 @@ function normalizarFilhos(corpo = {}) {
       });
   }
   if (Array.isArray(corpo.checklist)) {
-    filhos.checklist = corpo.checklist
+    filhos.checklist = limitarLista(corpo.checklist, 'checklist')
       .filter((i) => i && String(i.item || '').trim())
       .map((i) => {
         const fotoUrl = strOuNull(i.foto_url);
@@ -234,7 +267,7 @@ function normalizarFilhos(corpo = {}) {
       });
   }
   if (Array.isArray(corpo.comentarios)) {
-    filhos.comentarios = corpo.comentarios
+    filhos.comentarios = limitarLista(corpo.comentarios, 'comentarios')
       .filter((i) => i && String(i.texto || '').trim())
       .map((i) => ({
         autor: strOuNull(i.autor),
@@ -242,7 +275,7 @@ function normalizarFilhos(corpo = {}) {
       }));
   }
   if (Array.isArray(corpo.fotos)) {
-    filhos.fotos = corpo.fotos
+    filhos.fotos = limitarLista(corpo.fotos, 'fotos')
       .filter((i) => i && String(i.url || '').trim())
       .map((i) => {
         validarUrlMidia(String(i.url).trim(), 'fotos.url');
@@ -460,6 +493,9 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
     planejador,
   } = req.body || {};
 
+  // Blindagem anti-502: rejeita JSON gigante antes de qualquer processamento.
+  validarTamanhoPayload(req.body);
+
   // Derivação a partir dos módulos (novo formulário): TAG do 1º equipamento
   // com TAG; autoria do 1º registro da mão de obra.
   const equipamentosBody = Array.isArray(req.body?.equipamentos) ? req.body.equipamentos : [];
@@ -646,6 +682,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
 export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const corpo = req.body || {};
+  validarTamanhoPayload(corpo);
 
   const atual = await prisma.parteDiaria.findUnique({ where: { id } });
   if (!atual) {

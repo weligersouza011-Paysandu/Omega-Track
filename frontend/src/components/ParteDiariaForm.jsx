@@ -951,9 +951,35 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
 
   // ------- foto de comprovação do checklist (fixo) -------
   const [uploadingCheck, setUploadingCheck] = useState(null);
+  // Preview local imediato (object URL) enquanto sobe para a nuvem.
+  const [previasCheck, setPreviasCheck] = useState({});
+  const TIPOS_FOTO_OK = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  const MAX_FOTO_BYTES = 5 * 1024 * 1024; // 5 MB (igual ao backend)
+
+  const descartarPreviaCheck = (idx) => {
+    setPreviasCheck((m) => {
+      if (m[idx]) URL.revokeObjectURL(m[idx]);
+      const resto = { ...m };
+      delete resto[idx];
+      return resto;
+    });
+  };
 
   const enviarFotoChecklist = async (idx, arquivo) => {
     if (!arquivo) return;
+    if (arquivo.size > MAX_FOTO_BYTES) {
+      setErro('Foto muito grande (máximo 5 MB). Use resolução menor ou escolha outra imagem.');
+      return;
+    }
+    if (arquivo.type && !TIPOS_FOTO_OK.includes(arquivo.type)) {
+      setErro('Tipo de arquivo inválido. Envie JPEG, PNG, WEBP ou HEIC.');
+      return;
+    }
+    const previa = URL.createObjectURL(arquivo);
+    setPreviasCheck((m) => {
+      if (m[idx]) URL.revokeObjectURL(m[idx]);
+      return { ...m, [idx]: previa };
+    });
     setUploadingCheck(idx);
     setErro(null);
     try {
@@ -962,6 +988,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       const resp = await fetch('/api/upload?pasta=partes-diarias', { method: 'POST', body: fd });
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo.message || `Falha no upload (${resp.status})`);
+      if (!corpo.data?.url) throw new Error('Upload sem URL de retorno. Tente novamente.');
       sujoRef.current = true;
       setForm((f) => ({
         ...f,
@@ -969,7 +996,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
           ? { ...it, foto_url: corpo.data.url, foto_public_id: corpo.data.public_id || '' }
           : it)),
       }));
+      descartarPreviaCheck(idx);
     } catch (e) {
+      descartarPreviaCheck(idx);
       setErro(e.message || 'Falha ao enviar foto do checklist.');
     } finally {
       setUploadingCheck(null);
@@ -1536,17 +1565,20 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               </div>
               <div className="px-4 pb-4 pt-1 border-t border-omega-100 space-y-3">
                 {form.checklist.map((it, i) => {
-                  const anexada = !!it.foto_url;
+                  const previa = previasCheck[i];
+                  const concluida = !!it.foto_url;
+                  const anexada = concluida || !!previa;
+                  const srcComprovacao = previa || it.foto_url;
                   const enviando = uploadingCheck === i;
                   return (
                     <div key={it.item} className="flex flex-col md:flex-row md:items-center gap-2 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
                       <div className="flex-1 min-w-0 text-sm font-bold text-omega-900">{it.item}</div>
-                      <span className={`chip shrink-0 ${anexada ? 'bg-green-50 text-status-verde ring-1 ring-inset ring-green-600/20' : 'bg-amber-50 text-status-amarelo ring-1 ring-inset ring-amber-600/20'}`}>
-                        {anexada ? 'Anexado • Concluído' : 'Pendente'}
+                      <span className={`chip shrink-0 ${concluida ? 'bg-green-50 text-status-verde ring-1 ring-inset ring-green-600/20' : 'bg-amber-50 text-status-amarelo ring-1 ring-inset ring-amber-600/20'}`}>
+                        {concluida ? 'Anexado • Concluído' : enviando ? 'Enviando...' : 'Pendente'}
                       </span>
                       {anexada && (
-                        <a href={it.foto_url} target="_blank" rel="noreferrer" title="Abrir comprovação" className="shrink-0 block w-14 h-14 rounded-lg overflow-hidden border border-omega-200 bg-omega-100">
-                          <img src={it.foto_url} alt={`Comprovação — ${it.item}`} className="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy" />
+                        <a href={it.foto_url || previa} target="_blank" rel="noreferrer" title="Abrir comprovação" className="shrink-0 block w-14 h-14 rounded-lg overflow-hidden border border-omega-200 bg-omega-100">
+                          <img src={srcComprovacao} alt={`Comprovação — ${it.item}`} className="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy" />
                         </a>
                       )}
                       <div className="flex md:flex-col gap-1 shrink-0">
@@ -1561,7 +1593,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                           id={`check-foto-${i}`}
                           type="file"
                           accept="image/*"
-                          capture="environment"
                           className="hidden"
                           disabled={enviando}
                           onChange={(e) => { enviarFotoChecklist(i, e.target.files?.[0]); e.target.value = ''; }}
