@@ -473,10 +473,18 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   // e demais módulos são sempre opcionais — viram `possui_pendencia`/listas
   // vazias quando ausentes. Preventiva exige KM no front (âncora do ciclo).
   const statusOperacionalFinal = status_operacional || status || 'Operação';
-  if (!tagFinal || !obra || !statusOperacionalFinal) {
+  const ehOperacao = statusOperacionalFinal === 'Operação';
+  if (!tagFinal || !statusOperacionalFinal) {
     return res.status(400).json({
       error: 'Campos obrigatorios',
-      message: 'Informe a obra, o status operacional do dia e ao menos um veiculo (TAG em Equipamentos).',
+      message: 'Informe o status operacional do dia e ao menos um veiculo (TAG em Equipamentos).',
+    });
+  }
+  // Obra obrigatória só em Operação (manutenção/parada aceitam obra null).
+  if (ehOperacao && !obra) {
+    return res.status(400).json({
+      error: 'Campos obrigatorios',
+      message: 'Informe a obra para relatórios de Operação.',
     });
   }
   if (!STATUS_OPERACIONAL_VALIDOS.includes(statusOperacionalFinal)) {
@@ -570,7 +578,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
           tag: tagFinal,
           funcionario: funcionarioFinal,
           funcao: funcaoFinal,
-          obra,
+          obra: obra || null,
           obra_programada,
           data: dataRef,
           dia_semana: diaSemanaPT(dataRef),
@@ -682,8 +690,17 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
     );
   }
 
-  // Colunas NOT NULL: nunca persistir null/vazio (evita 500 por constraint violation)
-  const COLUNAS_OBRIGATORIAS = ['obra', 'status', 'status_operacional', 'status_aprovacao', 'status_relatorio'];
+  // Colunas NOT NULL: nunca persistir null/vazio (evita 500 por constraint violation).
+  // Obra só é obrigatória em Operação (manutenção/parada podem limpar).
+  const statusEfetivo = tem('status_operacional') && corpo.status_operacional
+    ? corpo.status_operacional
+    : tem('status') && corpo.status
+      ? corpo.status
+      : atual.status_operacional;
+  const COLUNAS_OBRIGATORIAS = [
+    ...(statusEfetivo === 'Operação' ? ['obra'] : []),
+    'status', 'status_operacional', 'status_aprovacao', 'status_relatorio',
+  ];
   for (const k of COLUNAS_OBRIGATORIAS) {
     if (tem(k) && (corpo[k] === '' || corpo[k] === null || corpo[k] === undefined)) {
       return res.status(400).json({

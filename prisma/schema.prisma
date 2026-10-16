@@ -53,7 +53,7 @@ model ParteDiaria {
   tag               String   @db.VarChar(50)
   funcionario       String?  @db.VarChar(255)
   funcao            String?  @db.VarChar(100)
-  obra              String   @db.VarChar(100)
+  obra              String?  @db.VarChar(100)
   obra_programada   String?  @db.VarChar(100)
   data              DateTime @default(now()) @db.Date
   id_relatorio      String?  @db.VarChar(100)

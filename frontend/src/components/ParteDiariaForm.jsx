@@ -601,11 +601,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     });
   }, []);
 
-  // Validação por modo: operação/parada exigem o trio base (obra + veículo +
-  // status); preventiva exige também a KM de preventiva (âncora do ciclo).
+  // Validação por modo: operação exige obra + veículo + status; manutenção e
+  // parada exigem só veículo + status (obra oculta/opcional). Preventiva exige
+  // também a KM (âncora do ciclo).
   const relatorioValido = (f = form) => {
+    const modo = modoDoStatus(f.status_operacional);
     const base = (f.equipamentos || []).some((e) => String(e.tag_patrimonio || '').trim()) &&
-      !!String(f.obra || '').trim() &&
+      (modo !== 'operacao' || !!String(f.obra || '').trim()) &&
       STATUS_OPERACIONAL_DIA.includes(f.status_operacional);
     if (!base) return false;
     if (modoDoStatus(f.status_operacional) === 'preventiva') {
@@ -626,7 +628,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   // Lista exatamente quais campos obrigatórios estão pendentes (feedback visível)
   const camposPendentes = (f = form) => {
     const pendentes = [];
-    if (!String(f.obra || '').trim()) pendentes.push('Obra');
+    if (modoDoStatus(f.status_operacional) === 'operacao' && !String(f.obra || '').trim()) {
+      pendentes.push('Obra');
+    }
     if (!STATUS_OPERACIONAL_DIA.includes(f.status_operacional)) pendentes.push('Status Operacional do Dia');
     if (!(f.equipamentos || []).some((e) => String(e.tag_patrimonio || '').trim())) {
       pendentes.push('Veículo (em Equipamentos)');
@@ -1249,6 +1253,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                     </p>
                   )}
                 </div>
+                {modo === 'operacao' && (
+                <>
                 <div>
                   <label className="label">Obra <span className="text-status-vermelho">*</span></label>
                   <select
@@ -1282,6 +1288,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   <label className="label">Planejador</label>
                   <input value={form.planejador} readOnly title="Preenchido automaticamente pela obra selecionada" className={`${inputCls} bg-omega-50 text-omega-500`} placeholder="Preenchido pela obra" />
                 </div>
+                </>
+                )}
               </div>
             </div>
 
