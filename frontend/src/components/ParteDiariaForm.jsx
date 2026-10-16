@@ -1404,6 +1404,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 <span className="p-1.5 rounded-lg bg-omega-900 text-white"><Gauge size={14} /></span>
                 <span className="text-sm font-bold text-omega-900">Quilometragem</span>
               </div>
+              {modo === 'preventiva' ? (
+                <div className="mb-3 rounded-xl border border-sky-300 bg-sky-50 px-3 py-2.5 text-xs font-semibold text-sky-800">
+                  ℹ️ Registrando Manutenção Preventiva: A KM informada atualizará o marco zero do ciclo.
+                </div>
+              ) : (
+              <>
               {manutencao?.status_alerta === 'PROXIMO' && (
                 <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-800">
                   ⚠️ Atenção: Este veículo está a {fmtKm(manutencao.km_restantes_para_preventiva)} km da próxima Manutenção Preventiva.
@@ -1450,6 +1456,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   )}
                 </div>
               </div>
+              </>
+              )}
             </div>
             )}
 
