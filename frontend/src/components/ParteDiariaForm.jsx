@@ -1434,6 +1434,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   )}
                 </div>
               )}
+              </>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 {modo !== 'preventiva' && (
                 <div>
@@ -1456,8 +1458,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   )}
                 </div>
               </div>
-              </>
-              )}
             </div>
             )}
 
