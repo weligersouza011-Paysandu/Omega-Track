@@ -38,13 +38,23 @@ app.use((req, res, next) => {
 app.use('/api', routes);
 
 if (hasFrontendBuild) {
-  // 1. Ficheiros estaticos do frontend compilado (inclui index.html na raiz).
-  app.use(express.static(frontendDist, { maxAge: '1d' }));
+  // 1. Ficheiros estaticos do frontend compilado. Assets com hash ficam 1 dia
+  // em cache; o index.html nunca (senao o navegador prende o bundle antigo).
+  app.use(express.static(frontendDist, {
+    maxAge: '1d',
+    immutable: true,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
 
   // 2. Fallback SPA: qualquer rota nao-API devolve o index.html do React
   // para o React Router resolver no cliente (ex: /frota, /executivo).
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
+    res.set('Cache-Control', 'no-cache');
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
 }

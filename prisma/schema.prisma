@@ -283,8 +283,22 @@ model Obra {
   @@map("obras")
 }
 
-enum SetorUsuario {
-  MEIO_AMBIENTE
+// Parâmetros de preventiva por categoria de veículo (modelo) e contrato.
+// Categoria gravada normalizada (MAIÚSCULAS); `contrato` NULL = regra global.
+model ParametroPreventiva {
+  id                   String   @id @default(uuid()) @db.Uuid
+  categoria            String   @db.VarChar(100)
+  km_limite_preventiva Int
+  contrato             String?  @db.VarChar(100)
+  created_at           DateTime @default(now()) @db.Timestamp(6)
+  updated_at           DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  @@unique([categoria, contrato])
+  @@index([categoria])
+  @@map("parametros_preventiva")
+}
+
+enum SetorUsuario {  MEIO_AMBIENTE
   TRANSPORTE
   GESTAO
 }

@@ -50,6 +50,13 @@ const STATUS_OPERACIONAL_DIA = [
   'Indisponibilidade',
   'Interdição',
 ];
+// Segregação do formulário (Fase Sênior 3): operação completa, preventiva
+// enxuta (obra + veículo + KM) e parada super enxuta (obra + data + veículo).
+function modoDoStatus(status) {
+  if (status === 'Manutenção Preventiva') return 'preventiva';
+  if (['Manutenção Corretiva', 'Indisponibilidade', 'Interdição'].includes(status)) return 'parada';
+  return 'operacao';
+}
 const TIPOS_OCORRENCIA = ['Operacional', 'Segurança', 'Meio Ambiente', 'Mecânica', 'Outra'];
 const STATUS_ATIVIDADE = ['Pendente', 'Em Andamento', 'Concluído'];
 
@@ -302,6 +309,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   // Herança do odômetro: KM Inicial herdada da última KM Final do veículo.
   const [kmHerdada, setKmHerdada] = useState(false);
   const [kmOrigem, setKmOrigem] = useState(null); // ex: "12/10/2026 • PD-ABC123"
+  // Motivo da parada (modo frota parada): vira a ocorrência do relatório.
+  const [motivoParada, setMotivoParada] = useState('');
   // Diagnóstico da preventiva do veículo principal (banners do bloco de KM).
   const [manutencao, setManutencao] = useState(null);
   const manutencaoReqRef = useRef(0);
@@ -405,6 +414,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       setForm(estadoVazio(usuario));
       setKmHerdada(false);
       setKmOrigem(null);
+      setMotivoParada('');
       setAssinaturas([]);
       setAuditoria({ criado_por: null, atualizado_por: null, updated_at: null, visualizacoes: 0, logs: [] });
       setNomesAssinatura({});
@@ -494,6 +504,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         // Registro carregado traz a própria KM (não é herança).
         setKmHerdada(false);
         setKmOrigem(null);
+        // Motivo da parada (reeditável no modo frota parada).
+        setMotivoParada((p.ocorrencias || [])[0]?.descricao || '');
         setAssinaturas(p.assinaturas || []);
         setAuditoria({
           criado_por: p.criado_por || null,
@@ -529,6 +541,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       funcao: r.funcao || 'Sinaleiro',
     }));
     const responsavelJornada = maoTravada[0] || {};
+    // Modo do relatório: no modo parada, o motivo vira a ocorrência registrada.
+    const modoPayload = modoDoStatus(f.status_operacional);
+    const motivoTrim = String(motivoParada || '').trim();
+    const ocorrenciasPayload = modoPayload === 'parada' && motivoTrim
+      ? [{ tipo: 'Operacional', descricao: motivoTrim }]
+      : (f.ocorrencias || []).map((o) => ({ tipo: o.tipo, descricao: o.descricao }));
     // Status de aprovação derivado das assinaturas presentes (espelha o backend)
     const etapasAssin = new Set((listaAssin || []).map((a) => String(a.etapa || '').toUpperCase()));
     const statusAprovacao = etapasAssin.has('PLANEJADOR')
@@ -564,11 +582,11 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       equipamentos: f.equipamentos,
       // Blocos simplificados: só trafegam os campos exibidos (sem duplicados/legados)
       atividades: (f.atividades || []).map((a) => ({ descricao: a.descricao, status: a.status })),
-      ocorrencias: (f.ocorrencias || []).map((o) => ({ tipo: o.tipo, descricao: o.descricao })),
+      ocorrencias: ocorrenciasPayload,
       checklist: f.checklist,
       fotos: f.fotos,
     };
-  }, [form, assinaturas, usuario, funcaoDoLogado]);
+  }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada]);
 
   const aplicarResposta = useCallback((p) => {
     if (!p) return;
@@ -583,15 +601,26 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     });
   }, []);
 
-  const relatorioValido = (f = form) =>
-    (f.equipamentos || []).some((e) => String(e.tag_patrimonio || '').trim()) &&
-    !!String(f.obra || '').trim() &&
-    STATUS_OPERACIONAL_DIA.includes(f.status_operacional);
+  // Validação por modo: operação/parada exigem o trio base (obra + veículo +
+  // status); preventiva exige também a KM de preventiva (âncora do ciclo).
+  const relatorioValido = (f = form) => {
+    const base = (f.equipamentos || []).some((e) => String(e.tag_patrimonio || '').trim()) &&
+      !!String(f.obra || '').trim() &&
+      STATUS_OPERACIONAL_DIA.includes(f.status_operacional);
+    if (!base) return false;
+    if (modoDoStatus(f.status_operacional) === 'preventiva') {
+      return String(f.km_final ?? '').trim() !== '';
+    }
+    return true;
+  };
 
   // Trava do odômetro em tempo real (espelha o backend).
+  // Preventiva: isenta (lançamento retroativo livre, só exige KM > 0).
   const erroKm = useMemo(
-    () => erroQuilometragemTexto(form.km_inicial, form.km_final),
-    [form.km_inicial, form.km_final],
+    () => (modoDoStatus(form.status_operacional) === 'preventiva'
+      ? null
+      : erroQuilometragemTexto(form.km_inicial, form.km_final)),
+    [form.km_inicial, form.km_final, form.status_operacional],
   );
 
   // Lista exatamente quais campos obrigatórios estão pendentes (feedback visível)
@@ -601,6 +630,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     if (!STATUS_OPERACIONAL_DIA.includes(f.status_operacional)) pendentes.push('Status Operacional do Dia');
     if (!(f.equipamentos || []).some((e) => String(e.tag_patrimonio || '').trim())) {
       pendentes.push('Veículo (em Equipamentos)');
+    }
+    if (modoDoStatus(f.status_operacional) === 'preventiva' && String(f.km_final ?? '').trim() === '') {
+      pendentes.push('KM da Preventiva');
     }
     return pendentes;
   };
@@ -612,8 +644,10 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       if (!silencioso) setErro(`Preencha para salvar: ${faltando.join(' • ')}.`);
       return null;
     }
-    // Bloqueio de salvamento: KM Final menor que KM Inicial.
-    const msgKm = erroQuilometragemTexto(f.km_inicial, f.km_final);
+    // Bloqueio de salvamento: KM Final menor que KM Inicial (isenta na preventiva).
+    const msgKm = modoDoStatus(f.status_operacional) === 'preventiva'
+      ? null
+      : erroQuilometragemTexto(f.km_inicial, f.km_final);
     if (msgKm) {
       if (!silencioso) setErro(msgKm);
       else setAutosave('erro');
@@ -1132,6 +1166,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
 
   const inputCls = 'input !py-1.5 text-sm';
   const btnIcone = 'p-1.5 rounded-md hover:bg-red-50 text-omega-400 hover:text-status-vermelho transition-colors';
+  // Modo de segregação do formulário (recalculado a cada render).
+  const modo = modoDoStatus(form.status_operacional);
 
   return (
     <>
@@ -1149,7 +1185,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               {autosave === 'erro' && 'Falha no salvamento automático — use Salvar Relatório.'}
             </span>
             <button onClick={fechar} disabled={salvando} className="btn-secondary disabled:opacity-50">Fechar</button>
-            <button onClick={solicitarEnvio} disabled={salvando || carregando} className="btn-primary disabled:opacity-50">
+            <button onClick={solicitarEnvio} disabled={salvando || carregando || !!erroKm} title={erroKm || undefined} className="btn-primary disabled:opacity-50">
               {salvando ? <><Loader2 size={15} className="animate-spin" /> Salvando...</> : <><Save size={15} /> Salvar Relatório</>}
             </button>
           </>
@@ -1205,6 +1241,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                  {(modo === 'preventiva' || modo === 'parada') && (
+                    <p className="mt-1 text-[11px] font-semibold text-omega-600">
+                      {modo === 'preventiva'
+                        ? 'Modo revisão: preencha só obra, veículo e KM de preventiva.'
+                        : 'Modo frota parada: preencha só obra, data, veículo e o motivo.'}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="label">Obra <span className="text-status-vermelho">*</span></label>
@@ -1242,7 +1285,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               </div>
             </div>
 
-            {/* 2. HORÁRIO DE TRABALHO */}
+            {/* 2. HORÁRIO DE TRABALHO (só operação) */}
+            {modo === 'operacao' && (
             <div className="card p-4">
               <div className="flex items-center gap-2 mb-3">
                 <span className="p-1.5 rounded-lg bg-omega-900 text-white"><Clock size={14} /></span>
@@ -1267,8 +1311,10 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 </div>
               </div>
             </div>
+            )}
 
-            {/* 3. MÃO DE OBRA */}
+            {/* 3. MÃO DE OBRA (só operação) */}
+            {modo === 'operacao' && (
             <Secao icone={Users} titulo="Mão de Obra" count={form.mao_obra.length} aberto={secoes.mao} onToggle={() => alternarSecao('mao')} onAdicionar={() => adicionar('mao_obra', { nome: '', matricula: '', funcao: 'Sinaleiro' })}>
               {form.mao_obra.length === 0 && <LinhaVazia texto="Nenhum colaborador lançado. Use + Adicionar." />}
               {form.mao_obra.length > 0 && (
@@ -1321,6 +1367,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 );
               })}
             </Secao>
+            )}
 
             {/* 4. EQUIPAMENTOS */}
             <Secao icone={Truck} titulo="Equipamentos" count={form.equipamentos.length} aberto={secoes.equip} onToggle={() => alternarSecao('equip')} onAdicionar={() => { setBuscaEquip(''); setModalEquip(true); }}>
@@ -1350,7 +1397,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               })}
             </Secao>
 
-            {/* 5. QUILOMETRAGEM */}
+            {/* 5. QUILOMETRAGEM (operação + preventiva) */}
+            {(modo === 'operacao' || modo === 'preventiva') && (
             <div className="card p-4">
               <div className="flex items-center gap-2 mb-3">
                 <span className="p-1.5 rounded-lg bg-omega-900 text-white"><Gauge size={14} /></span>
@@ -1381,6 +1429,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">
+                {modo !== 'preventiva' && (
                 <div>
                   <label className="label">KM Inicial</label>
                   <input type="number" min="0" value={form.km_inicial} onChange={(e) => definirKmInicial(e.target.value)} className={`${inputCls} tabular-nums`} placeholder="0" />
@@ -1391,15 +1440,39 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                     </p>
                   )}
                 </div>
-                <div>
-                  <label className="label">KM Final</label>
+                )}
+                <div className={modo === 'preventiva' ? 'col-span-2' : ''}>
+                  <label className="label">{modo === 'preventiva' ? 'KM da Preventiva *' : 'KM Final'}</label>
                   <input type="number" min="0" value={form.km_final} onChange={(e) => definir('km_final', e.target.value)} className={`${inputCls} tabular-nums ${erroKm ? '!border-red-400' : ''}`} placeholder="0" />
                   {erroKm && <p className="mt-1 text-[11px] font-semibold text-red-600">{erroKm}</p>}
+                  {!erroKm && modo === 'preventiva' && (
+                    <p className="mt-1 text-[11px] text-omega-500">Zera o ciclo e vira a nova âncora da preventiva.</p>
+                  )}
                 </div>
               </div>
             </div>
+            )}
 
-            {/* 6. OCORRÊNCIA (atividades executadas + ocorrências do dia) */}
+            {/* MOTIVO DA PARADA (só frota parada) */}
+            {modo === 'parada' && (
+            <div className="card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="p-1.5 rounded-lg bg-omega-900 text-white"><AlertTriangle size={14} /></span>
+                <span className="text-sm font-bold text-omega-900">Motivo da Parada</span>
+              </div>
+              <label className="label">Observação <span className="text-omega-400 font-normal">(opcional)</span></label>
+              <textarea
+                value={motivoParada}
+                onChange={(e) => { sujoRef.current = true; setMotivoParada(e.target.value); }}
+                className={`${inputCls} min-h-[88px] resize-y`}
+                placeholder="Ex: Aguardando peça do freio — previsão de retorno em 2 dias."
+              />
+            </div>
+            )}
+
+            {/* 6. OCORRÊNCIA (só operação) */}
+            {modo === 'operacao' && (
+            <>
             <div className="pt-1">
               <h5 className="text-sm font-extrabold text-omega-900">Ocorrência</h5>
               <p className="text-[11px] text-omega-400">Atividades executadas e ocorrências registradas no dia</p>
@@ -1432,8 +1505,11 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 </div>
               ))}
             </Secao>
+            </>
+            )}
 
-            {/* Checklist sempre visível e expandido (sem colapso) */}
+            {/* Checklist (só operação) */}
+            {modo === 'operacao' && (
             <div className="card overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-3">
                 <span className="p-1.5 rounded-lg bg-omega-900 text-white shrink-0">
@@ -1485,7 +1561,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 })}
               </div>
             </div>
+            )}
 
+            {modo === 'operacao' && (
             <Secao icone={Camera} titulo="Fotos" count={form.fotos.length} aberto={secoes.fotos} onToggle={() => alternarSecao('fotos')} onAdicionar={() => fileRef.current?.click()} labelAdicionar="Enviar foto">
               <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => enviarFotos(e.target.files)} />
               {uploading && (
@@ -1511,8 +1589,10 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 <Upload size={14} /> {uploading ? 'Enviando...' : 'Enviar foto (Cloudinary)'}
               </button>
             </Secao>
+            )}
 
-            {/* 7. ASSINATURAS DIGITAIS – FLUXO DE APROVAÇÃO */}
+            {/* 7. ASSINATURAS (só operação) */}
+            {modo === 'operacao' && (
             <div className="card p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1636,6 +1716,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 </div>
               )}
             </div>
+            )}
 
             {/* 8. RODAPÉ / AUDITORIA */}
             <div className="card p-4">

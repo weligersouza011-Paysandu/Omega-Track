@@ -86,8 +86,20 @@ function toIntOuNull(v) {
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
-// Trava de integridade do odômetro: KM Final nunca abaixo da KM Inicial.
-function validarQuilometragem(kmInicial, kmFinal) {
+// Trava de integridade do odômetro.
+// Preventiva (lançamento retroativo permitido): exige só KM Final numérica > 0,
+// sem comparar com a KM Inicial nem com o histórico do veículo.
+// Demais status: KM Final nunca abaixo da KM Inicial.
+function validarQuilometragem(kmInicial, kmFinal, statusOperacional = null) {
+  if (String(statusOperacional || '') === 'Manutenção Preventiva') {
+    const fim = parseKm(kmFinal);
+    if (fim === null || !(fim > 0)) {
+      const err = new Error('Informe a KM da Preventiva (número maior que zero).');
+      err.statusCode = 400;
+      throw err;
+    }
+    return;
+  }
   const ini = parseKm(kmInicial);
   const fim = parseKm(kmFinal);
   if (ini !== null && fim !== null && fim < ini) {
@@ -456,6 +468,10 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   const responsavelModulo = maoObraBody[0] || {};
   const tagFinal = tag || (veiculoModulo ? String(veiculoModulo.tag_patrimonio).trim().toUpperCase() : null);
 
+  // Payload flexível por status (Fase Sênior 3): qualquer status aceita o
+  // mínimo (obra + veículo/TAG + status). Checklist, mão de obra, atividades
+  // e demais módulos são sempre opcionais — viram `possui_pendencia`/listas
+  // vazias quando ausentes. Preventiva exige KM no front (âncora do ciclo).
   const statusOperacionalFinal = status_operacional || status || 'Operação';
   if (!tagFinal || !obra || !statusOperacionalFinal) {
     return res.status(400).json({
@@ -499,8 +515,8 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   validarHorario(horario_saida ?? undefined, 'horario_saida');
   validarHorario(intervalo_entrada ?? undefined, 'intervalo_entrada');
   validarHorario(intervalo_saida ?? undefined, 'intervalo_saida');
-  // Trava do odômetro: KM Final nunca abaixo da KM Inicial.
-  validarQuilometragem(km_inicial, km_final);
+  // Trava do odômetro (preventiva: só exige KM Final > 0, sem comparação).
+  validarQuilometragem(km_inicial, km_final, statusOperacionalFinal);
 
   if (status_relatorio && !STATUS_RELATORIO_VALIDOS.includes(status_relatorio)) {
     return res.status(400).json({
@@ -654,10 +670,15 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
     });
   }
   // Trava do odômetro (PUT parcial: mescla corpo + registro atual).
-  if (tem('km_inicial') || tem('km_final')) {
+  // Preventiva: só exige KM Final > 0 (retroativo liberado).
+  if (tem('km_inicial') || tem('km_final') || tem('status_operacional')) {
+    const statusMerged = tem('status_operacional') && corpo.status_operacional
+      ? corpo.status_operacional
+      : atual.status_operacional;
     validarQuilometragem(
       tem('km_inicial') ? corpo.km_inicial : atual.km_inicial,
       tem('km_final') ? corpo.km_final : atual.km_final,
+      statusMerged,
     );
   }
 

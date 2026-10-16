@@ -99,6 +99,85 @@ export function dataPrevistaPreventiva(diasRestantes) {
   d.setDate(d.getDate() + Math.max(diasRestantes || 0, 0));
   return d.toISOString().slice(0, 10);
 }
+// Resolve o limite aplicável com a tabela dinâmica de parâmetros.
+// Precedência: categoria+contrato > categoria (global) > veículo > padrão 10000.
+export async function resolverLimitePreventiva({ limiteVeiculo = null, categoria = null, contrato = null } = {}) {
+  const cat = String(categoria || '').trim().toUpperCase();
+  const cont = String(contrato || '').trim() || null;
+  if (cat) {
+    let p = null;
+    if (cont) {
+      p = await prisma.parametroPreventiva.findFirst({ where: { categoria: cat, contrato: cont } });
+      if (p) return { km_limite: p.km_limite_preventiva, origem_limite: 'categoria+contrato', parametro_id: p.id };
+    }
+    p = await prisma.parametroPreventiva.findFirst({ where: { categoria: cat, contrato: null } });
+    if (p) return { km_limite: p.km_limite_preventiva, origem_limite: 'categoria', parametro_id: p.id };
+  }
+  const lv = Number(limiteVeiculo);
+  if (Number.isFinite(lv) && lv > 0) {
+    return { km_limite: Math.trunc(lv), origem_limite: 'veiculo', parametro_id: null };
+  }
+  return { km_limite: KM_LIMITE_PREVENTIVA_PADRAO, origem_limite: 'padrao', parametro_id: null };
+}
+
+// ============================================================================
+// FASE SÊNIOR 2 — Marco zero ancorado na última Parte Diária de preventiva.
+// Precedência da âncora: parte preventiva (km_final) > registro manual do
+// veículo (coluna) > 0. Sem leitura atual, não há o que acumular.
+// ============================================================================
+
+export const STATUS_PREVENTIVA = 'Manutenção Preventiva';
+
+// Última Parte Diária de preventiva do veículo com km_final numérica.
+export async function obterUltimaPartePreventiva(tagNormalizada) {
+  const partes = await prisma.parteDiaria.findMany({
+    where: { tag: tagNormalizada, status_operacional: STATUS_PREVENTIVA },
+    orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
+    take: 10,
+    select: { id: true, data: true, km_final: true, numero_relatorio: true, created_at: true },
+  });
+  for (const p of partes) {
+    const km = parseKm(p.km_final);
+    if (km !== null) {
+      return { km_ultima_preventiva: km, parte_id: p.id, data: p.data, numero_relatorio: p.numero_relatorio };
+    }
+  }
+  return null;
+}
+
+// Âncora do ciclo: parte preventiva > coluna manual > 0.
+export async function resolverAncorasPreventiva(tagNormalizada, kmManualVeiculo = null) {
+  const parte = await obterUltimaPartePreventiva(tagNormalizada);
+  if (parte) {
+    return { ...parte, origem_preventiva: 'parte_preventiva' };
+  }
+  const manual = parseKm(kmManualVeiculo);
+  if (manual !== null) {
+    return { km_ultima_preventiva: manual, parte_id: null, data: null, numero_relatorio: null, origem_preventiva: 'registro_manual' };
+  }
+  return { km_ultima_preventiva: 0, parte_id: null, data: null, numero_relatorio: null, origem_preventiva: 'zero' };
+}
+
+// Lote para a projeção da frota: última preventiva com KM por TAG (1 consulta).
+export async function mapaUltimasPreventivas(tagsNormalizadas) {
+  if (!tagsNormalizadas.length) return new Map();
+  const partes = await prisma.parteDiaria.findMany({
+    where: { tag: { in: tagsNormalizadas }, status_operacional: STATUS_PREVENTIVA },
+    orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
+    select: { tag: true, id: true, data: true, km_final: true, numero_relatorio: true },
+  });
+  const mapa = new Map();
+  for (const p of partes) {
+    const chave = String(p.tag).toUpperCase();
+    if (mapa.has(chave)) continue;
+    const km = parseKm(p.km_final);
+    if (km === null) continue;
+    mapa.set(chave, { km_ultima_preventiva: km, parte_id: p.id, data: p.data, numero_relatorio: p.numero_relatorio });
+  }
+  return mapa;
+}
+
+// status_alerta: NORMAL | PROXIMO (<=10% do limite restante) | VENCIDO (<0).
 export function calcularStatusManutencao({ kmAtual, kmUltimaPreventiva, kmLimite }) {
   const limite = Number.isFinite(Number(kmLimite)) && Number(kmLimite) > 0
     ? Number(kmLimite)

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Filter, Download, X, LayoutGrid, BarChart3, FileText, CheckCircle2, RefreshCw, AlertTriangle, Briefcase, Loader2 } from 'lucide-react';
+import { Plus, Search, Filter, Download, X, LayoutGrid, BarChart3, FileText, CheckCircle2, RefreshCw, AlertTriangle, Briefcase, Loader2, SlidersHorizontal } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
 import VehicleDetailPanel from '../components/VehicleDetailPanel.jsx';
 import EditVehicleModal from '../components/EditVehicleModal.jsx';
+import ParametrosPreventiva from '../components/ParametrosPreventiva.jsx';
 import CampoListaComCriador from '../components/CampoListaComCriador.jsx';
 import DashboardExecutivoView from './DashboardExecutivoView.jsx';
 import DocumentManagementView from './DocumentManagementView.jsx';
@@ -19,6 +20,7 @@ const ABAS = [
   { key: 'galeria', label: 'Galeria de Veículos', icon: LayoutGrid },
   { key: 'dashboard', label: 'Dashboard Executivo', icon: BarChart3 },
   { key: 'documentos', label: 'Controle de Documentação', icon: FileText },
+  { key: 'parametros', label: 'Parâmetros de Preventiva', icon: SlidersHorizontal },
 ];
 
 function BarraAbas({ abaAtiva, onTrocar }) {
@@ -282,6 +284,24 @@ export default function MobDesmobView() {
       <div className="space-y-5">
         <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} />
         <DocumentManagementView veiculos={veiculos} />
+      </div>
+    );
+  }
+
+  if (abaAtiva === 'parametros') {
+    return (
+      <div className="space-y-5">
+        <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} />
+        <ParametrosPreventiva veiculos={veiculos} onToast={setToast} />
+        {toast && (
+          <div className="fixed bottom-5 right-5 z-[60] flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-xl bg-omega-900 text-white shadow-2xl text-sm font-semibold">
+            <CheckCircle2 size={17} className="text-status-verde shrink-0" />
+            <span>{toast}</span>
+            <button onClick={() => setToast(null)} className="ml-1 hover:bg-white/15 rounded-full p-0.5">
+              <X size={14} />
+            </button>
+          </div>
+        )}
       </div>
     );
   }

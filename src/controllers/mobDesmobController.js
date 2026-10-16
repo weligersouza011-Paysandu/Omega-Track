@@ -4,6 +4,8 @@ import {
   parseKm,
   obterUltimaKmFinal,
   calcularStatusManutencao,
+  resolverLimitePreventiva,
+  resolverAncorasPreventiva,
   KM_LIMITE_PREVENTIVA_PADRAO,
 } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
@@ -97,18 +99,33 @@ export const buscarStatusManutencao = asyncHandler(async (req, res) => {
     ultimaParte = await obterUltimaKmFinal(tag.toUpperCase(), ignorarId);
     kmAtual = ultimaParte.ultima_km_final;
   }
+  // Limite dinâmico: parâmetros por categoria/contrato > veículo > padrão.
+  const limiteResolvido = await resolverLimitePreventiva({
+    limiteVeiculo: veiculo.km_limite_preventiva,
+    categoria: veiculo.modelo,
+    contrato: veiculo.contrato,
+  });
+  // Âncora do ciclo: última parte preventiva > coluna manual > 0.
+  const ancora = await resolverAncorasPreventiva(tag.toUpperCase(), veiculo.km_ultima_preventiva);
   const diagnostico = calcularStatusManutencao({
     kmAtual,
-    kmUltimaPreventiva: veiculo.km_ultima_preventiva,
-    kmLimite: veiculo.km_limite_preventiva,
+    kmUltimaPreventiva: ancora.km_ultima_preventiva,
+    kmLimite: limiteResolvido.km_limite,
   });
   res.json({
     data: {
       tag,
       km_atual: kmAtual,
-      km_ultima_preventiva: veiculo.km_ultima_preventiva,
+      km_ultima_preventiva: ancora.km_ultima_preventiva,
+      origem_preventiva: ancora.origem_preventiva,
+      ultima_preventiva: ancora.parte_id
+        ? { parte_id: ancora.parte_id, data: ancora.data, numero_relatorio: ancora.numero_relatorio }
+        : null,
+      sem_registro_preventiva: ancora.origem_preventiva === 'zero',
       km_projetada: projetada,
       ultima_parte: ultimaParte,
+      origem_limite: limiteResolvido.origem_limite,
+      parametro_id: limiteResolvido.parametro_id,
       ...diagnostico,
     },
   });
