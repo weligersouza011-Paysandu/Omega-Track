@@ -152,24 +152,25 @@ function estadoVazio(usuario) {
   };
 }
 
-function Secao({ icone: Icone, titulo, count, aberto, onToggle, onAdicionar, labelAdicionar, children }) {
+function Secao({ icone: Icone, titulo, count, aberto, onToggle, onAdicionar, labelAdicionar, temErro, children }) {
   return (
-    <div className="card overflow-hidden">
+    <div className={`card overflow-hidden transition-all duration-300 ${temErro ? '!border-red-400 ring-2 ring-red-500/50 shadow-md shadow-red-500/10' : ''}`}>
       {/* Título em linha própria (nunca corta) + "+ Adicionar" abaixo no mobile */}
-      <div className="px-4 py-3">
+      <div className={`px-4 py-3 ${temErro ? 'bg-red-50/50' : ''}`}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full">
-          <button onClick={onToggle} className="flex items-center gap-2 flex-1 min-w-0 w-full text-left">
-            <span className="p-1.5 rounded-lg bg-omega-900 text-white shrink-0">
+          <button onClick={onToggle} type="button" className="flex items-center gap-2 flex-1 min-w-0 w-full text-left">
+            <span className={`p-1.5 rounded-lg text-white shrink-0 ${temErro ? 'bg-red-600' : 'bg-omega-900'}`}>
               <Icone size={14} />
             </span>
-            <span className="text-base font-bold text-omega-900">{titulo}</span>
-            <span className="chip bg-omega-100 text-omega-700 shrink-0">({count})</span>
+            <span className={`text-base font-bold ${temErro ? 'text-red-900' : 'text-omega-900'}`}>{titulo}</span>
+            <span className={`chip shrink-0 ${temErro ? 'bg-red-100 text-red-800' : 'bg-omega-100 text-omega-700'}`}>({count})</span>
             <ChevronDown size={15} className={`ml-auto text-omega-400 transition-transform shrink-0 ${aberto ? 'rotate-180' : ''}`} />
           </button>
           {onAdicionar && (
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onAdicionar(); }}
-              className="btn-secondary !py-1.5 !px-2.5 text-xs w-full sm:w-auto mt-1 sm:mt-0 justify-center shrink-0"
+              className={`${temErro ? 'btn-primary !bg-red-600 hover:!bg-red-700' : 'btn-secondary'} !py-1.5 !px-2.5 text-xs w-full sm:w-auto mt-1 sm:mt-0 justify-center shrink-0`}
             >
               <Plus size={14} /> {labelAdicionar || 'Adicionar'}
             </button>
@@ -278,7 +279,7 @@ function TagCombobox({ veiculos = [], value, onSelect, inputCls }) {
   );
 }
 
-export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], inicial = null, onSalvo }) {
+export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], inicial = null, onSalvo, onSave, onAtualizar }) {
   const usuario = sessao?.usuario || null;
   const [usuarios, setUsuarios] = useState([]);
   // Função do logado resolvida no cadastro fresco (/api/usuarios), com fallback
@@ -300,6 +301,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const [salvando, setSalvando] = useState(false);
   const [autosave, setAutosave] = useState(null); // null | 'salvando' | 'salvo HH:MM' | 'erro'
   const [erro, setErro] = useState(null);
+  const [errosValidacao, setErrosValidacao] = useState({});
   const [uploading, setUploading] = useState(false);
   const [nomesAssinatura, setNomesAssinatura] = useState({});
   const [secoes, setSecoes] = useState({ cabecalho: true, horario: true, mao: true, equip: false, ativ: true, ocor: false, fotos: false, assin: true });
@@ -324,14 +326,51 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
 
   const alternarSecao = (k) => setSecoes((s) => ({ ...s, [k]: !s[k] }));
 
+  const limparErroCampo = useCallback((campo) => {
+    setErrosValidacao((prev) => {
+      if (!prev || !prev[campo]) return prev;
+      const copy = { ...prev };
+      delete copy[campo];
+      return copy;
+    });
+  }, []);
+
+  const notificarSucesso = useCallback((msg, opts) => {
+    if (typeof onSalvo === 'function') onSalvo(msg, opts);
+    if (typeof onSave === 'function' && onSave !== onSalvo) onSave(msg, opts);
+    if (typeof onAtualizar === 'function') onAtualizar(msg, opts);
+  }, [onSalvo, onSave, onAtualizar]);
+
+  const executarScrollParaElemento = useCallback((id) => {
+    if (!id) return;
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const elementoFocavel = el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA'
+          ? el
+          : el.querySelector('input, select, textarea, button');
+        if (elementoFocavel && typeof elementoFocavel.focus === 'function') {
+          try {
+            elementoFocavel.focus({ preventScroll: true });
+          } catch {
+            /* noop */
+          }
+        }
+      }
+    }, 80);
+  }, []);
+
   const definir = useCallback((campo, valor) => {
     sujoRef.current = true;
+    limparErroCampo(campo);
     setForm((f) => ({ ...f, [campo]: valor }));
-  }, []);
+  }, [limparErroCampo]);
 
   // Domingo fora da grade: a data não aceita domingos (operação seg–sáb).
   const [erroData, setErroData] = useState(null);
   const definirData = (iso) => {
+    limparErroCampo('data');
     if (!iso) {
       setErroData(null);
       definir('data', iso);
@@ -350,12 +389,14 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const definirKmInicial = (valor) => {
     setKmHerdada(false);
     setKmOrigem(null);
+    limparErroCampo('km_final');
     definir('km_inicial', valor);
   };
 
   // Seleção de obra (dropdown): preenche automaticamente contrato,
   // contratante, gestão/responsável e planejador a partir do cadastro.
   const selecionarObra = useCallback((obraId) => {
+    limparErroCampo('obra');
     if (obraId === '__legado__') return; // mantém o texto legado
     sujoRef.current = true;
     setForm((f) => {
@@ -372,7 +413,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         planejador: obra.planejador || f.planejador,
       };
     });
-  }, [obras]);
+  }, [obras, limparErroCampo]);
 
   // ------- obras ativas (dropdown do cabeçalho) + usuários (função da mão de obra) -------
   useEffect(() => {
@@ -405,6 +446,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     if (!open) return;
     setErro(null);
     setErroData(null);
+    setErrosValidacao({});
     setAutosave(null);
     setVerLogs(false);
     if (!inicial?.id) {
@@ -604,16 +646,63 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   // Validação por modo: operação exige obra + veículo + status; manutenção e
   // parada exigem só veículo + status (obra oculta/opcional). Preventiva exige
   // também a KM (âncora do ciclo).
-  const relatorioValido = (f = form) => {
-    const modo = modoDoStatus(f.status_operacional);
-    const base = (f.equipamentos || []).some((e) => String(e.tag_patrimonio || '').trim()) &&
-      (modo !== 'operacao' || !!String(f.obra || '').trim()) &&
-      STATUS_OPERACIONAL_DIA.includes(f.status_operacional);
-    if (!base) return false;
-    if (modoDoStatus(f.status_operacional) === 'preventiva') {
-      return String(f.km_final ?? '').trim() !== '';
+  // Validação explícita de campos obrigatórios com mapeamento de IDs do DOM
+  const validarFormulario = useCallback((f = form) => {
+    const novosErros = {};
+    const pendentes = [];
+    let primeiroId = null;
+
+    const marcarErro = (campo, id, mensagem) => {
+      novosErros[campo] = mensagem;
+      pendentes.push(mensagem);
+      if (!primeiroId) primeiroId = id;
+    };
+
+    // 1. Data
+    if (!f.data) {
+      marcarErro('data', 'campo-data', 'Data é obrigatória');
+    } else if (erroData) {
+      marcarErro('data', 'campo-data', erroData);
     }
-    return true;
+
+    // 2. Status Operacional do Dia
+    if (!STATUS_OPERACIONAL_DIA.includes(f.status_operacional)) {
+      marcarErro('status_operacional', 'campo-status-operacional', 'Status Operacional do Dia é obrigatório');
+    }
+
+    // 3. Obra (obrigatória para o modo Operação)
+    const modoAtual = modoDoStatus(f.status_operacional);
+    if (modoAtual === 'operacao' && !String(f.obra || '').trim()) {
+      marcarErro('obra', 'campo-obra', 'Obra é obrigatória para relatórios em Operação');
+    }
+
+    // 4. Veículo em Equipamentos (obrigatório em todos os modos)
+    const temVeiculo = (f.equipamentos || []).some((e) => String(e.tag_patrimonio || '').trim());
+    if (!temVeiculo) {
+      marcarErro('equipamentos', 'campo-equipamentos', 'Veículo é obrigatório (adicione um veículo em Equipamentos)');
+      setSecoes((s) => ({ ...s, equip: true }));
+    }
+
+    // 5. Quilometragem
+    if (modoAtual === 'preventiva') {
+      if (String(f.km_final ?? '').trim() === '') {
+        marcarErro('km_final', 'campo-km-final', 'KM da Preventiva é obrigatória');
+      }
+    } else {
+      const msgKm = erroQuilometragemTexto(f.km_inicial, f.km_final);
+      if (msgKm) {
+        marcarErro('km_final', 'campo-km-final', msgKm);
+      }
+    }
+
+    setErrosValidacao(novosErros);
+    const valido = Object.keys(novosErros).length === 0;
+    return { valido, pendentes, primeiroId, erros: novosErros };
+  }, [form, erroData]);
+
+  const relatorioValido = (f = form) => {
+    const { valido } = validarFormulario(f);
+    return valido;
   };
 
   // Trava do odômetro em tempo real (espelha o backend).
@@ -627,25 +716,18 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
 
   // Lista exatamente quais campos obrigatórios estão pendentes (feedback visível)
   const camposPendentes = (f = form) => {
-    const pendentes = [];
-    if (modoDoStatus(f.status_operacional) === 'operacao' && !String(f.obra || '').trim()) {
-      pendentes.push('Obra');
-    }
-    if (!STATUS_OPERACIONAL_DIA.includes(f.status_operacional)) pendentes.push('Status Operacional do Dia');
-    if (!(f.equipamentos || []).some((e) => String(e.tag_patrimonio || '').trim())) {
-      pendentes.push('Veículo (em Equipamentos)');
-    }
-    if (modoDoStatus(f.status_operacional) === 'preventiva' && String(f.km_final ?? '').trim() === '') {
-      pendentes.push('KM da Preventiva');
-    }
+    const { pendentes } = validarFormulario(f);
     return pendentes;
   };
 
   const persistir = useCallback(async ({ silencioso = false, formOverride } = {}) => {
     const f = formOverride || form;
-    if (!relatorioValido(f)) {
-      const faltando = camposPendentes(f);
-      if (!silencioso) setErro(`Preencha para salvar: ${faltando.join(' • ')}.`);
+    const { valido, pendentes, primeiroId } = validarFormulario(f);
+    if (!valido) {
+      if (!silencioso) {
+        setErro(`Preencha para salvar: ${pendentes.join(' • ')}.`);
+        executarScrollParaElemento(primeiroId);
+      }
       return null;
     }
     // Bloqueio de salvamento: KM Final menor que KM Inicial (isenta na preventiva).
@@ -653,8 +735,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       ? null
       : erroQuilometragemTexto(f.km_inicial, f.km_final);
     if (msgKm) {
-      if (!silencioso) setErro(msgKm);
-      else setAutosave('erro');
+      if (!silencioso) {
+        setErro(msgKm);
+        executarScrollParaElemento('campo-km-final');
+      } else {
+        setAutosave('erro');
+      }
       return null;
     }
     if (!silencioso) { setErro(null); setSalvando(true); }
@@ -686,7 +772,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     } finally {
       if (!silencioso) setSalvando(false);
     }
-  }, [form, parteId, montarPayload, aplicarResposta, sessao]);
+  }, [form, parteId, montarPayload, aplicarResposta, sessao, validarFormulario, executarScrollParaElemento]);
 
   // Salvamento em tempo real: 1,5 s após a última edição (somente com id).
   useEffect(() => {
@@ -700,11 +786,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   }, [form, open, parteId, persistir]);
 
   // ------- salvamento direto ("Salvar Relatório" grava sem modal intermediário) -------
-  // Utiliza apenas as fotos gerais e as fotos dos checklists já presentes no formulário.
+  // Dispara validação com auto-scroll e destaque em caso de erro, e aciona o re-fetch no callback.
   const solicitarEnvio = async () => {
     if (salvando) return;
-    if (!relatorioValido()) {
-      setErro(`Preencha para salvar: ${camposPendentes().join(' • ')}.`);
+    const { valido, pendentes, primeiroId } = validarFormulario();
+    if (!valido) {
+      setErro(`Preencha para salvar: ${pendentes.join(' • ')}.`);
+      executarScrollParaElemento(primeiroId);
       return;
     }
     setErro(null);
@@ -714,13 +802,18 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     if (salvo) {
       // Sincroniza assinaturas feitas antes do salvamento (modo local)
       const final = await sincronizarAssinaturasPendentes(salvo.id, assinaturasLocais);
+      const resultadoFinal = final || salvo;
       if (final) {
         aplicarResposta(final);
         setForm((f) => ({ ...f, status_relatorio: final.status_relatorio || f.status_relatorio }));
       }
-      onSalvo?.('Parte Diária salva com sucesso!');
+      notificarSucesso('Parte Diária salva com sucesso!', { salvo: resultadoFinal });
+      return resultadoFinal;
     }
   };
+
+  const handleSave = solicitarEnvio;
+  const handleSubmit = solicitarEnvio;
 
   // ------- listas dinâmicas -------
   const adicionar = (chave, modelo) => {
@@ -819,6 +912,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const vincularEquipamento = (veiculo) => {
     if (!veiculo?.tag) return;
     sujoRef.current = true;
+    limparErroCampo('equipamentos');
     // O 1º equipamento é o veículo principal (TAG do relatório).
     const ehPrincipal = (form.equipamentos || []).length === 0;
     const kmVazia = String(form.km_inicial ?? '').trim() === '';
@@ -1117,7 +1211,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         setForm((f) => ({ ...f, status_relatorio: statusRelatorioParaEtapa(etapaNorm) }));
         sujoRef.current = true;
         setModalAssin(null);
-        onSalvo?.(`Etapa ${etapaNorm} assinada!`, { manterAberto: true });
+        notificarSucesso(`Etapa ${etapaNorm} assinada!`, { manterAberto: true });
         return;
       }
 
@@ -1140,7 +1234,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       aplicarResposta(corpo.data);
       setForm((f) => ({ ...f, status_relatorio: corpo.data.status_relatorio || f.status_relatorio }));
       setModalAssin(null);
-      onSalvo?.(`Etapa ${etapaNorm} assinada!`, { manterAberto: true });
+      notificarSucesso(`Etapa ${etapaNorm} assinada!`, { manterAberto: true, salvo: corpo.data });
     } catch (e) {
       console.error("Erro completo ao salvar:", e);
       setErro(`Erro ao salvar: ${e.details || e.message || 'Falha ao assinar.'}`);
@@ -1218,7 +1312,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               {autosave === 'erro' && 'Falha no salvamento automático — use Salvar Relatório.'}
             </span>
             <button onClick={fechar} disabled={salvando} className="btn-secondary disabled:opacity-50">Fechar</button>
-            <button onClick={solicitarEnvio} disabled={salvando || carregando || !!erroKm} title={erroKm || undefined} className="btn-primary disabled:opacity-50">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={salvando || carregando}
+              className="btn-primary disabled:opacity-50"
+            >
               {salvando ? <><Loader2 size={15} className="animate-spin" /> Salvando...</> : <><Save size={15} /> Salvar Relatório</>}
             </button>
           </>
@@ -1252,9 +1351,27 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               </div>
               <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="label">Data</label>
-                  <input type="date" value={form.data} onChange={(e) => definirData(e.target.value)} className={`${inputCls} ${erroData ? '!border-red-400' : ''}`} />
-                  {erroData && <p className="mt-1 text-[11px] font-semibold text-red-600">{erroData}</p>}
+                  <label className="label">Data <span className="text-status-vermelho">*</span></label>
+                  <input
+                    id="campo-data"
+                    type="date"
+                    value={form.data}
+                    onChange={(e) => {
+                      limparErroCampo('data');
+                      definirData(e.target.value);
+                    }}
+                    className={`${inputCls} ${
+                      errosValidacao.data || erroData
+                        ? '!border-red-500 ring-2 ring-red-500/50 bg-red-50/40 animate-pulse'
+                        : ''
+                    }`}
+                  />
+                  {(errosValidacao.data || erroData) && (
+                    <p className="mt-1 text-[11px] font-semibold text-red-600 flex items-center gap-1">
+                      <AlertTriangle size={12} className="shrink-0" />
+                      {errosValidacao.data || erroData}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="label">Dia da Semana</label>
@@ -1263,9 +1380,17 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 <div>
                   <label className="label">Status Operacional do Dia <span className="text-status-vermelho">*</span></label>
                   <select
+                    id="campo-status-operacional"
                     value={form.status_operacional || ''}
-                    onChange={(e) => definir('status_operacional', e.target.value)}
-                    className={`${inputCls} ${!STATUS_OPERACIONAL_DIA.includes(form.status_operacional) ? '!border-red-400' : ''}`}
+                    onChange={(e) => {
+                      limparErroCampo('status_operacional');
+                      definir('status_operacional', e.target.value);
+                    }}
+                    className={`${inputCls} ${
+                      errosValidacao.status_operacional || !STATUS_OPERACIONAL_DIA.includes(form.status_operacional)
+                        ? '!border-red-500 ring-2 ring-red-500/50 bg-red-50/40 animate-pulse'
+                        : ''
+                    }`}
                     required
                     title="Situação operacional da frente de serviço no dia"
                   >
@@ -1274,6 +1399,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                  {errosValidacao.status_operacional && (
+                    <p className="mt-1 text-[11px] font-semibold text-red-600 flex items-center gap-1">
+                      <AlertTriangle size={12} className="shrink-0" />
+                      {errosValidacao.status_operacional}
+                    </p>
+                  )}
                   {(modo === 'preventiva' || modo === 'parada') && (
                     <p className="mt-1 text-[11px] font-semibold text-omega-600">
                       {modo === 'preventiva'
@@ -1287,9 +1418,17 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 <div>
                   <label className="label">Obra <span className="text-status-vermelho">*</span></label>
                   <select
+                    id="campo-obra"
                     value={form.obra_id || (form.obra ? '__legado__' : '')}
-                    onChange={(e) => selecionarObra(e.target.value)}
-                    className={inputCls}
+                    onChange={(e) => {
+                      limparErroCampo('obra');
+                      selecionarObra(e.target.value);
+                    }}
+                    className={`${inputCls} ${
+                      errosValidacao.obra
+                        ? '!border-red-500 ring-2 ring-red-500/50 bg-red-50/40 animate-pulse'
+                        : ''
+                    }`}
                     title="Obras ativas do cadastro — preenche contrato, contratante, gestão e planejador"
                   >
                     <option value="">Selecionar obra...</option>
@@ -1303,6 +1442,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                       <option value="__legado__">{form.obra} (cadastro anterior)</option>
                     )}
                   </select>
+                  {errosValidacao.obra && (
+                    <p className="mt-1 text-[11px] font-semibold text-red-600 flex items-center gap-1">
+                      <AlertTriangle size={12} className="shrink-0" />
+                      {errosValidacao.obra}
+                    </p>
+                  )}
                   <p className="mt-1 text-[11px] text-omega-400">Ao selecionar, contrato, contratante, gestão e planejador são preenchidos automaticamente.</p>
                 </div>
                 <div>
@@ -1407,32 +1552,55 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             )}
 
             {/* 4. EQUIPAMENTOS */}
-            <Secao icone={Truck} titulo="Equipamentos" count={form.equipamentos.length} aberto={secoes.equip} onToggle={() => alternarSecao('equip')} onAdicionar={() => { setBuscaEquip(''); setModalEquip(true); }}>
-              {form.equipamentos.length === 0 && <LinhaVazia texto="Nenhum veículo/equipamento lançado. Use + Adicionar para escolher da frota." />}
-              {form.equipamentos.map((it, i) => {
-                const norm = (v) => String(v || '').trim().toUpperCase();
-                const ficha = (veiculos || []).find((v) => norm(v.tag) === norm(it.tag_patrimonio));
-                const identificacao = [
-                  it.tag_patrimonio || '—',
-                  ficha?.placa,
-                  it.descricao || ficha?.modelo,
-                ].filter(Boolean).join(' • ');
-                return (
-                  <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
-                    <div className="flex items-center gap-3 min-w-0 w-full">
-                      <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
-                        <Truck size={15} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-mono font-extrabold text-omega-900 text-sm break-words">{identificacao}</span>
-                        {ficha?.status && <span className="block text-[11px] text-omega-400">{ficha.status}</span>}
-                      </span>
-                    </div>
-                    <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} self-end sm:self-center sm:ml-auto shrink-0`} title="Remover"><Trash2 size={15} /></button>
+            <div id="campo-equipamentos" className={`rounded-2xl transition-all ${errosValidacao.equipamentos ? 'ring-2 ring-red-500/70 p-0.5' : ''}`}>
+              <Secao
+                icone={Truck}
+                titulo="Equipamentos (Veículo Obrigatório)"
+                count={form.equipamentos.length}
+                aberto={secoes.equip}
+                onToggle={() => alternarSecao('equip')}
+                onAdicionar={() => { setBuscaEquip(''); setModalEquip(true); }}
+                temErro={!!errosValidacao.equipamentos}
+              >
+                {errosValidacao.equipamentos && (
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-bold text-red-700 flex items-center gap-2 animate-pulse">
+                    <AlertTriangle size={15} className="shrink-0 text-red-600" />
+                    <span>{errosValidacao.equipamentos}</span>
+                    <button
+                      type="button"
+                      onClick={() => { setBuscaEquip(''); setModalEquip(true); }}
+                      className="ml-auto btn-primary !py-1 !px-2.5 text-xs shrink-0"
+                    >
+                      <Plus size={13} /> Escolher da Frota
+                    </button>
                   </div>
-                );
-              })}
-            </Secao>
+                )}
+                {form.equipamentos.length === 0 && <LinhaVazia texto="Nenhum veículo/equipamento lançado. Use + Adicionar para escolher da frota." />}
+                {form.equipamentos.map((it, i) => {
+                  const norm = (v) => String(v || '').trim().toUpperCase();
+                  const ficha = (veiculos || []).find((v) => norm(v.tag) === norm(it.tag_patrimonio));
+                  const identificacao = [
+                    it.tag_patrimonio || '—',
+                    ficha?.placa,
+                    it.descricao || ficha?.modelo,
+                  ].filter(Boolean).join(' • ');
+                  return (
+                    <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
+                      <div className="flex items-center gap-3 min-w-0 w-full">
+                        <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
+                          <Truck size={15} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-mono font-extrabold text-omega-900 text-sm break-words">{identificacao}</span>
+                          {ficha?.status && <span className="block text-[11px] text-omega-400">{ficha.status}</span>}
+                        </span>
+                      </div>
+                      <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} self-end sm:self-center sm:ml-auto shrink-0`} title="Remover"><Trash2 size={15} /></button>
+                    </div>
+                  );
+                })}
+              </Secao>
+            </div>
 
             {/* 5. QUILOMETRAGEM (operação + preventiva) */}
             {(modo === 'operacao' || modo === 'preventiva') && (
@@ -1488,9 +1656,29 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 )}
                 <div className={modo === 'preventiva' ? 'col-span-2' : ''}>
                   <label className="label">{modo === 'preventiva' ? 'KM da Preventiva *' : 'KM Final'}</label>
-                  <input type="number" min="0" value={form.km_final} onChange={(e) => definir('km_final', e.target.value)} className={`${inputCls} tabular-nums ${erroKm ? '!border-red-400' : ''}`} placeholder="0" />
-                  {erroKm && <p className="mt-1 text-[11px] font-semibold text-red-600">{erroKm}</p>}
-                  {!erroKm && modo === 'preventiva' && (
+                  <input
+                    id="campo-km-final"
+                    type="number"
+                    min="0"
+                    value={form.km_final}
+                    onChange={(e) => {
+                      limparErroCampo('km_final');
+                      definir('km_final', e.target.value);
+                    }}
+                    className={`${inputCls} tabular-nums ${
+                      errosValidacao.km_final || erroKm
+                        ? '!border-red-500 ring-2 ring-red-500/50 bg-red-50/40 animate-pulse'
+                        : ''
+                    }`}
+                    placeholder="0"
+                  />
+                  {(errosValidacao.km_final || erroKm) && (
+                    <p className="mt-1 text-[11px] font-semibold text-red-600 flex items-center gap-1">
+                      <AlertTriangle size={12} className="shrink-0" />
+                      {errosValidacao.km_final || erroKm}
+                    </p>
+                  )}
+                  {!erroKm && !errosValidacao.km_final && modo === 'preventiva' && (
                     <p className="mt-1 text-[11px] text-omega-500">Zera o ciclo e vira a nova âncora da preventiva.</p>
                   )}
                 </div>
@@ -1817,7 +2005,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   <FileText size={16} /> Ver Relatório
                 </button>
               )}
-              <button onClick={solicitarEnvio} disabled={salvando || carregando || !!erroKm} title={erroKm || undefined} className="btn-primary flex-1 justify-center !py-3 text-sm disabled:opacity-50">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={salvando || carregando}
+                className="btn-primary flex-1 justify-center !py-3 text-sm disabled:opacity-50"
+              >
                 {salvando ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : <><Save size={16} /> Salvar Relatório</>}
               </button>
             </div>

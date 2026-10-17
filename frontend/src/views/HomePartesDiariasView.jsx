@@ -78,27 +78,35 @@ export default function HomePartesDiariasView({ sessao }) {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const carregar = async () => {
+  const fetchPartesDiarias = async () => {
     setCarregando(true);
     setErro(null);
     try {
-      const params = new URLSearchParams({ limit: '100' });
+      const params = new URLSearchParams({ limit: '100', _t: String(Date.now()) });
       // Otimizacao: operacional ja pede so os proprios ao backend.
       // O filtro client-side abaixo reaplica a regra por seguranca.
       if (!visaoTotal && usuario?.matricula) params.set('operador', String(usuario.matricula));
       const resp = await fetch(`/api/partes-diarias?${params.toString()}`, {
-        headers: authHeaders(sessao),
+        headers: {
+          ...authHeaders(sessao),
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
       });
       if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
       const corpo = await resp.json();
       const lista = Array.isArray(corpo?.data) ? corpo.data : [];
       setPartes(lista);
+      return lista;
     } catch {
       setErro('Não foi possível carregar as Partes Diárias. Verifique se o backend está no ar.');
+      return [];
     } finally {
       setCarregando(false);
     }
   };
+
+  const carregar = fetchPartesDiarias;
 
   const carregarVeiculos = async () => {
     try {
@@ -155,12 +163,25 @@ export default function HomePartesDiariasView({ sessao }) {
 
   const podeEditar = (p) => visaoTotal || pertenceAoUsuario(p, usuario);
 
-  const aoSalvarForm = (msg, opts) => {
+  const aoSalvarForm = async (msg, opts) => {
     // Feedback visual de sucesso: fecha o modal do formulário e exibe o toast.
     // Assinaturas de etapa passam { manterAberto: true } para seguir no formulário.
     if (!opts?.manterAberto) setFormState({ aberto: false, id: null });
     setToast(msg || 'Parte Diária salva com sucesso!');
-    carregar();
+
+    // Atualização imediata do estado local do React com o registro salvo retornado
+    if (opts?.salvo && opts.salvo.id) {
+      setPartes((anteriores) => {
+        const existe = anteriores.some((p) => p.id === opts.salvo.id);
+        if (existe) {
+          return anteriores.map((p) => (p.id === opts.salvo.id ? { ...p, ...opts.salvo } : p));
+        }
+        return [opts.salvo, ...anteriores];
+      });
+    }
+
+    // Dispara obrigatoriamente a recarga completa dos dados da listagem da API
+    await fetchPartesDiarias();
   };
 
   const confirmarExcluir = async () => {
@@ -175,9 +196,10 @@ export default function HomePartesDiariasView({ sessao }) {
         const corpo = await resp.json().catch(() => ({}));
         throw new Error(corpo.message || `Falha ao excluir (API ${resp.status})`);
       }
+      setPartes((anteriores) => anteriores.filter((p) => p.id !== excluir.id));
       setExcluir(null);
       setToast('Parte Diária excluída com sucesso!');
-      carregar();
+      await fetchPartesDiarias();
     } catch (e) {
       setToast(`Falha ao excluir: ${e.message}`);
     } finally {
@@ -565,11 +587,15 @@ export default function HomePartesDiariasView({ sessao }) {
       {/* Formulário completo — Parte Diária, modelo Omega Service */}
       <ParteDiariaForm
         open={formState.aberto}
-        onClose={() => setFormState({ aberto: false, id: null })}
+        onClose={() => {
+          setFormState({ aberto: false, id: null });
+          fetchPartesDiarias();
+        }}
         sessao={sessao}
         veiculos={veiculos}
         inicial={formState.id ? { id: formState.id } : null}
         onSalvo={aoSalvarForm}
+        onSave={aoSalvarForm}
       />
 
       {/* Confirmação de exclusão — somente MASTER enxerga o botão */}

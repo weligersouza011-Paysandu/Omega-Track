@@ -150,6 +150,19 @@ const INCLUDE_COMPLETO = {
   fotos: { orderBy: { created_at: 'asc' } },
   assinaturas: { orderBy: { created_at: 'asc' } },
   logs: { orderBy: { created_at: 'desc' }, take: 20 },
+  _count: {
+    select: {
+      mao_obra: true,
+      equipamentos: true,
+      atividades: true,
+      ocorrencias: true,
+      checklist: true,
+      comentarios: true,
+      fotos: true,
+      assinaturas: true,
+      logs: true,
+    },
+  },
 };
 
 async function registrarLog(txOuPrisma, parte_id, acao, autor, detalhes = null) {
@@ -391,6 +404,7 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
     prisma.parteDiaria.count({ where }),
   ]);
 
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({
     data: partes,
     pagination: {
