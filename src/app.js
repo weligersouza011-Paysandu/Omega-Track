@@ -35,6 +35,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// Health check / keep-alive leve para evitar spin down no Render
+app.get('/ping', (req, res) => {
+  res.status(200).json({
+    status: 'online',
+    message: 'pong',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.use('/api', routes);
 
 if (hasFrontendBuild) {

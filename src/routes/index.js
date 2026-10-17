@@ -56,6 +56,14 @@ router.get('/health', (req, res) => {
   });
 });
 
+router.get('/ping', (req, res) => {
+  res.status(200).json({
+    status: 'online',
+    message: 'pong',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 router.use('/mob-desmob', mobDesmobRoutes);
 router.use('/documentacao-veiculos', documentacaoRoutes);
 router.use('/obras', obraRoutes);
