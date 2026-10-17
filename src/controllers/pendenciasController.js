@@ -64,6 +64,61 @@ function normalizar(v) {
   return String(v || '').trim().toUpperCase();
 }
 
+// Migration pendente: tabela/coluna nova ainda nao criada no banco (P2021/
+// P2022) ou erro textual equivalente — base do modo defensivo da auditoria.
+function migrationPendente(erro) {
+  const codigo = String(erro?.code || '');
+  if (codigo === 'P2021' || codigo === 'P2022') return true;
+  return /does not exist|doesn't exist|Unknown table|Unknown column|no such table/i.test(String(erro?.message || ''));
+}
+
+// Falha transitoria de conexao (banco serverless acordando, pool esgotado,
+// rede): vale a pena repetir a consulta antes de desistir.
+function erroTransitorioDeConexao(erro) {
+  const codigo = String(erro?.code || '');
+  if (['P1001', 'P1002', 'P1017', 'P2024'].includes(codigo)) return true;
+  return /Can't reach database server|Connection terminated|Timed out fetching a new connection|ECONNRESET|ETIMEDOUT|EPIPE|Connection reset/i
+    .test(String(erro?.message || ''));
+}
+
+// Re-try de conexao: repete a consulta algumas vezes com espera progressiva
+// quando o erro for transitorio (ex.: Neon acordando). Erros permanentes
+// (migration pendente, validacao) sobem imediatamente.
+async function comRetryConexao(fn, tentativas = 3, esperaMs = 700) {
+  for (let tentativa = 1; ; tentativa += 1) {
+    try {
+      return await fn();
+    } catch (erro) {
+      if (tentativa >= tentativas || !erroTransitorioDeConexao(erro)) throw erro;
+      console.warn(
+        `[pendencias] Falha transitoria de banco (tentativa ${tentativa}/${tentativas}) — repetindo consulta...`,
+        { code: erro?.code, message: erro?.message },
+      );
+      await new Promise((resolve) => setTimeout(resolve, esperaMs * tentativa));
+    }
+  }
+}
+
+// Overrides de operador (edicao manual do ADM) com fallback defensivo: se a
+// tabela `pendencias_parte_diaria_operador` ainda nao existir (migration 0018
+// pendente) ou o banco falhar temporariamente, a auditoria segue com a lista
+// base derivada e status 200 — apenas registra o aviso no console. A interface
+// do usuario nunca quebra por causa do join de overrides.
+async function buscarOverridesOperador(where) {
+  try {
+    return await comRetryConexao(() => prisma.pendenciaParteDiariaOperador.findMany({
+      where,
+      select: { tag: true, data: true, operador_id: true, operador_nome: true, operador_matricula: true },
+    }));
+  } catch (erro) {
+    console.warn(
+      '[pendencias] Overrides de operador indisponiveis — auditoria segue sem edicoes manuais.',
+      { migrationPendente: migrationPendente(erro), code: erro?.code, message: erro?.message },
+    );
+    return [];
+  }
+}
+
 // Normaliza `datas` vindo como string ("a,b"), array repetido ou array JSON.
 function parseListaDatas(bruto) {
   if (bruto === undefined || bruto === null) return [];
@@ -158,30 +213,27 @@ export const listarPendencias = asyncHandler(async (req, res) => {
   const fimData = isoParaData(fimISO);
 
   // Passo A: frota ativa/mobilizada.
-  const veiculos = await prisma.mobDesmob.findMany({
+  const veiculos = await comRetryConexao(() => prisma.mobDesmob.findMany({
     where: { status: { not: 'Desmobilizado' } },
     select: { tag: true, placa: true, data_mob: true, data_desmob: true },
-  });
+  }));
   const tagsFrota = veiculos.map((v) => v.tag);
 
   // Passo B: partes diarias da janela (presenca por veiculo/dia + timeline)
   // + pendencias descartadas + overrides de operador responsavel.
   const [partesJanela, ignoradas, overrides] = await Promise.all([
-    tagsFrota.length
+    comRetryConexao(() => (tagsFrota.length
       ? prisma.parteDiaria.findMany({
         where: { tag: { in: tagsFrota }, data: { gte: inicioData, lte: fimData } },
         select: { tag: true, data: true, funcionario: true, operador: true, criado_por: true },
         orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
       })
-      : Promise.resolve([]),
-    prisma.pendenciaParteDiariaIgnorada.findMany({
+      : Promise.resolve([]))),
+    comRetryConexao(() => prisma.pendenciaParteDiariaIgnorada.findMany({
       where: { data: { gte: inicioData, lte: fimData } },
       select: { tag: true, data: true },
-    }),
-    prisma.pendenciaParteDiariaOperador.findMany({
-      where: { data: { gte: inicioData, lte: fimData } },
-      select: { tag: true, data: true, operador_id: true, operador_nome: true, operador_matricula: true },
-    }),
+    })),
+    buscarOverridesOperador({ data: { gte: inicioData, lte: fimData } }),
   ]);
 
   const presentes = new Map(); // TAG -> Set(dia ISO)
@@ -222,14 +274,14 @@ export const listarPendencias = asyncHandler(async (req, res) => {
   if (candidatos.length) {
     // Historico anterior a janela (ultimo operador responsavel).
     const tagsOriginais = [...new Set(candidatos.map((c) => c.tag))];
-    const historico = await prisma.parteDiaria.findMany({
+    const historico = await comRetryConexao(() => prisma.parteDiaria.findMany({
       where: {
         tag: { in: tagsOriginais },
         data: { gte: isoParaData(somarDiasISO(inicioISO, -HISTORICO_DIAS)), lt: inicioData },
       },
       select: { tag: true, data: true, funcionario: true, operador: true, criado_por: true },
       orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
-    });
+    }));
     for (const p of historico) {
       const tag = normalizar(p.tag);
       if (!timeline.has(tag)) timeline.set(tag, []);
@@ -248,12 +300,12 @@ export const listarPendencias = asyncHandler(async (req, res) => {
     const emMemoria = lista.find((r) => r.iso < candidato.dia);
     if (emMemoria) return Promise.resolve(emMemoria);
     if (fallbackCache.has(candidato.tagNorm)) return fallbackCache.get(candidato.tagNorm);
-    const busca = prisma.parteDiaria
+    const busca = comRetryConexao(() => prisma.parteDiaria
       .findFirst({
         where: { tag: candidato.tag, data: { lt: isoParaData(candidato.dia) } },
         select: { data: true, funcionario: true, operador: true, criado_por: true },
         orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
-      })
+      }))
       .then((r) => (r ? { iso: isoDeData(r.data), funcionario: r.funcionario, operador: r.operador, criado_por: r.criado_por } : null))
       .catch(() => null);
     fallbackCache.set(candidato.tagNorm, busca);
@@ -261,9 +313,9 @@ export const listarPendencias = asyncHandler(async (req, res) => {
   };
 
   // Resolve o autor da PD mais recente anterior a cada dia pendente.
-  const usuarios = await prisma.usuario.findMany({
+  const usuarios = await comRetryConexao(() => prisma.usuario.findMany({
     select: { id: true, matricula: true, nome: true },
-  });
+  }));
   const usuarioPorMatricula = new Map(
     usuarios.filter((u) => u.matricula).map((u) => [normalizar(u.matricula), u]),
   );
@@ -416,43 +468,57 @@ export const trocarOperadorPendencia = asyncHandler(async (req, res) => {
   const dataRef = isoParaData(dataISO);
   const atualizadoPor = req.atuante?.nome || null;
 
-  // Sem operador informado: remove o override (pendencia volta ao derivado).
-  if (!operadorId && !nome && !matricula) {
-    await prisma.pendenciaParteDiariaOperador.deleteMany({ where: { tag, data: dataRef } });
-    return res.json({
+  try {
+    // Sem operador informado: remove o override (pendencia volta ao derivado).
+    if (!operadorId && !nome && !matricula) {
+      await prisma.pendenciaParteDiariaOperador.deleteMany({ where: { tag, data: dataRef } });
+      return res.json({
+        data: {
+          id: `${normalizar(tag)}|${dataISO}`,
+          tag,
+          data_pendente: dataISO,
+          operador_editado: false,
+          ultimo_operador_id: null,
+          ultimo_operador_nome: null,
+          ultimo_operador_matricula: null,
+        },
+      });
+    }
+
+    const registro = await prisma.pendenciaParteDiariaOperador.upsert({
+      where: { tag_data: { tag, data: dataRef } },
+      create: {
+        tag, data: dataRef, operador_id: operadorId, operador_nome: nome,
+        operador_matricula: matricula, atualizado_por: atualizadoPor,
+      },
+      update: {
+        operador_id: operadorId, operador_nome: nome,
+        operador_matricula: matricula, atualizado_por: atualizadoPor,
+      },
+    });
+
+    res.json({
       data: {
         id: `${normalizar(tag)}|${dataISO}`,
         tag,
         data_pendente: dataISO,
-        operador_editado: false,
-        ultimo_operador_id: null,
-        ultimo_operador_nome: null,
-        ultimo_operador_matricula: null,
+        operador_editado: true,
+        ultimo_operador_id: registro.operador_id,
+        ultimo_operador_nome: registro.operador_nome,
+        ultimo_operador_matricula: registro.operador_matricula,
       },
     });
+  } catch (erro) {
+    // Modo defensivo: migration da tabela de overrides ainda nao aplicada.
+    if (migrationPendente(erro)) {
+      console.warn('[pendencias] Troca de operador indisponivel — migration 0018 pendente.', {
+        code: erro?.code, message: erro?.message,
+      });
+      return res.status(503).json({
+        error: 'Migration pendente',
+        message: 'A tabela de edicoes manuais de operador ainda nao existe no banco. Rode `npx prisma migrate deploy` e tente novamente.',
+      });
+    }
+    throw erro;
   }
-
-  const registro = await prisma.pendenciaParteDiariaOperador.upsert({
-    where: { tag_data: { tag, data: dataRef } },
-    create: {
-      tag, data: dataRef, operador_id: operadorId, operador_nome: nome,
-      operador_matricula: matricula, atualizado_por: atualizadoPor,
-    },
-    update: {
-      operador_id: operadorId, operador_nome: nome,
-      operador_matricula: matricula, atualizado_por: atualizadoPor,
-    },
-  });
-
-  res.json({
-    data: {
-      id: `${normalizar(tag)}|${dataISO}`,
-      tag,
-      data_pendente: dataISO,
-      operador_editado: true,
-      ultimo_operador_id: registro.operador_id,
-      ultimo_operador_nome: registro.operador_nome,
-      ultimo_operador_matricula: registro.operador_matricula,
-    },
-  });
 });

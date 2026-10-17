@@ -103,25 +103,51 @@ export default function PendenciasParteDiariaView({ sessao, embutido = false }) 
       setCarregando(false);
       return;
     }
+    const params = new URLSearchParams({ datas: lista.join(','), _t: String(Date.now()) });
+    const urlConsulta = `/api/partes-diarias/pendencias?${params.toString()}`;
     setCarregando(true);
     setErro(null);
     try {
-      const params = new URLSearchParams({ datas: lista.join(','), _t: String(Date.now()) });
-      const resp = await fetch(`/api/partes-diarias/pendencias?${params.toString()}`, {
+      const resp = await fetch(urlConsulta, {
         headers: {
           ...authHeaders(sessao),
           'Cache-Control': 'no-cache, no-store, must-revalidate',
         },
       });
-      if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
+      if (!resp.ok) {
+        // Captura a mensagem exata da API (ex.: erro do Prisma/migration).
+        let mensagemApi = '';
+        try {
+          const corpoErro = await resp.json();
+          mensagemApi = corpoErro?.message || corpoErro?.error || '';
+        } catch {
+          /* corpo nao-JSON (proxy/502) */
+        }
+        const erroApi = new Error(mensagemApi || `API respondeu ${resp.status}`);
+        erroApi.status = resp.status;
+        erroApi.mensagemApi = mensagemApi;
+        throw erroApi;
+      }
       const corpo = await resp.json();
       setPendencias(Array.isArray(corpo?.data) ? corpo.data : []);
       setMeta(corpo?.meta || null);
       setDatasAuditadas(
         Array.isArray(corpo?.meta?.datas) && corpo.meta.datas.length ? corpo.meta.datas : lista,
       );
-    } catch {
-      setErro('Não foi possível carregar a auditoria de pendências. Verifique se o backend está no ar.');
+    } catch (e) {
+      // Diagnostico completo no DevTools (F12 → Console) para falhas da API.
+      console.error('[pendencias] Falha ao consultar a auditoria de pendências', {
+        url: urlConsulta,
+        status: e?.status ?? null,
+        mensagem: e?.message || null,
+        mensagemApi: e?.mensagemApi || null,
+        erro: e,
+      });
+      setErro(
+        e?.status
+          ? `Não foi possível carregar a auditoria de pendências (HTTP ${e.status}${e.mensagemApi ? `: ${e.mensagemApi}` : ''}).`
+          : 'Não foi possível carregar a auditoria de pendências. Verifique se o backend está no ar.',
+      );
       setPendencias([]);
     } finally {
       setCarregando(false);
