@@ -359,21 +359,33 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
     ];
   }
 
-  // Escopo por papel (defesa em profundidade — o frontend também filtra):
-  // sessão JWT de OPERACIONAL restringe aos próprios lançamentos
-  // (operador = matrícula ou funcionario contém matrícula/nome).
+  // ==========================================================================
+  // ESCOPO POR PAPEL (RBAC) — duas regras estritas:
+  //
+  // 1) MASTER / ADMIN / TRANSPORTE (tipo ADMINISTRADOR, qualquer nivel/setor):
+  //    VISAO GLOBAL TOTAL. A query NAO recebe filtro de usuario_id nem
+  //    restricao de status/tipo — retorna TODOS os registros do banco
+  //    (preventivas, corretivas, indisponibilidades, interdicoes e
+  //    lancamentos de QUALQUER operador). Os unicos filtros possiveis sao
+  //    os parametros explicitos opcionais da query string (UI/relatorios).
+  //
+  // 2) OPERACIONAL comum: ISOLAMENTO OBRIGATORIO — ve e gerencia
+  //    exclusivamente os proprios registros (operador = matricula, ou o
+  //    nome/matricula embutido em `funcionario`). Aplicado SEMPRE, mesmo
+  //    que o cliente nao envie nenhum parametro.
+  // ==========================================================================
   const op = sessaoOperacional(req);
   if (op) {
+    const escopoOperacional = [
+      { operador: op.matricula },
+      { funcionario: { contains: op.matricula, mode: 'insensitive' } },
+      ...(op.nome
+        ? [{ funcionario: { contains: op.nome, mode: 'insensitive' } }]
+        : []),
+    ];
     where.AND = [
       ...(where.AND || []),
-      {
-        OR: [
-          { operador: op.matricula },
-          ...(op.nome
-            ? [{ funcionario: { contains: op.nome, mode: 'insensitive' } }]
-            : []),
-        ],
-      },
+      { OR: escopoOperacional },
     ];
   }
 
@@ -382,7 +394,9 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
       where,
       skip,
       take: Number(limit),
-      orderBy: { data: 'desc' },
+      // Regra de ordenacao global: mais recente primeiro (data e, como
+      // desempate, o horario de criacao do registro).
+      orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
       include: {
         veiculo: { select: { placa: true, modelo: true, status: true } },
         obra_ref: { select: { id: true, nome: true, numero_contrato: true } },
@@ -599,6 +613,12 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
 
   const dataRef = data ? new Date(data) : new Date();
   const filhos = normalizarFilhos(req.body);
+  // IMPORTANTE: o POST e SEMPRE aditivo — cria um registro novo e NUNCA
+  // substitui/mescla Partes Diarias existentes (outro status, outro tipo de
+  // relatorio ou outro dia). Historico 100% preservado: cada lançamento
+  // (Operacao, Preventiva, Corretiva, Indisponibilidade, Interdicao)
+  // coexiste de forma independente na listagem.
+  const diaRef = new Date(Date.UTC(dataRef.getUTCFullYear(), dataRef.getUTCMonth(), dataRef.getUTCDate()));
 
   // Vinculo com o cadastro de Obras (dropdown da Parte Diaria).
   let obraIdFinal = null;
@@ -688,12 +708,16 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
 
   // Baixa automatica na auditoria de pendencias de lancamento: a criacao do
   // relatorio ja elimina a pendencia derivada; limpa tambem eventual descarte
-  // manual anterior para o mesmo veiculo/dia.
+  // manual e override de operador anteriores para o mesmo veiculo/dia.
   try {
-    const diaRef = new Date(Date.UTC(dataRef.getUTCFullYear(), dataRef.getUTCMonth(), dataRef.getUTCDate()));
-    await prisma.pendenciaParteDiariaIgnorada.deleteMany({
-      where: { tag: tagFinal, data: diaRef },
-    });
+    await Promise.all([
+      prisma.pendenciaParteDiariaIgnorada.deleteMany({
+        where: { tag: tagFinal, data: diaRef },
+      }),
+      prisma.pendenciaParteDiariaOperador.deleteMany({
+        where: { tag: tagFinal, data: diaRef },
+      }),
+    ]);
   } catch {
     /* higiene da auditoria nao bloqueia o salvamento */
   }
@@ -907,6 +931,27 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
       message: 'Não foi possível atualizar a parte diária no banco de dados. Verifique os campos e tente novamente.',
       ...(config.nodeEnv === 'development' && { details: e.message, stack: e.stack }),
     });
+  }
+
+  // Baixa automatica na auditoria de pendencias: qualquer salvamento da Parte
+  // Diaria (inclusive autosave de edicao) limpa o descarte manual anterior
+  // para o mesmo veiculo/dia do registro.
+  try {
+    const dataEfetiva = dados.data || atual.data;
+    if (dataEfetiva) {
+      const diaRefAtual = new Date(Date.UTC(dataEfetiva.getUTCFullYear(), dataEfetiva.getUTCMonth(), dataEfetiva.getUTCDate()));
+      const tagEfetiva = dados.tag || atual.tag;
+      await Promise.all([
+        prisma.pendenciaParteDiariaIgnorada.deleteMany({
+          where: { tag: tagEfetiva, data: diaRefAtual },
+        }),
+        prisma.pendenciaParteDiariaOperador.deleteMany({
+          where: { tag: tagEfetiva, data: diaRefAtual },
+        }),
+      ]);
+    }
+  } catch {
+    /* higiene da auditoria nao bloqueia o salvamento */
   }
 
   // Recalcula a pendência geral a partir do estado final (checklists + atividades).
