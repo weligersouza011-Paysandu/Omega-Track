@@ -15,6 +15,34 @@ function normalizar(v) {
   return String(v || '').trim().toUpperCase();
 }
 
+// Paradas/manutencoes nao tem alocacao em obra: o selo principal da linha
+// passa a ser o proprio tipo da parada e a frente vira "Oficina / Patio".
+const STATUS_PARADA = ['Manutenção Preventiva', 'Manutenção Corretiva', 'Indisponibilidade', 'Interdição'];
+
+// Coluna STATUS da listagem:
+// - Operacao: fluxo de aprovacao (Em Preenchimento -> Aprovado) + obra abaixo;
+// - Parada/Manutencao: selo do tipo da parada + indicador de oficina/patio.
+function StatusDaParte({ parte, direita = false }) {
+  const statusOperacional = String(parte?.status_operacional || parte?.status || '').trim();
+  const alinhamento = direita ? 'items-end text-right' : 'items-start';
+  if (STATUS_PARADA.includes(statusOperacional)) {
+    return (
+      <div className={`flex flex-col gap-1 ${alinhamento}`}>
+        <BadgeStatus status={statusOperacional} />
+        <span className="text-[11px] text-omega-400 italic">Oficina / Pátio</span>
+      </div>
+    );
+  }
+  return (
+    <div className={`flex flex-col gap-1 ${alinhamento}`}>
+      <BadgeStatus status={parte?.status_aprovacao || parte?.status} />
+      <span className="text-[11px] text-omega-500 truncate max-w-[190px]" title={parte?.obra || ''}>
+        {parte?.obra || '—'}
+      </span>
+    </div>
+  );
+}
+
 // Registro pertence ao usuario logado? (matricula no campo operador
 // ou nome no campo funcionario — cobre os dois formatos de lancamento).
 function pertenceAoUsuario(p, usuario) {
@@ -325,15 +353,10 @@ export default function HomePartesDiariasView({ sessao }) {
               const editavel = podeEditar(p);
               return (
                 <div key={p.id} className="px-4 py-3 space-y-2.5">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-start justify-between gap-2">
                     <span className="font-bold text-omega-900 tabular-nums text-sm">{formatarData(p.data)}</span>
-                    <BadgeStatus status={p.status_aprovacao || p.status} />
+                    <StatusDaParte parte={p} direita />
                   </div>
-                  {p.possui_pendencia && (
-                    <span className="inline-block chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25" title="Checklist sem foto ou atividade pendente">
-                      Pendente
-                    </span>
-                  )}
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="font-bold text-omega-900 text-sm truncate">{p.tag}</div>
@@ -418,14 +441,7 @@ export default function HomePartesDiariasView({ sessao }) {
                         {kmI == null && kmF == null ? '—' : `${kmI ?? '—'} / ${kmF ?? '—'}`}
                       </td>
                       <td className="px-4 py-2.5">
-                        <div className="flex flex-col items-start gap-1">
-                          <BadgeStatus status={p.status_aprovacao || p.status} />
-                          {p.possui_pendencia && (
-                            <span className="chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25" title="Checklist sem foto ou atividade pendente">
-                              Pendente
-                            </span>
-                          )}
-                        </div>
+                        <StatusDaParte parte={p} />
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex justify-end gap-1">
