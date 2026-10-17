@@ -9,6 +9,7 @@ import BadgeStatus from './BadgeStatus.jsx';
 import ModalAssinaturaDigital from './ModalAssinaturaDigital.jsx';
 import RelatorioParteDiariaPreview from './RelatorioParteDiariaPreview.jsx';
 import { authHeaders } from '../utils/sessao.js';
+import { hojeISO, paraInputData, formatarDataSemTimezone } from '../utils/datas.js';
 
 // Status internos do fluxo de aprovação (mapeados para exibição)
 const STATUS_APROVACAO = {
@@ -87,10 +88,6 @@ function checklistInicial(itens) {
 const STATUS_EQUIP = ['Operacional', 'Standby', 'Manutenção'];
 
 const DIAS_PT = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-
-function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function diaSemanaDe(iso) {
   if (!iso) return '—';
@@ -513,7 +510,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
           });
         }
         setForm({
-          data: p.data ? new Date(p.data).toISOString().slice(0, 10) : hojeISO(),
+          data: paraInputData(p.data),
           numero_contrato: p.numero_contrato || '',
           obra: p.obra || '',
           obra_id: p.obra_id || p.obra_ref?.id || '',
@@ -950,7 +947,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       sujoRef.current = true;
       setForm((f) => (String(f.km_inicial ?? '').trim() !== '' ? f : { ...f, km_inicial: String(ultima) }));
       setKmHerdada(true);
-      const d = corpo?.data?.data ? new Date(corpo.data.data).toLocaleDateString('pt-BR') : null;
+      const d = corpo?.data?.data ? formatarDataSemTimezone(corpo.data.data) : null;
       const rel = corpo?.data?.numero_relatorio || null;
       setKmOrigem([d, rel].filter(Boolean).join(' • ') || null);
     } catch {

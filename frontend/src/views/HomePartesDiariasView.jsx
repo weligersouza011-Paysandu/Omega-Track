@@ -9,24 +9,7 @@ import ParteDiariaForm from '../components/ParteDiariaForm.jsx';
 import RelatorioParteDiariaPreview from '../components/RelatorioParteDiariaPreview.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { podeVerTodasPartes, ehMaster } from '../utils/permissoes.js';
-
-function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function formatarData(valor) {
-  if (!valor) return '—';
-  const d = new Date(valor);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('pt-BR');
-}
-
-function paraInputData(valor) {
-  if (!valor) return hojeISO();
-  const d = new Date(valor);
-  if (Number.isNaN(d.getTime())) return hojeISO();
-  return d.toISOString().slice(0, 10);
-}
+import { formatarDataSemTimezone as formatarData, paraInputData } from '../utils/datas.js';
 
 function normalizar(v) {
   return String(v || '').trim().toUpperCase();
