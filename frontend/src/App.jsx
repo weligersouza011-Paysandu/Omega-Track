@@ -50,7 +50,7 @@ export default function App() {
         <Route path="frota" element={<RestritoAdmin operacional={operacional}><MobDesmobView /></RestritoAdmin>} />
         <Route path="preditiva" element={<RestritoAdmin operacional={operacional}><GestaoPreditivaView /></RestritoAdmin>} />
         <Route path="farol-documentos" element={<RestritoAdmin operacional={operacional}><FarolDocumentosView /></RestritoAdmin>} />
-        <Route path="pendencias-parte-diaria" element={<RestritoAdmin operacional={operacional}><PendenciasParteDiariaView /></RestritoAdmin>} />
+        <Route path="pendencias-parte-diaria" element={<RestritoAdmin operacional={operacional}><PendenciasParteDiariaView sessao={sessao} /></RestritoAdmin>} />
         <Route path="telemetria" element={<RestritoAdmin operacional={operacional}><TelemetriaView /></RestritoAdmin>} />
         <Route path="controle-ambiental" element={<RestritoAdmin operacional={operacional}><ControleAmbientalView /></RestritoAdmin>} />
         <Route path="ecogestao" element={<RestritoAdmin operacional={operacional}><EcoGestaoView /></RestritoAdmin>} />

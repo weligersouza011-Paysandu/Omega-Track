@@ -7,6 +7,7 @@ import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
 import ParteDiariaForm from '../components/ParteDiariaForm.jsx';
 import RelatorioParteDiariaPreview from '../components/RelatorioParteDiariaPreview.jsx';
+import PendenciasParteDiariaView from './PendenciasParteDiariaView.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { podeVerTodasPartes, ehMaster } from '../utils/permissoes.js';
 import { formatarDataSemTimezone as formatarData, paraInputData } from '../utils/datas.js';
@@ -66,6 +67,13 @@ export default function HomePartesDiariasView({ sessao }) {
   const [veiculos, setVeiculos] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
+  // Paginaçao da listagem: garante que TODO o historico (dias acumulados)
+  // continue acessivel, sem truncar em um limite fixo que esconde datas antigas.
+  const [paginacao, setPaginacao] = useState({ page: 1, pages: 1, total: 0 });
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  // Abas do Início: 'partes-diarias' (padrão) | 'pendencias' (ADM/Transporte).
+  // Troca instantânea por estado local — sem recarregar a página.
+  const [aba, setAba] = useState('partes-diarias');
 
   const [busca, setBusca] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
@@ -80,12 +88,6 @@ export default function HomePartesDiariasView({ sessao }) {
   // Exclusão (somente MASTER): parte alvo da confirmação + estado de envio.
   const [excluir, setExcluir] = useState(null);
   const [excluindo, setExcluindo] = useState(false);
-  // Auditoria de pendencias de lancamento diario (ADM ve todas; operacional
-  // recebe apenas as proprias do backend para o banner de alerta).
-  const [pendencias, setPendencias] = useState([]);
-  const [pendenciasAberto, setPendenciasAberto] = useState(true);
-  const [descartarPend, setDescartarPend] = useState(null);
-  const [descartando, setDescartando] = useState(false);
   // Relatório oficial PDF/HTML
   const [relatorioPreview, setRelatorioPreview] = useState(null);
   const [carregandoRelatorioId, setCarregandoRelatorioId] = useState(null);
@@ -96,11 +98,17 @@ export default function HomePartesDiariasView({ sessao }) {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const fetchPartesDiarias = async () => {
-    setCarregando(true);
+  const fetchPartesDiarias = async (opcoes = {}) => {
+    const paginaSolicitada = Number(opcoes?.pagina) > 0 ? Number(opcoes.pagina) : 1;
+    const anexar = opcoes?.anexar === true;
+    if (anexar) setCarregandoMais(true); else setCarregando(true);
     setErro(null);
     try {
-      const params = new URLSearchParams({ limit: '100', _t: String(Date.now()) });
+      const params = new URLSearchParams({
+        limit: '100',
+        page: String(paginaSolicitada),
+        _t: String(Date.now()),
+      });
       // Otimizacao: operacional ja pede so os proprios ao backend.
       // O filtro client-side abaixo reaplica a regra por seguranca.
       if (!visaoTotal && usuario?.matricula) params.set('operador', String(usuario.matricula));
@@ -114,33 +122,24 @@ export default function HomePartesDiariasView({ sessao }) {
       if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
       const corpo = await resp.json();
       const lista = Array.isArray(corpo?.data) ? corpo.data : [];
-      setPartes(lista);
+      // anexar=true: novas paginas sao somadas ao historico ja em tela
+      // (nenhuma data anterior e removida ao carregar mais).
+      setPartes((anteriores) => (anexar ? [...anteriores, ...lista] : lista));
+      setPaginacao({
+        page: Number(corpo?.pagination?.page) || paginaSolicitada,
+        pages: Number(corpo?.pagination?.pages) || 1,
+        total: Number(corpo?.pagination?.total) || lista.length,
+      });
       return lista;
     } catch {
       setErro('Não foi possível carregar as Partes Diárias. Verifique se o backend está no ar.');
       return [];
     } finally {
-      setCarregando(false);
+      if (anexar) setCarregandoMais(false); else setCarregando(false);
     }
   };
 
   const carregar = fetchPartesDiarias;
-
-  const fetchPendencias = async () => {
-    try {
-      const resp = await fetch(`/api/partes-diarias/pendencias?_t=${Date.now()}`, {
-        headers: authHeaders(sessao),
-      });
-      if (!resp.ok) {
-        setPendencias([]);
-        return;
-      }
-      const corpo = await resp.json();
-      setPendencias(Array.isArray(corpo?.data) ? corpo.data : []);
-    } catch {
-      setPendencias([]);
-    }
-  };
 
   const carregarVeiculos = async () => {
     try {
@@ -156,7 +155,6 @@ export default function HomePartesDiariasView({ sessao }) {
   useEffect(() => {
     carregar();
     carregarVeiculos();
-    fetchPendencias();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -196,16 +194,6 @@ export default function HomePartesDiariasView({ sessao }) {
     setFormState({ aberto: true, id: p.id, prefill: null });
   };
 
-  // Lancamento retroativo a partir da auditoria: abre o formulario com a
-  // data pendente e o veiculo ja preenchidos.
-  const lancarRetroativo = (pendencia) => {
-    setFormState({
-      aberto: true,
-      id: null,
-      prefill: { data: pendencia.data_pendente, tag: pendencia.tag },
-    });
-  };
-
   const podeEditar = (p) => visaoTotal || pertenceAoUsuario(p, usuario);
 
   const aoSalvarForm = async (msg, opts) => {
@@ -227,8 +215,6 @@ export default function HomePartesDiariasView({ sessao }) {
 
     // Dispara obrigatoriamente a recarga completa dos dados da listagem da API
     await fetchPartesDiarias();
-    // A criação dá baixa automática na auditoria: recarrega as pendências.
-    await fetchPendencias();
   };
 
   const confirmarExcluir = async () => {
@@ -247,36 +233,10 @@ export default function HomePartesDiariasView({ sessao }) {
       setExcluir(null);
       setToast('Parte Diária excluída com sucesso!');
       await fetchPartesDiarias();
-      // A exclusão pode reabrir a pendência do veículo/dia na auditoria.
-      await fetchPendencias();
     } catch (e) {
       setToast(`Falha ao excluir: ${e.message}`);
     } finally {
       setExcluindo(false);
-    }
-  };
-
-  // Descarte manual de pendência (ADM/Transporte): persiste como ignorada
-  // para tratar inconsistências de frota (veículo parado, viagem, etc.).
-  const confirmarDescartarPendencia = async () => {
-    if (!descartarPend || descartando) return;
-    setDescartando(true);
-    try {
-      const resp = await fetch(
-        `/api/partes-diarias/pendencias/${encodeURIComponent(descartarPend.tag)}/${descartarPend.data_pendente}`,
-        { method: 'DELETE', headers: authHeaders(sessao) },
-      );
-      if (!resp.ok) {
-        const corpo = await resp.json().catch(() => ({}));
-        throw new Error(corpo.message || `Falha ao descartar (API ${resp.status})`);
-      }
-      setDescartarPend(null);
-      setToast('Pendência descartada — veículo/data dispensados da auditoria.');
-      await fetchPendencias();
-    } catch (e) {
-      setToast(`Falha ao descartar: ${e.message}`);
-    } finally {
-      setDescartando(false);
     }
   };
 
@@ -313,12 +273,14 @@ export default function HomePartesDiariasView({ sessao }) {
         <div>
           <div className="text-[11px] md:text-xs font-semibold text-omega-accent uppercase tracking-wider">Transporte</div>
           <h1 className="mt-0.5 text-lg md:text-2xl font-extrabold text-omega-900 tracking-tight">
-            Início — Partes Diárias
+            Início
           </h1>
           <p className="mt-0.5 md:mt-1 text-xs md:text-sm text-omega-500">
-            {visaoTotal
-              ? 'Visão geral da operação: todas as Partes Diárias cadastradas.'
-              : 'Seus lançamentos: você visualiza apenas as Partes Diárias que cadastrou.'}
+            {aba === 'pendencias'
+              ? 'Auditoria de pendências: frota mobilizada sem lançamento por dia útil (seg–sáb).'
+              : visaoTotal
+                ? 'Visão geral da operação: todas as Partes Diárias cadastradas.'
+                : 'Seus lançamentos: você visualiza apenas as Partes Diárias que cadastrou.'}
           </p>
         </div>
         <button onClick={abrirNovo} className="btn-primary !py-2 text-sm shrink-0">
@@ -326,124 +288,41 @@ export default function HomePartesDiariasView({ sessao }) {
         </button>
       </div>
 
-      {/* Auditoria ADM/Transporte: lacunas de lançamento por veículo/dia */}
+      {/* Abas (Master / ADM / Transporte): Partes Diárias x Pendência de Parte Diária */}
       {visaoTotal && (
-        <div className={`card overflow-hidden ${pendencias.length > 0 ? '!border-amber-300 ring-1 ring-amber-500/20' : ''}`}>
+        <div className="flex w-full sm:w-auto rounded-xl bg-omega-100 p-1 gap-1" role="tablist" aria-label="Seções do Início">
           <button
             type="button"
-            onClick={() => setPendenciasAberto((v) => !v)}
-            className="w-full px-4 py-3 flex items-center gap-2.5 text-left hover:bg-omega-50/60 transition-colors"
+            role="tab"
+            aria-selected={aba === 'partes-diarias'}
+            onClick={() => setAba('partes-diarias')}
+            className={`flex-1 sm:flex-none px-3.5 md:px-4 py-2 rounded-lg text-xs md:text-sm font-bold inline-flex items-center justify-center gap-1.5 transition-colors ${
+              aba === 'partes-diarias'
+                ? 'bg-omega-900 text-white shadow-sm'
+                : 'text-omega-600 hover:text-omega-900 hover:bg-white/70'
+            }`}
           >
-            <span className={`p-1.5 rounded-lg text-white shrink-0 ${pendencias.length > 0 ? 'bg-amber-500' : 'bg-omega-900'}`}>
-              <CalendarClock size={14} />
-            </span>
-            <span className="text-sm font-bold text-omega-900 min-w-0 truncate">
-              Auditoria de pendências de lançamento
-            </span>
-            {pendencias.length > 0 ? (
-              <span className="inline-flex items-center gap-1.5 shrink-0">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
-                </span>
-                <span className="chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25">
-                  {pendencias.length} pendência{pendencias.length > 1 ? 's' : ''}
-                </span>
-              </span>
-            ) : (
-              <span className="chip bg-green-50 text-status-verde ring-1 ring-inset ring-green-600/20 shrink-0">
-                Frota em dia
-              </span>
-            )}
-            <ChevronDown size={15} className={`ml-auto text-omega-400 transition-transform shrink-0 ${pendenciasAberto ? 'rotate-180' : ''}`} />
+            <ClipboardList size={15} /> Partes Diárias
           </button>
-          {pendenciasAberto && (
-            pendencias.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-omega-500 border-t border-omega-100">
-                Nenhuma lacuna de lançamento nos últimos 7 dias (grade seg–sáb, frota mobilizada).
-              </div>
-            ) : (
-              <div className="border-t border-omega-100 overflow-x-auto">
-                <table className="w-full text-sm min-w-[760px]">
-                  <thead className="bg-omega-50/70">
-                    <tr className="text-left text-[11px] uppercase tracking-wider text-omega-500 font-bold border-b border-omega-100">
-                      <th className="px-4 py-2.5">Data pendente</th>
-                      <th className="px-4 py-2.5">Veículo (TAG / Placa)</th>
-                      <th className="px-4 py-2.5">Último operador responsável</th>
-                      <th className="px-4 py-2.5 text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-omega-100">
-                    {pendencias.map((pd) => (
-                      <tr key={pd.id || `${pd.tag}-${pd.data_pendente}`} className="hover:bg-omega-50/60">
-                        <td className="px-4 py-2.5 font-bold text-omega-900 tabular-nums">{formatarData(pd.data_pendente)}</td>
-                        <td className="px-4 py-2.5">
-                          <div className="font-bold text-omega-900">{pd.tag}</div>
-                          <div className="text-xs text-omega-500 font-mono">{pd.placa || '—'}</div>
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <div className="text-omega-800 font-medium">{pd.ultimo_operador_nome || '—'}</div>
-                          <div className="text-xs text-omega-500 font-mono">Matr. {pd.ultimo_operador_matricula || '—'}</div>
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() => lancarRetroativo(pd)}
-                              title="Lançar retroativo (abre o formulário com data e veículo)"
-                              className="p-1.5 rounded-md hover:bg-omega-100 text-omega-600 hover:text-omega-accent transition-colors"
-                            >
-                              <Pencil size={15} />
-                            </button>
-                            <button
-                              onClick={() => setDescartarPend(pd)}
-                              title="Excluir / descartar inconsistência"
-                              className="p-1.5 rounded-md hover:bg-red-50 text-omega-400 hover:text-status-vermelho transition-colors"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          )}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={aba === 'pendencias'}
+            onClick={() => setAba('pendencias')}
+            className={`flex-1 sm:flex-none px-3.5 md:px-4 py-2 rounded-lg text-xs md:text-sm font-bold inline-flex items-center justify-center gap-1.5 transition-colors ${
+              aba === 'pendencias'
+                ? 'bg-omega-900 text-white shadow-sm'
+                : 'text-omega-600 hover:text-omega-900 hover:bg-white/70'
+            }`}
+          >
+            <CalendarClock size={15} /> Pendência de Parte Diária
+          </button>
         </div>
       )}
 
-      {/* Operador: alerta em destaque das pendências vinculadas a ele */}
-      {!visaoTotal && pendencias.length > 0 && (
-        <div className="rounded-2xl border-2 border-red-300 bg-gradient-to-r from-red-50 via-amber-50 to-amber-50 p-3.5 md:p-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <span className="p-2 rounded-xl bg-red-600 text-white shrink-0">
-              <AlertTriangle size={17} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-extrabold text-red-800 text-sm md:text-base">
-                  Você possui pendências de lançamento
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600" />
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[11px] font-bold tabular-nums">
-                    {pendencias.length} dia{pendencias.length > 1 ? 's' : ''}
-                  </span>
-                </span>
-              </div>
-              <p className="mt-1 text-xs md:text-sm font-medium text-red-700">
-                ⚠️ Regularize os diários das seguintes datas:{' '}
-                {pendencias.map((pd) => `${formatarData(pd.data_pendente)} (${pd.tag})`).join(' • ')}.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* ===== Aba 1: Partes Diárias (busca, filtros e tabela completa) ===== */}
+      {aba === 'partes-diarias' && (
+      <>
       {/* Filtros */}
       <div className="card p-3 md:p-4 flex flex-col md:flex-row gap-2 md:gap-3 md:items-center">
         <div className="relative flex-1 min-w-0">
@@ -488,7 +367,7 @@ export default function HomePartesDiariasView({ sessao }) {
           <Filter size={14} className="text-omega-500" />
           <span className="text-sm font-bold text-omega-900">Partes Diárias</span>
           <span className="text-[11px] text-omega-500 ml-auto">
-            {visiveis.length} registro(s){!visaoTotal ? ' • meus lançamentos' : ''}
+            {visiveis.length}{paginacao.total > visiveis.length ? ` de ${paginacao.total}` : ''} registro(s){!visaoTotal ? ' • meus lançamentos' : ''}
           </span>
         </div>
 
@@ -531,8 +410,9 @@ export default function HomePartesDiariasView({ sessao }) {
               const kmI = p.km_inicial ?? p.kmInicial ?? null;
               const kmF = p.km_final ?? p.kmFinal ?? null;
               const editavel = podeEditar(p);
+              const ehPreventiva = String(p.status_operacional || p.status || '').trim() === 'Manutenção Preventiva';
               return (
-                <div key={p.id} className="px-4 py-3 space-y-2.5">
+                <div key={p.id} className={`px-4 py-3 space-y-2.5 ${ehPreventiva ? 'bg-amber-50/50' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <span className="font-bold text-omega-900 tabular-nums text-sm">{formatarData(p.data)}</span>
                     <StatusDaParte parte={p} direita />
@@ -604,8 +484,9 @@ export default function HomePartesDiariasView({ sessao }) {
                   const kmI = p.km_inicial ?? p.kmInicial ?? null;
                   const kmF = p.km_final ?? p.kmFinal ?? null;
                   const editavel = podeEditar(p);
+                  const ehPreventiva = String(p.status_operacional || p.status || '').trim() === 'Manutenção Preventiva';
                   return (
-                    <tr key={p.id} className="hover:bg-omega-50/60">
+                    <tr key={p.id} className={`hover:bg-omega-50/60 ${ehPreventiva ? 'bg-amber-50/50' : ''}`}>
                       <td className="px-4 py-2.5">
                         <div className="font-bold text-omega-900 tabular-nums">{formatarData(p.data)}</div>
                       </td>
@@ -669,9 +550,30 @@ export default function HomePartesDiariasView({ sessao }) {
               </tbody>
             </table>
           </div>
+          {/* Historico completo: carrega as paginas anteriores sem remover nada */}
+          {paginacao.page < paginacao.pages && (
+            <div className="p-3 border-t border-omega-100 flex justify-center">
+              <button
+                onClick={() => fetchPartesDiarias({ pagina: paginacao.page + 1, anexar: true })}
+                disabled={carregandoMais}
+                className="btn-secondary !py-2 text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+                title="Carregar os lançamentos mais antigos do histórico"
+              >
+                {carregandoMais ? <Loader2 size={14} className="animate-spin" /> : <ChevronDown size={14} />}
+                {carregandoMais ? 'Carregando...' : `Carregar mais lançamentos (${paginacao.total - partes.length} restantes)`}
+              </button>
+            </div>
+          )}
           </>
         )}
       </div>
+      </>
+      )}
+
+      {/* ===== Aba 2: Pendência de Parte Diária (auditoria ADM/Transporte) ===== */}
+      {aba === 'pendencias' && visaoTotal && (
+        <PendenciasParteDiariaView sessao={sessao} embutido />
+      )}
 
       {/* Modal visualizar */}
       <Modal
@@ -769,7 +671,6 @@ export default function HomePartesDiariasView({ sessao }) {
         onClose={() => {
           setFormState({ aberto: false, id: null, prefill: null });
           fetchPartesDiarias();
-          fetchPendencias();
         }}
         sessao={sessao}
         veiculos={veiculos}
@@ -800,29 +701,6 @@ export default function HomePartesDiariasView({ sessao }) {
         </p>
       </Modal>
 
-      {/* Descarte de pendência da auditoria (ADM/Transporte) */}
-      <Modal
-        open={!!descartarPend}
-        onClose={() => { if (!descartando) setDescartarPend(null); }}
-        title="Descartar pendência de lançamento"
-        subtitle={descartarPend ? `${descartarPend.tag} • ${descartarPend.placa || '—'} • ${formatarData(descartarPend.data_pendente)}` : ''}
-        size="sm"
-        footer={
-          <>
-            <button onClick={() => setDescartarPend(null)} disabled={descartando} className="btn-secondary disabled:opacity-50">Cancelar</button>
-            <button onClick={confirmarDescartarPendencia} disabled={descartando} className="btn-danger disabled:opacity-50">
-              {descartando ? 'Descartando...' : 'Descartar'}
-            </button>
-          </>
-        }
-      >
-        <p className="text-sm text-omega-700">
-          Dispensar esta pendência da auditoria? Use em inconsistências de frota
-          (veículo parado, viagem, lançamento em outro sistema). Se uma Parte
-          Diária for lançada depois, o descarte é removido automaticamente.
-        </p>
-      </Modal>
-
       {toast && (
         <div className="fixed bottom-5 right-5 z-[60] flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-xl bg-omega-900 text-white shadow-2xl text-sm font-semibold max-w-md">
           <CheckCircle2 size={17} className="text-status-verde shrink-0" />
@@ -841,8 +719,8 @@ export default function HomePartesDiariasView({ sessao }) {
         />
       )}
 
-      {/* FAB mobile: nova Parte Diária (oculto com o modal aberto) */}
-      {!formState.aberto && (
+      {/* FAB mobile: nova Parte Diária (oculto com o modal aberto e na aba de pendências) */}
+      {aba === 'partes-diarias' && !formState.aberto && (
         <button
           onClick={abrirNovo}
           title="Adicionar Parte Diária"

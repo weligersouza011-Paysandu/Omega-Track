@@ -11,7 +11,7 @@ const SECTIONS = [
       { to: '/obras', label: 'Obras', icon: Building2, exact: true },
       { to: '/frota', label: 'Mobilizacao & Frota', icon: Truck, exact: false },
       { to: '/preditiva', label: 'Preditiva de Preventivas', icon: Gauge, exact: true },
-      { to: '/pendencias-parte-diaria', label: 'Controle & Eficiencia', icon: ClipboardList, exact: true },
+      { to: '/pendencias-parte-diaria', label: 'Gestão de Pendências', icon: ClipboardList, exact: true },
       { to: '/telemetria', label: 'Telemetria & Seguranca', icon: ShieldAlert, exact: true },
     ],
   },

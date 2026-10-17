@@ -47,3 +47,24 @@ export function hojeISO() {
   const dia = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${mes}-${dia}`;
 }
+
+// Soma (ou subtrai) dias a uma data ISO 'YYYY-MM-DD', sem fuso horario.
+export function somarDiasISO(iso, delta) {
+  const [ano, mes, dia] = String(iso).split('-').map(Number);
+  const d = new Date(Date.UTC(ano, mes - 1, dia + delta));
+  return d.toISOString().slice(0, 10);
+}
+
+// Dia da semana de uma data ISO: 0 = domingo ... 6 = sabado.
+export function diaSemanaISO(iso) {
+  const [ano, mes, dia] = String(iso).split('-').map(Number);
+  return new Date(Date.UTC(ano, mes - 1, dia)).getUTCDay();
+}
+
+// Dia util (seg-sab) imediatamente anterior a `base` (padrao: hoje).
+// Mesma semantica do backend (auditoria pula domingo).
+export function diaUtilAnteriorISO(base = hojeISO()) {
+  let iso = somarDiasISO(base, -1);
+  while (diaSemanaISO(iso) === 0) iso = somarDiasISO(iso, -1);
+  return iso;
+}

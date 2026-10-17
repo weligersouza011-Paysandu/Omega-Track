@@ -282,6 +282,11 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   // Perfil operacional (nao-admin): Status Operacional do Dia fixado em
   // 'Operação' — sem acesso a paradas/manutenções (trava no payload também).
   const statusTravado = !podeAlterarStatusOperacional(usuario);
+  // Lancamento retroativo (auditoria de pendencias): data e veiculo do dia
+  // pendente vêm travados no formulario — o registro não pode "vazar" para
+  // outro dia/frota ao salvar.
+  const dataTravada = !inicial?.id && !!prefill?.data && prefill?.travar === true;
+  const tagTravada = dataTravada && prefill?.tag ? String(prefill.tag).trim().toUpperCase() : null;
   const [usuarios, setUsuarios] = useState([]);
   // Função do logado resolvida no cadastro fresco (/api/usuarios), com fallback
   // para a sessão (que pode ser anterior ao campo `funcao` ou estar sem o valor).
@@ -378,6 +383,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   // Domingo fora da grade: a data não aceita domingos (operação seg–sáb).
   const [erroData, setErroData] = useState(null);
   const definirData = (iso) => {
+    if (dataTravada) return; // retroativo: data do dia pendente fica travada
     limparErroCampo('data');
     if (!iso) {
       setErroData(null);
@@ -1385,12 +1391,20 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                       limparErroCampo('data');
                       definirData(e.target.value);
                     }}
+                    disabled={dataTravada}
+                    title={dataTravada ? 'Data travada pelo lançamento retroativo da auditoria de pendências' : undefined}
                     className={`${inputCls} ${
                       errosValidacao.data || erroData
                         ? '!border-red-500 ring-2 ring-red-500/50 bg-red-50/40 animate-pulse'
                         : ''
-                    }`}
+                    } ${dataTravada ? 'bg-omega-50 text-omega-500 cursor-not-allowed' : ''}`}
                   />
+                  {dataTravada && (
+                    <p className="mt-1 text-[11px] font-semibold text-sky-700 flex items-center gap-1">
+                      <AlertTriangle size={12} className="shrink-0" />
+                      Data travada: lançamento retroativo do dia pendente na auditoria.
+                    </p>
+                  )}
                   {(errosValidacao.data || erroData) && (
                     <p className="mt-1 text-[11px] font-semibold text-red-600 flex items-center gap-1">
                       <AlertTriangle size={12} className="shrink-0" />
@@ -1610,6 +1624,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                     ficha?.placa,
                     it.descricao || ficha?.modelo,
                   ].filter(Boolean).join(' • ');
+                  // Retroativo: o veiculo do dia pendente (1º equipamento) fica travado.
+                  const equipamentoTravado = !!tagTravada && i === 0 && norm(it.tag_patrimonio) === tagTravada;
                   return (
                     <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
                       <div className="flex items-center gap-3 min-w-0 w-full">
@@ -1619,9 +1635,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                         <span className="min-w-0 flex-1">
                           <span className="block font-mono font-extrabold text-omega-900 text-sm break-words">{identificacao}</span>
                           {ficha?.status && <span className="block text-[11px] text-omega-400">{ficha.status}</span>}
+                          {equipamentoTravado && <span className="block text-[11px] text-sky-700 font-semibold">Veículo travado pelo lançamento retroativo</span>}
                         </span>
                       </div>
-                      <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} self-end sm:self-center sm:ml-auto shrink-0`} title="Remover"><Trash2 size={15} /></button>
+                      {!equipamentoTravado && (
+                        <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} self-end sm:self-center sm:ml-auto shrink-0`} title="Remover"><Trash2 size={15} /></button>
+                      )}
                     </div>
                   );
                 })}
