@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Plus, Search, Eye, Pencil, Trash2, X, RefreshCw, AlertTriangle,
-  CheckCircle2, ClipboardList, Filter, FileText, Loader2,
+  CheckCircle2, ClipboardList, Filter, FileText, Loader2, ChevronDown, CalendarClock,
 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
@@ -73,12 +73,19 @@ export default function HomePartesDiariasView({ sessao }) {
   const [filtroData, setFiltroData] = useState('');
 
   const [detalhe, setDetalhe] = useState(null);
-  // Formulario completo (modelo Omega Service): { aberto: bool, id: string|null }
-  const [formState, setFormState] = useState({ aberto: false, id: null });
+  // Formulario completo (modelo Omega Service):
+  // { aberto: bool, id: string|null, prefill: { data, tag }|null }
+  const [formState, setFormState] = useState({ aberto: false, id: null, prefill: null });
   const [toast, setToast] = useState(null);
   // Exclusão (somente MASTER): parte alvo da confirmação + estado de envio.
   const [excluir, setExcluir] = useState(null);
   const [excluindo, setExcluindo] = useState(false);
+  // Auditoria de pendencias de lancamento diario (ADM ve todas; operacional
+  // recebe apenas as proprias do backend para o banner de alerta).
+  const [pendencias, setPendencias] = useState([]);
+  const [pendenciasAberto, setPendenciasAberto] = useState(true);
+  const [descartarPend, setDescartarPend] = useState(null);
+  const [descartando, setDescartando] = useState(false);
   // Relatório oficial PDF/HTML
   const [relatorioPreview, setRelatorioPreview] = useState(null);
   const [carregandoRelatorioId, setCarregandoRelatorioId] = useState(null);
@@ -119,6 +126,22 @@ export default function HomePartesDiariasView({ sessao }) {
 
   const carregar = fetchPartesDiarias;
 
+  const fetchPendencias = async () => {
+    try {
+      const resp = await fetch(`/api/partes-diarias/pendencias?_t=${Date.now()}`, {
+        headers: authHeaders(sessao),
+      });
+      if (!resp.ok) {
+        setPendencias([]);
+        return;
+      }
+      const corpo = await resp.json();
+      setPendencias(Array.isArray(corpo?.data) ? corpo.data : []);
+    } catch {
+      setPendencias([]);
+    }
+  };
+
   const carregarVeiculos = async () => {
     try {
       const resp = await fetch('/api/mob-desmob?limit=200');
@@ -133,6 +156,7 @@ export default function HomePartesDiariasView({ sessao }) {
   useEffect(() => {
     carregar();
     carregarVeiculos();
+    fetchPendencias();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -165,11 +189,21 @@ export default function HomePartesDiariasView({ sessao }) {
   }, [veiculos]);
 
   const abrirNovo = () => {
-    setFormState({ aberto: true, id: null });
+    setFormState({ aberto: true, id: null, prefill: null });
   };
 
   const abrirEdicao = (p) => {
-    setFormState({ aberto: true, id: p.id });
+    setFormState({ aberto: true, id: p.id, prefill: null });
+  };
+
+  // Lancamento retroativo a partir da auditoria: abre o formulario com a
+  // data pendente e o veiculo ja preenchidos.
+  const lancarRetroativo = (pendencia) => {
+    setFormState({
+      aberto: true,
+      id: null,
+      prefill: { data: pendencia.data_pendente, tag: pendencia.tag },
+    });
   };
 
   const podeEditar = (p) => visaoTotal || pertenceAoUsuario(p, usuario);
@@ -177,7 +211,7 @@ export default function HomePartesDiariasView({ sessao }) {
   const aoSalvarForm = async (msg, opts) => {
     // Feedback visual de sucesso: fecha o modal do formulário e exibe o toast.
     // Assinaturas de etapa passam { manterAberto: true } para seguir no formulário.
-    if (!opts?.manterAberto) setFormState({ aberto: false, id: null });
+    if (!opts?.manterAberto) setFormState({ aberto: false, id: null, prefill: null });
     setToast(msg || 'Parte Diária salva com sucesso!');
 
     // Atualização imediata do estado local do React com o registro salvo retornado
@@ -193,6 +227,8 @@ export default function HomePartesDiariasView({ sessao }) {
 
     // Dispara obrigatoriamente a recarga completa dos dados da listagem da API
     await fetchPartesDiarias();
+    // A criação dá baixa automática na auditoria: recarrega as pendências.
+    await fetchPendencias();
   };
 
   const confirmarExcluir = async () => {
@@ -211,10 +247,36 @@ export default function HomePartesDiariasView({ sessao }) {
       setExcluir(null);
       setToast('Parte Diária excluída com sucesso!');
       await fetchPartesDiarias();
+      // A exclusão pode reabrir a pendência do veículo/dia na auditoria.
+      await fetchPendencias();
     } catch (e) {
       setToast(`Falha ao excluir: ${e.message}`);
     } finally {
       setExcluindo(false);
+    }
+  };
+
+  // Descarte manual de pendência (ADM/Transporte): persiste como ignorada
+  // para tratar inconsistências de frota (veículo parado, viagem, etc.).
+  const confirmarDescartarPendencia = async () => {
+    if (!descartarPend || descartando) return;
+    setDescartando(true);
+    try {
+      const resp = await fetch(
+        `/api/partes-diarias/pendencias/${encodeURIComponent(descartarPend.tag)}/${descartarPend.data_pendente}`,
+        { method: 'DELETE', headers: authHeaders(sessao) },
+      );
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}));
+        throw new Error(corpo.message || `Falha ao descartar (API ${resp.status})`);
+      }
+      setDescartarPend(null);
+      setToast('Pendência descartada — veículo/data dispensados da auditoria.');
+      await fetchPendencias();
+    } catch (e) {
+      setToast(`Falha ao descartar: ${e.message}`);
+    } finally {
+      setDescartando(false);
     }
   };
 
@@ -263,6 +325,124 @@ export default function HomePartesDiariasView({ sessao }) {
           <Plus size={16} /> Adicionar Parte Diária
         </button>
       </div>
+
+      {/* Auditoria ADM/Transporte: lacunas de lançamento por veículo/dia */}
+      {visaoTotal && (
+        <div className={`card overflow-hidden ${pendencias.length > 0 ? '!border-amber-300 ring-1 ring-amber-500/20' : ''}`}>
+          <button
+            type="button"
+            onClick={() => setPendenciasAberto((v) => !v)}
+            className="w-full px-4 py-3 flex items-center gap-2.5 text-left hover:bg-omega-50/60 transition-colors"
+          >
+            <span className={`p-1.5 rounded-lg text-white shrink-0 ${pendencias.length > 0 ? 'bg-amber-500' : 'bg-omega-900'}`}>
+              <CalendarClock size={14} />
+            </span>
+            <span className="text-sm font-bold text-omega-900 min-w-0 truncate">
+              Auditoria de pendências de lançamento
+            </span>
+            {pendencias.length > 0 ? (
+              <span className="inline-flex items-center gap-1.5 shrink-0">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+                </span>
+                <span className="chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25">
+                  {pendencias.length} pendência{pendencias.length > 1 ? 's' : ''}
+                </span>
+              </span>
+            ) : (
+              <span className="chip bg-green-50 text-status-verde ring-1 ring-inset ring-green-600/20 shrink-0">
+                Frota em dia
+              </span>
+            )}
+            <ChevronDown size={15} className={`ml-auto text-omega-400 transition-transform shrink-0 ${pendenciasAberto ? 'rotate-180' : ''}`} />
+          </button>
+          {pendenciasAberto && (
+            pendencias.length === 0 ? (
+              <div className="px-4 py-6 text-center text-xs text-omega-500 border-t border-omega-100">
+                Nenhuma lacuna de lançamento nos últimos 7 dias (grade seg–sáb, frota mobilizada).
+              </div>
+            ) : (
+              <div className="border-t border-omega-100 overflow-x-auto">
+                <table className="w-full text-sm min-w-[760px]">
+                  <thead className="bg-omega-50/70">
+                    <tr className="text-left text-[11px] uppercase tracking-wider text-omega-500 font-bold border-b border-omega-100">
+                      <th className="px-4 py-2.5">Data pendente</th>
+                      <th className="px-4 py-2.5">Veículo (TAG / Placa)</th>
+                      <th className="px-4 py-2.5">Último operador responsável</th>
+                      <th className="px-4 py-2.5 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-omega-100">
+                    {pendencias.map((pd) => (
+                      <tr key={pd.id || `${pd.tag}-${pd.data_pendente}`} className="hover:bg-omega-50/60">
+                        <td className="px-4 py-2.5 font-bold text-omega-900 tabular-nums">{formatarData(pd.data_pendente)}</td>
+                        <td className="px-4 py-2.5">
+                          <div className="font-bold text-omega-900">{pd.tag}</div>
+                          <div className="text-xs text-omega-500 font-mono">{pd.placa || '—'}</div>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="text-omega-800 font-medium">{pd.ultimo_operador_nome || '—'}</div>
+                          <div className="text-xs text-omega-500 font-mono">Matr. {pd.ultimo_operador_matricula || '—'}</div>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              onClick={() => lancarRetroativo(pd)}
+                              title="Lançar retroativo (abre o formulário com data e veículo)"
+                              className="p-1.5 rounded-md hover:bg-omega-100 text-omega-600 hover:text-omega-accent transition-colors"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
+                              onClick={() => setDescartarPend(pd)}
+                              title="Excluir / descartar inconsistência"
+                              className="p-1.5 rounded-md hover:bg-red-50 text-omega-400 hover:text-status-vermelho transition-colors"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {/* Operador: alerta em destaque das pendências vinculadas a ele */}
+      {!visaoTotal && pendencias.length > 0 && (
+        <div className="rounded-2xl border-2 border-red-300 bg-gradient-to-r from-red-50 via-amber-50 to-amber-50 p-3.5 md:p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <span className="p-2 rounded-xl bg-red-600 text-white shrink-0">
+              <AlertTriangle size={17} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-red-800 text-sm md:text-base">
+                  Você possui pendências de lançamento
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600" />
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[11px] font-bold tabular-nums">
+                    {pendencias.length} dia{pendencias.length > 1 ? 's' : ''}
+                  </span>
+                </span>
+              </div>
+              <p className="mt-1 text-xs md:text-sm font-medium text-red-700">
+                ⚠️ Regularize os diários das seguintes datas:{' '}
+                {pendencias.map((pd) => `${formatarData(pd.data_pendente)} (${pd.tag})`).join(' • ')}.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="card p-3 md:p-4 flex flex-col md:flex-row gap-2 md:gap-3 md:items-center">
@@ -587,12 +767,14 @@ export default function HomePartesDiariasView({ sessao }) {
       <ParteDiariaForm
         open={formState.aberto}
         onClose={() => {
-          setFormState({ aberto: false, id: null });
+          setFormState({ aberto: false, id: null, prefill: null });
           fetchPartesDiarias();
+          fetchPendencias();
         }}
         sessao={sessao}
         veiculos={veiculos}
         inicial={formState.id ? { id: formState.id } : null}
+        prefill={formState.prefill || null}
         onSalvo={aoSalvarForm}
         onSave={aoSalvarForm}
       />
@@ -615,6 +797,29 @@ export default function HomePartesDiariasView({ sessao }) {
       >
         <p className="text-sm text-omega-700">
           Remover esta Parte Diária do sistema? Esta ação não pode ser desfeita.
+        </p>
+      </Modal>
+
+      {/* Descarte de pendência da auditoria (ADM/Transporte) */}
+      <Modal
+        open={!!descartarPend}
+        onClose={() => { if (!descartando) setDescartarPend(null); }}
+        title="Descartar pendência de lançamento"
+        subtitle={descartarPend ? `${descartarPend.tag} • ${descartarPend.placa || '—'} • ${formatarData(descartarPend.data_pendente)}` : ''}
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setDescartarPend(null)} disabled={descartando} className="btn-secondary disabled:opacity-50">Cancelar</button>
+            <button onClick={confirmarDescartarPendencia} disabled={descartando} className="btn-danger disabled:opacity-50">
+              {descartando ? 'Descartando...' : 'Descartar'}
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-omega-700">
+          Dispensar esta pendência da auditoria? Use em inconsistências de frota
+          (veículo parado, viagem, lançamento em outro sistema). Se uma Parte
+          Diária for lançada depois, o descarte é removido automaticamente.
         </p>
       </Modal>
 

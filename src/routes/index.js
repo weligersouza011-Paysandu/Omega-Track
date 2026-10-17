@@ -31,6 +31,8 @@ router.get('/', (req, res) => {
       parte_logs: 'GET /api/partes-diarias/:id/logs',
       parte_ultima_km: 'GET /api/partes-diarias/ultima-km?tag=TAG (&ignorar_id=ID) -> { ultima_km_final } (herança do odômetro; trava: km_final >= km_inicial no POST/PUT)',
       partes_pendentes: '/api/partes-diarias/pendentes (requer x-api-key)',
+      pendencias_lancamento: 'GET /api/partes-diarias/pendencias?dias=7 (admin: tudo; operacional: próprias) -> [{ tag, placa, data_pendente, ultimo_operador_id, ultimo_operador_nome }]',
+      pendencia_descartar: 'DELETE /api/partes-diarias/pendencias/:tag/:data (ADM/Transporte; cria Parte Diária do dia dá baixa automática)',
       upload: '/api/upload?pasta=mobilizacao|partes-diarias|documentos (campo `arquivo`)',
       upload_delete: 'DELETE /api/upload { public_id }',
       usuarios: '/api/usuarios?tipo=ADMINISTRADOR|OPERACIONAL',

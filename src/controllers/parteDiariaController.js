@@ -686,6 +686,18 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
     });
   }
 
+  // Baixa automatica na auditoria de pendencias de lancamento: a criacao do
+  // relatorio ja elimina a pendencia derivada; limpa tambem eventual descarte
+  // manual anterior para o mesmo veiculo/dia.
+  try {
+    const diaRef = new Date(Date.UTC(dataRef.getUTCFullYear(), dataRef.getUTCMonth(), dataRef.getUTCDate()));
+    await prisma.pendenciaParteDiariaIgnorada.deleteMany({
+      where: { tag: tagFinal, data: diaRef },
+    });
+  } catch {
+    /* higiene da auditoria nao bloqueia o salvamento */
+  }
+
   const parte = await prisma.parteDiaria.findUnique({ where: { id: criado.id }, include: INCLUDE_COMPLETO });
   res.status(201).json({ data: enriquecerAssinaturas(parte) });
 });

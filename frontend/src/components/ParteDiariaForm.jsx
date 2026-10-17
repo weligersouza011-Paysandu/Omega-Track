@@ -277,7 +277,7 @@ function TagCombobox({ veiculos = [], value, onSelect, inputCls }) {
   );
 }
 
-export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], inicial = null, onSalvo, onSave, onAtualizar }) {
+export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], inicial = null, prefill = null, onSalvo, onSave, onAtualizar }) {
   const usuario = sessao?.usuario || null;
   // Perfil operacional (nao-admin): Status Operacional do Dia fixado em
   // 'Operação' — sem acesso a paradas/manutenções (trava no payload também).
@@ -461,7 +461,22 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       pularAutosaveRef.current = true;
       sujoRef.current = false;
       setParteId(null);
-      setForm(estadoVazio(usuario));
+      // Pre-preenchimento do lancamento retroativo (auditoria de pendencias):
+      // data do dia pendente + veiculo correspondente ja no 1º equipamento.
+      const base = estadoVazio(usuario);
+      if (prefill?.data) base.data = paraInputData(prefill.data);
+      if (prefill?.tag) {
+        const tag = String(prefill.tag).trim().toUpperCase();
+        const veiculo = (veiculos || []).find((v) => String(v?.tag || '').toUpperCase() === tag);
+        base.equipamentos = [{
+          tag_patrimonio: tag,
+          descricao: veiculo?.modelo || veiculo?.placa || '',
+          horimetro_inicial: '',
+          horimetro_final: '',
+          status: 'Operacional',
+        }];
+      }
+      setForm(base);
       setKmHerdada(false);
       setKmOrigem(null);
       setMotivoParada('');

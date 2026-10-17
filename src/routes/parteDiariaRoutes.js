@@ -14,12 +14,19 @@ import {
   removerAssinatura,
   listarLogs,
 } from '../controllers/parteDiariaController.js';
+import { listarPendencias, ignorarPendencia } from '../controllers/pendenciasController.js';
 import { authApiKey } from '../middleware/auth.js';
+import { requerAdmin } from '../middleware/sessao.js';
 
 const router = Router();
 
 router.get('/', listarPartesDiarias);
 router.get('/pendentes', authApiKey, listarPendentesAssinatura);
+// Auditoria de pendencias de lancamento diario (antes de `/:id`).
+// GET: admin ve tudo; operacional ve apenas as proprias.
+router.get('/pendencias', listarPendencias);
+// Descarte manual de pendencia (ADM/Transporte/Master).
+router.delete('/pendencias/:tag/:data', requerAdmin, ignorarPendencia);
 // Herança do odômetro (antes de `/:id` para não colidir com o parâmetro).
 router.get('/ultima-km', buscarUltimaKm);
 router.get('/:id/logs', listarLogs);

@@ -283,6 +283,23 @@ model Obra {
   @@map("obras")
 }
 
+// Auditoria de lançamento diário: pendência (veículo x dia sem Parte Diária)
+// descartada manualmente por ADM/Transporte para tratar inconsistências de
+// frota. A pendência em si é derivada (não persistida): criar a Parte Diária
+// do dia dá baixa automática e remove o descarte correspondente.
+model PendenciaParteDiariaIgnorada {
+  id           String   @id @default(uuid()) @db.Uuid
+  tag          String   @db.VarChar(50)
+  data         DateTime @db.Date
+  motivo       String?  @db.VarChar(255)
+  ignorado_por String?  @db.VarChar(255)
+  created_at   DateTime @default(now()) @db.Timestamp(6)
+
+  @@unique([tag, data])
+  @@index([data])
+  @@map("pendencias_parte_diaria_ignoradas")
+}
+
 // Parâmetros de preventiva por categoria de veículo (modelo) e contrato.
 // Categoria gravada normalizada (MAIÚSCULAS); `contrato` NULL = regra global.
 model ParametroPreventiva {
