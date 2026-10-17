@@ -31,6 +31,13 @@ export function podeVerTodasPartes(usuario) {
   return !!usuario && usuario.tipo === 'ADMINISTRADOR';
 }
 
+// Status Operacional do Dia (Operacao vs paradas/manutencoes): somente
+// perfis administrativos (Master/Transporte/Gestao) alternam. Usuario
+// operacional permanece fixado em 'Operacao'.
+export function podeAlterarStatusOperacional(usuario) {
+  return !!usuario && usuario.tipo === 'ADMINISTRADOR';
+}
+
 export function podeEscrever(usuario, modulo) {
   if (!usuario || usuario.tipo !== 'ADMINISTRADOR') return false;
   if (usuario.setor === 'GESTAO') return true;

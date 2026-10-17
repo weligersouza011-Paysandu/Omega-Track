@@ -10,6 +10,7 @@ import ModalAssinaturaDigital from './ModalAssinaturaDigital.jsx';
 import RelatorioParteDiariaPreview from './RelatorioParteDiariaPreview.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { hojeISO, paraInputData, formatarDataSemTimezone } from '../utils/datas.js';
+import { podeAlterarStatusOperacional } from '../utils/permissoes.js';
 
 // Status internos do fluxo de aprovação (mapeados para exibição)
 const STATUS_APROVACAO = {
@@ -278,6 +279,9 @@ function TagCombobox({ veiculos = [], value, onSelect, inputCls }) {
 
 export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], inicial = null, onSalvo, onSave, onAtualizar }) {
   const usuario = sessao?.usuario || null;
+  // Perfil operacional (nao-admin): Status Operacional do Dia fixado em
+  // 'Operação' — sem acesso a paradas/manutenções (trava no payload também).
+  const statusTravado = !podeAlterarStatusOperacional(usuario);
   const [usuarios, setUsuarios] = useState([]);
   // Função do logado resolvida no cadastro fresco (/api/usuarios), com fallback
   // para a sessão (que pode ser anterior ao campo `funcao` ou estar sem o valor).
@@ -363,6 +367,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     limparErroCampo(campo);
     setForm((f) => ({ ...f, [campo]: valor }));
   }, [limparErroCampo]);
+
+  // Status Operacional do Dia: perfil operacional não altera (fixo em Operação).
+  const definirStatusOperacional = (valor) => {
+    if (statusTravado) return;
+    limparErroCampo('status_operacional');
+    definir('status_operacional', valor);
+  };
 
   // Domingo fora da grade: a data não aceita domingos (operação seg–sáb).
   const [erroData, setErroData] = useState(null);
@@ -522,7 +533,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
           intervalo_entrada: p.intervalo_entrada || '',
           intervalo_saida: p.intervalo_saida || '',
           status_relatorio: p.status_relatorio || 'PREENCHENDO',
-          status_operacional: p.status_operacional || p.status || 'Operação',
+          status_operacional: statusTravado ? 'Operação' : (p.status_operacional || p.status || 'Operação'),
           km_inicial: p.km_inicial ?? '',
           km_final: p.km_final ?? '',
           mao_obra: maoBase,
@@ -580,8 +591,10 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       funcao: r.funcao || 'Sinaleiro',
     }));
     const responsavelJornada = maoTravada[0] || {};
+    // Perfil operacional: payload sempre em Operação (trava de status).
+    const statusOperacionalEfetivo = statusTravado ? 'Operação' : (f.status_operacional || 'Operação');
     // Modo do relatório: no modo parada, o motivo vira a ocorrência registrada.
-    const modoPayload = modoDoStatus(f.status_operacional);
+    const modoPayload = modoDoStatus(statusOperacionalEfetivo);
     const motivoTrim = String(motivoParada || '').trim();
     const ocorrenciasPayload = modoPayload === 'parada' && motivoTrim
       ? [{ tipo: 'Operacional', descricao: motivoTrim }]
@@ -608,10 +621,10 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       intervalo_entrada: f.intervalo_entrada || null,
       intervalo_saida: f.intervalo_saida || null,
       status_relatorio: f.status_relatorio,
-      status_operacional: f.status_operacional || 'Operação',
+      status_operacional: statusOperacionalEfetivo,
       status_aprovacao: statusAprovacao,
       tag: String(veiculoPrincipal?.tag_patrimonio || '').trim().toUpperCase(),
-      status: f.status_operacional || 'Operação',
+      status: statusOperacionalEfetivo,
       funcionario: String(responsavelJornada.nome || '').trim() || usuario?.nome || null,
       operador: String(responsavelJornada.matricula || '').trim() || usuario?.matricula || null,
       funcao: String(responsavelJornada.funcao || '').trim() || funcaoDoLogado || null,
@@ -625,7 +638,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       checklist: f.checklist,
       fotos: f.fotos,
     };
-  }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada]);
+  }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada, statusTravado]);
 
   const aplicarResposta = useCallback((p) => {
     if (!p) return;
@@ -1379,23 +1392,24 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   <select
                     id="campo-status-operacional"
                     value={form.status_operacional || ''}
-                    onChange={(e) => {
-                      limparErroCampo('status_operacional');
-                      definir('status_operacional', e.target.value);
-                    }}
+                    onChange={(e) => definirStatusOperacional(e.target.value)}
                     className={`${inputCls} ${
                       errosValidacao.status_operacional || !STATUS_OPERACIONAL_DIA.includes(form.status_operacional)
                         ? '!border-red-500 ring-2 ring-red-500/50 bg-red-50/40 animate-pulse'
                         : ''
-                    }`}
+                    } ${statusTravado ? 'bg-omega-50 text-omega-500 cursor-not-allowed' : ''}`}
                     required
-                    title="Situação operacional da frente de serviço no dia"
+                    disabled={statusTravado}
+                    title={statusTravado ? 'Fixado em Operação para o seu perfil' : 'Situação operacional da frente de serviço no dia'}
                   >
-                    <option value="">Selecionar status...</option>
-                    {STATUS_OPERACIONAL_DIA.map((s) => (
+                    {!statusTravado && <option value="">Selecionar status...</option>}
+                    {(statusTravado ? ['Operação'] : STATUS_OPERACIONAL_DIA).map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                  {statusTravado && (
+                    <p className="mt-1 text-[11px] text-omega-400">Fixado em Operação para o seu perfil.</p>
+                  )}
                   {errosValidacao.status_operacional && (
                     <p className="mt-1 text-[11px] font-semibold text-red-600 flex items-center gap-1">
                       <AlertTriangle size={12} className="shrink-0" />
@@ -1626,9 +1640,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   <span className="block mt-0.5 font-normal text-red-600">
                     Excesso de {fmtKm(Math.abs(manutencao.km_restantes_para_preventiva))} km • Limite: {fmtKm(manutencao.km_limite_preventiva)} km
                   </span>
-                  {form.status_operacional !== 'Manutenção Preventiva' && (
+                  {!statusTravado && form.status_operacional !== 'Manutenção Preventiva' && (
                     <button
-                      onClick={() => definir('status_operacional', 'Manutenção Preventiva')}
+                      onClick={() => definirStatusOperacional('Manutenção Preventiva')}
                       className="btn-secondary !py-1.5 !px-2.5 text-xs mt-2"
                     >
                       Usar status “Manutenção Preventiva”

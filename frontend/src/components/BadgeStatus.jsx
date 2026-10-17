@@ -1,10 +1,10 @@
 const STATUS_MAP = {
-  // Status Operacional do Veículo/Equipamento
-  'Operação': { bg: 'bg-green-50', text: 'text-status-verde', ring: 'ring-green-600/20', label: 'Operação' },
-  'Manutenção Corretiva': { bg: 'bg-red-50', text: 'text-status-vermelho', ring: 'ring-red-600/20', label: 'Manutenção Corretiva' },
-  'Manutenção Preventiva': { bg: 'bg-amber-50', text: 'text-status-amarelo', ring: 'ring-amber-600/20', label: 'Manutenção Preventiva' },
-  'Indisponibilidade': { bg: 'bg-orange-50', text: 'text-orange-700', ring: 'ring-orange-600/20', label: 'Indisponibilidade' },
-  'Interdição': { bg: 'bg-red-50', text: 'text-status-vermelho', ring: 'ring-red-600/20', label: 'Interdição' },
+  // Status Operacional do Veículo/Equipamento (paleta distinta por tipo)
+  'Operação': { bg: 'bg-blue-100', text: 'text-blue-800', ring: 'ring-blue-600/25', label: 'Operação' },
+  'Manutenção Preventiva': { bg: 'bg-amber-100', text: 'text-amber-800', ring: 'ring-amber-600/25', label: 'Manutenção Preventiva' },
+  'Manutenção Corretiva': { bg: 'bg-red-100', text: 'text-red-800', ring: 'ring-red-600/25', label: 'Manutenção Corretiva' },
+  'Indisponibilidade': { bg: 'bg-purple-100', text: 'text-purple-800', ring: 'ring-purple-600/25', label: 'Indisponibilidade' },
+  'Interdição': { bg: 'bg-slate-800', text: 'text-slate-100', ring: 'ring-slate-900', label: 'Interdição' },
 
   // Status do Fluxo de Aprovação do Relatório
   'Em Preenchimento': { bg: 'bg-slate-100', text: 'text-slate-700', ring: 'ring-slate-600/20', label: 'Em Preenchimento' },
