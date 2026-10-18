@@ -8,6 +8,7 @@ import parametroPreventivaRoutes from './parametroPreventivaRoutes.js';
 import uploadRoutes from './uploadRoutes.js';
 import usuariosRoutes from './usuariosRoutes.js';
 import loginRoutes from './loginRoutes.js';
+import eficienciaRoutes from './eficienciaRoutes.js';
 
 const router = Router();
 
@@ -45,6 +46,7 @@ router.get('/', (req, res) => {
       parametros_preventiva: 'GET /api/parametros-preventiva | GET /categoria/:tipo?contrato= | POST (Gestao/Transporte ou Master) | DELETE /:id',
       anexo_documento: '/api/documentacao-veiculos/:id/anexo (campo `arquivo` -> anexo_url)',
       evidencia_parte: '/api/partes-diarias/:id/evidencia (campo `arquivo` -> evidencia_url)',
+      eficiencia: 'GET /api/eficiencia?dataInicio=&dataFim=&tag=&modelo=&contrato=&situacao=MOB|DESMOB|TODOS (dashboard: eficiencia por TAG/modelo/mes, KPIs e calendario de paradas; preventiva isenta do denominador)',
     },
   });
 });
@@ -75,5 +77,6 @@ router.use('/parametros-preventiva', parametroPreventivaRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/usuarios', usuariosRoutes);
 router.use('/login', loginRoutes);
+router.use('/eficiencia', eficienciaRoutes);
 
 export default router;

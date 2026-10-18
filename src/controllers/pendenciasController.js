@@ -17,6 +17,7 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { sessaoOperacional, atuanteDaRequisicao } from '../middleware/sessao.js';
+import { comRetryConexao } from '../utils/retryBanco.js';
 
 const DIAS_AUDITORIA_PADRAO = 7;
 const DIAS_AUDITORIA_MAX = 31;
@@ -70,33 +71,6 @@ function migrationPendente(erro) {
   const codigo = String(erro?.code || '');
   if (codigo === 'P2021' || codigo === 'P2022') return true;
   return /does not exist|doesn't exist|Unknown table|Unknown column|no such table/i.test(String(erro?.message || ''));
-}
-
-// Falha transitoria de conexao (banco serverless acordando, pool esgotado,
-// rede): vale a pena repetir a consulta antes de desistir.
-function erroTransitorioDeConexao(erro) {
-  const codigo = String(erro?.code || '');
-  if (['P1001', 'P1002', 'P1017', 'P2024'].includes(codigo)) return true;
-  return /Can't reach database server|Connection terminated|Timed out fetching a new connection|ECONNRESET|ETIMEDOUT|EPIPE|Connection reset/i
-    .test(String(erro?.message || ''));
-}
-
-// Re-try de conexao: repete a consulta algumas vezes com espera progressiva
-// quando o erro for transitorio (ex.: Neon acordando). Erros permanentes
-// (migration pendente, validacao) sobem imediatamente.
-async function comRetryConexao(fn, tentativas = 3, esperaMs = 700) {
-  for (let tentativa = 1; ; tentativa += 1) {
-    try {
-      return await fn();
-    } catch (erro) {
-      if (tentativa >= tentativas || !erroTransitorioDeConexao(erro)) throw erro;
-      console.warn(
-        `[pendencias] Falha transitoria de banco (tentativa ${tentativa}/${tentativas}) — repetindo consulta...`,
-        { code: erro?.code, message: erro?.message },
-      );
-      await new Promise((resolve) => setTimeout(resolve, esperaMs * tentativa));
-    }
-  }
 }
 
 // Overrides de operador (edicao manual do ADM) com fallback defensivo: se a

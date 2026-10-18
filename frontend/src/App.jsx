@@ -8,7 +8,7 @@ import MobDesmobView from './views/MobDesmobView.jsx';
 import GestaoPreditivaView from './views/GestaoPreditivaView.jsx';
 import DashboardExecutivoView from './views/DashboardExecutivoView.jsx';
 import FarolDocumentosView from './views/FarolDocumentosView.jsx';
-import PendenciasParteDiariaView from './views/PendenciasParteDiariaView.jsx';
+import GestaoEficienciaView from './views/GestaoEficienciaView.jsx';
 import TelemetriaView from './views/TelemetriaView.jsx';
 import ControleAmbientalView from './views/ControleAmbientalView.jsx';
 import EcoGestaoView from './views/EcoGestaoView.jsx';
@@ -50,7 +50,8 @@ export default function App() {
         <Route path="frota" element={<RestritoAdmin operacional={operacional}><MobDesmobView /></RestritoAdmin>} />
         <Route path="preditiva" element={<RestritoAdmin operacional={operacional}><GestaoPreditivaView /></RestritoAdmin>} />
         <Route path="farol-documentos" element={<RestritoAdmin operacional={operacional}><FarolDocumentosView /></RestritoAdmin>} />
-        <Route path="pendencias-parte-diaria" element={<RestritoAdmin operacional={operacional}><PendenciasParteDiariaView sessao={sessao} /></RestritoAdmin>} />
+        <Route path="gestao-eficiencia" element={<RestritoAdmin operacional={operacional}><GestaoEficienciaView sessao={sessao} /></RestritoAdmin>} />
+        <Route path="pendencias-parte-diaria" element={<Navigate to="/inicio" replace />} />
         <Route path="telemetria" element={<RestritoAdmin operacional={operacional}><TelemetriaView /></RestritoAdmin>} />
         <Route path="controle-ambiental" element={<RestritoAdmin operacional={operacional}><ControleAmbientalView /></RestritoAdmin>} />
         <Route path="ecogestao" element={<RestritoAdmin operacional={operacional}><EcoGestaoView /></RestritoAdmin>} />
