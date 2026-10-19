@@ -5,20 +5,33 @@
 // Origem: 13/Parte Diaria Revisado.xlsx
 // Destino: tabela `partes_diarias` (Neon/PostgreSQL via Prisma)
 //
-// Regras de mapeamento (STATUS da planilha -> status_operacional):
-//   "Parte Diaria Feita" | "Operacao"            -> "Operacao"             (valor 1)
-//   "Parte Diaria Feita (Manutencao Corretiva)"  -> "Manutencao Corretiva" (valor 0)
-//   "Parte Diaria Feita (Indisponibilidade)"     -> "Indisponibilidade"    (valor 0)
-//   "Parte Diaria Feita (Interdicao)"            -> "Interdicao"           (valor 0)
-//   "Parte Diaria Feita (Manutencao Preventiva)" -> "Manutencao Preventiva"(isenta)
-//   Qualquer "Pendente" ou variacao              -> DESCARTADO
+// Classificacao do STATUS (trim + sem acentos + caixa baixa + por conteudo):
+//   "operacao" | "parte diaria feita" | "concluido"  -> "Operacao"             (valor 1)
+//   "corretiva" | "manutencao corretiva"             -> "Manutencao Corretiva" (valor 0)
+//   "indisponibilidade"                              -> "Indisponibilidade"    (valor 0)
+//   "interdicao"                                     -> "Interdicao"           (valor 0)
+//   "preventiva" | "manutencao preventiva"           -> "Manutencao Preventiva"(isenta)
+//   Qualquer status contendo "pendente"              -> DESCARTADO
 //
-// Chave de Upsert: (TAG, DATA) — evita duplicatas.
+//   Os desvios sao checados antes de "parte diaria feita", pois o sufixo
+//   "...(Manutencao Corretiva)" define a categoria.
+//
+// Os valores GRAVADOS sao os canonicos do dominio do app ("Operação",
+// "Manutenção Corretiva", ...), os mesmos exigidos por parteDiariaController
+// (validacao), manutencaoService (ancora de preventiva) e formulario/UI.
+// A leitura do BI (/api/eficiencia) e tolerante a caixa e acentos.
+//
+// Chave logica: (TAG, DATA) — evita duplicatas. Se a planilha repetir a mesma
+// chave com status diferentes, vence o de MAIOR severidade
+// (desvio > preventiva > operacao), para nao mascarar corretivas/interdicoes.
 // Se a TAG nao existir em mob_desmob -> cria registro fantasma para FK.
 //
 // Uso:
-//   node scripts/importarHistoricoLocal.js [--dry-run] [--limit=N]
+//   node scripts/importarHistoricoLocal.js [--limpar] [--dry-run] [--limit=N]
 //
+//   --limpar    Remove os registros de historico criados por importacoes
+//               anteriores (criado_por = 'importacao-historico'|'-api') antes
+//               de reimportar. NAO toca em registros criados pelo app.
 //   --dry-run   Apenas le, mapeia e exibe (sem escrita no banco).
 //   --limit=N   Processa apenas as N primeiras linhas (para testes).
 // ============================================================================
@@ -35,6 +48,7 @@ const XLSX_PATH = path.join(RAIZ, '13', 'Parte Di\u00e1ria Revisado.xlsx');
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
+const LIMPAR = args.includes('--limpar');
 const LIMIT = Number((args.find((a) => a.startsWith('--limit=')) || '').split('=')[1]) || Infinity;
 
 // =============================================================================
@@ -45,6 +59,20 @@ const STATUS_CORRETIVA         = 'Manuten\u00e7\u00e3o Corretiva';
 const STATUS_PREVENTIVA        = 'Manuten\u00e7\u00e3o Preventiva';
 const STATUS_INDISPONIBILIDADE = 'Indisponibilidade';
 const STATUS_INTERDICAO        = 'Interdi\u00e7\u00e3o';
+
+// Registros elegiveis para a limpeza (--limpar).
+const CRIADORES_HISTORICO = ['importacao-historico', 'importacao-historico-api'];
+
+// Severidade quando a planilha repete a mesma (TAG, DATA).
+const PRIORIDADE_STATUS = {
+  [STATUS_CORRETIVA]:         3,
+  [STATUS_INDISPONIBILIDADE]: 3,
+  [STATUS_INTERDICAO]:        3,
+  [STATUS_PREVENTIVA]:        2,
+  [STATUS_OPERACAO]:          1,
+};
+
+const TAMANHO_LOTE = 500;
 
 // =============================================================================
 // Helpers
@@ -64,28 +92,31 @@ function paraISO(date) {
   return date.toISOString().slice(0, 10);
 }
 
+// trim + sem acentos + caixa baixa (comparacao tolerante).
+function normalizarTexto(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
 function norm(v) {
   return String(v || '').trim();
 }
 
+// STATUS da planilha -> status canonico do app.
+//   null      = Pendente (descartar, nao gera registro no BI)
+//   undefined = fora do dominio (ignorar)
 function mapearStatus(rawStatus) {
-  const s = norm(rawStatus);
-
-  // Descarte imediato: Pendente
-  if (/pendente/i.test(s)) return null;
-
-  // Operacao (valor 1)
-  if (s === 'Parte Di\u00e1ria Feita' || s === 'Opera\u00e7\u00e3o') return STATUS_OPERACAO;
-
-  // Desvios (valor 0)
-  if (s === 'Parte Di\u00e1ria Feita (Manuten\u00e7\u00e3o Corretiva)')  return STATUS_CORRETIVA;
-  if (s === 'Parte Di\u00e1ria Feita (Indisponibilidade)')       return STATUS_INDISPONIBILIDADE;
-  if (s === 'Parte Di\u00e1ria Feita (Interdi\u00e7\u00e3o)')             return STATUS_INTERDICAO;
-
-  // Preventiva (isenta do denominador)
-  if (s === 'Parte Di\u00e1ria Feita (Manuten\u00e7\u00e3o Preventiva)') return STATUS_PREVENTIVA;
-
-  // Status fora do dominio mapeado
+  const s = normalizarTexto(rawStatus);
+  if (!s) return undefined;
+  if (s.includes('pendente')) return null;
+  if (s.includes('corretiva')) return STATUS_CORRETIVA;
+  if (s.includes('preventiva')) return STATUS_PREVENTIVA;
+  if (s.includes('interdicao')) return STATUS_INTERDICAO;
+  if (s.includes('indisponibilidade')) return STATUS_INDISPONIBILIDADE;
+  if (s.includes('operacao') || s.includes('parte diaria feita') || s.includes('concluid')) return STATUS_OPERACAO;
   return undefined;
 }
 
@@ -102,31 +133,54 @@ function categoriaDeStatus(statusOperacional) {
 
 async function garantirTag(tag, tagsCriadas) {
   if (tagsCriadas.has(tag)) return;
-  const existe = await prisma.mobDesmob.findUnique({ where: { tag } });
-  if (!existe) {
-    const placaFantasma = `HIST-${tag}`.slice(0, 20);
-    try {
+  const placaFantasma = `HIST-${tag}`.slice(0, 20);
+  try {
+    await prisma.mobDesmob.upsert({
+      where:  { tag },
+      update: {},
+      create: { tag, placa: placaFantasma, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
+    });
+    console.log(`  [AVISO] TAG "${tag}" ausente em mob_desmob -> veiculo fantasma criado (placa: ${placaFantasma}).`);
+  } catch (e) {
+    if (e.code === 'P2002') {
+      const placaAlt = `HIST-${tag}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`.slice(0, 20);
       await prisma.mobDesmob.upsert({
         where:  { tag },
         update: {},
-        create: { tag, placa: placaFantasma, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
+        create: { tag, placa: placaAlt, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
       });
-      console.log(`  [AVISO] TAG "${tag}" ausente em mob_desmob -> veiculo fantasma criado (placa: ${placaFantasma}).`);
-    } catch (e) {
-      if (e.code === 'P2002') {
-        const placaAlt = `HIST-${tag}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`.slice(0, 20);
-        await prisma.mobDesmob.upsert({
-          where:  { tag },
-          update: {},
-          create: { tag, placa: placaAlt, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
-        });
-        console.log(`  [AVISO] TAG "${tag}" -> placa alternativa "${placaAlt}" usada.`);
-      } else {
-        throw e;
-      }
+      console.log(`  [AVISO] TAG "${tag}" -> placa alternativa "${placaAlt}" usada.`);
+    } else {
+      throw e;
     }
   }
   tagsCriadas.add(tag);
+}
+
+function imprimirResumo(resumo) {
+  console.log('\n==================================================================');
+  console.log('  RESUMO DA IMPORTACAO');
+  console.log('==================================================================');
+  console.log(`Linhas lidas (com TAG):            ${resumo.lidas}`);
+  console.log(`Chaves unicas (TAG, DATA):         ${resumo.chaves}`);
+  console.log(`Conflitos de status mesclados:     ${resumo.conflitos_resolvidos}`);
+  console.log('------------------------------------------------------------------');
+  console.log(`Registros removidos (--limpar):    ${DRY_RUN ? 'N/A (dry-run)' : resumo.limpeza_removidos}`);
+  console.log(`Registros criados (banco):         ${DRY_RUN ? 'N/A (dry-run)' : resumo.criados}`);
+  console.log(`Registros atualizados (banco):     ${DRY_RUN ? 'N/A (dry-run)' : resumo.atualizados}`);
+  console.log('------------------------------------------------------------------');
+  console.log(`Ignorados: Pendente:               ${resumo.ignoradas_pendente}`);
+  console.log(`Ignorados: Data invalida:           ${resumo.ignoradas_sem_data}`);
+  console.log(`Ignorados: Status desconhecido:     ${resumo.ignoradas_status_desconhecido}`);
+  console.log('------------------------------------------------------------------');
+  console.log(`Categoria: OPERACAO:               ${resumo.operacao}`);
+  console.log(`Categoria: CORRETIVA:              ${resumo.corretiva}`);
+  console.log(`Categoria: INDISPONIBILIDADE:      ${resumo.indisponibilidade}`);
+  console.log(`Categoria: INTERDICAO:             ${resumo.interdicao}`);
+  console.log(`Categoria: PREVENTIVA (isenta):    ${resumo.preventiva_isenta}`);
+  console.log('------------------------------------------------------------------');
+  console.log(`Falhas:                            ${resumo.falhas.length}`);
+  console.log('==================================================================');
 }
 
 // =============================================================================
@@ -137,6 +191,7 @@ async function main() {
   console.log('  Importacao Historico Partes Diarias -> BI de Eficiencia');
   console.log('==================================================================');
   console.log(`Modo:    ${DRY_RUN ? '[DRY-RUN] somente leitura — nada sera gravado' : '[PRODUCAO] gravacao real no banco'}`);
+  if (LIMPAR && !DRY_RUN) console.log('Limpeza: [ATIVA] remove registros de importacoes anteriores antes de reimportar');
   console.log(`Arquivo: ${XLSX_PATH}\n`);
 
   if (!fs.existsSync(XLSX_PATH)) {
@@ -154,7 +209,7 @@ async function main() {
     process.exit(1);
   }
 
-  const cabecalho = linhas[0].map((c) => norm(c).toUpperCase());
+  const cabecalho = linhas[0].map((c) => normalizarTexto(c).toUpperCase());
   console.log(`Colunas detectadas: ${cabecalho.join(' | ')}\n`);
 
   function encontrarColuna(...nomes) {
@@ -182,11 +237,14 @@ async function main() {
 
   const resumo = {
     lidas: 0,
-    processadas: 0,
+    chaves: 0,
+    conflitos_resolvidos: 0,
     ignoradas_pendente: 0,
     ignoradas_sem_data: 0,
     ignoradas_status_desconhecido: 0,
-    upserts: 0,
+    limpeza_removidos: 0,
+    criados: 0,
+    atualizados: 0,
     operacao: 0,
     corretiva: 0,
     indisponibilidade: 0,
@@ -195,128 +253,173 @@ async function main() {
     falhas: [],
   };
 
-  const tagsCriadas = new Set();
+  // ---------------------------------------------------------------------------
+  // Passo 1: leitura + classificacao normalizada + dedupe (TAG, DATA).
+  // ---------------------------------------------------------------------------
+  const candidatos = new Map(); // `${tag}|${iso}` -> { tag, dataUTC, statusOperacional }
+  let impressos = 0;
 
   for (let i = 0; i < total; i++) {
     resumo.lidas++;
     const linha = dados[i];
     const numLinha = i + 2;
 
-    try {
-      const tagRaw    = norm(linha[IDX_TAG]);
-      const dataRaw   = linha[IDX_DATA];
-      const statusRaw = norm(linha[IDX_STATUS]);
+    const tagRaw  = norm(linha[IDX_TAG]);
+    const statusRaw = norm(linha[IDX_STATUS]);
+    const dataDate = excelSerialParaDate(linha[IDX_DATA]);
 
-      const dataDate = excelSerialParaDate(dataRaw);
-      if (!dataDate) {
-        resumo.ignoradas_sem_data++;
-        if (DRY_RUN) console.log(`  [IGNORADO] Linha ${numLinha}: TAG="${tagRaw}" — data invalida (${dataRaw}).`);
-        continue;
+    if (!dataDate) {
+      resumo.ignoradas_sem_data++;
+      if (DRY_RUN && impressos < 50) console.log(`  [IGNORADO] Linha ${numLinha}: TAG="${tagRaw}" — data invalida.`);
+      continue;
+    }
+
+    const statusOperacional = mapearStatus(statusRaw);
+
+    if (statusOperacional === null) {
+      resumo.ignoradas_pendente++;
+      if (DRY_RUN && impressos < 50) console.log(`  [DESCARTADO] Linha ${numLinha}: TAG="${tagRaw}" DATA=${paraISO(dataDate)} — Pendente.`);
+      continue;
+    }
+
+    if (statusOperacional === undefined) {
+      resumo.ignoradas_status_desconhecido++;
+      console.log(`  [AVISO] Linha ${numLinha}: TAG="${tagRaw}" — status desconhecido: "${statusRaw}". Ignorado.`);
+      continue;
+    }
+
+    const iso = paraISO(dataDate);
+    const chave = `${tagRaw}|${iso}`;
+    const anterior = candidatos.get(chave);
+
+    if (!anterior) {
+      candidatos.set(chave, { tag: tagRaw, dataUTC: new Date(`${iso}T00:00:00.000Z`), statusOperacional });
+    } else {
+      if (anterior.statusOperacional !== statusOperacional) {
+        resumo.conflitos_resolvidos++;
+        console.log(`  [CONFLITO] ${tagRaw} ${iso}: "${anterior.statusOperacional}" + "${statusOperacional}" -> vence o mais severo.`);
       }
-
-      const statusOperacional = mapearStatus(statusRaw);
-
-      if (statusOperacional === null) {
-        resumo.ignoradas_pendente++;
-        if (DRY_RUN) console.log(`  [DESCARTADO] Linha ${numLinha}: TAG="${tagRaw}" DATA=${paraISO(dataDate)} — Pendente.`);
-        continue;
+      const prioNovo = PRIORIDADE_STATUS[statusOperacional] || 0;
+      const prioAnterior = PRIORIDADE_STATUS[anterior.statusOperacional] || 0;
+      if (prioNovo >= prioAnterior) {
+        candidatos.set(chave, { tag: tagRaw, dataUTC: new Date(`${iso}T00:00:00.000Z`), statusOperacional });
       }
+    }
 
-      if (statusOperacional === undefined) {
-        resumo.ignoradas_status_desconhecido++;
-        console.log(`  [AVISO] Linha ${numLinha}: TAG="${tagRaw}" — status desconhecido: "${statusRaw}". Ignorado.`);
-        continue;
-      }
-
-      if (DRY_RUN) {
-        const cat = categoriaDeStatus(statusOperacional);
-        console.log(`  [DRY] ${String(numLinha).padStart(5)} TAG=${tagRaw.padEnd(12)} DATA=${paraISO(dataDate)} STATUS="${statusOperacional}" -> ${cat}`);
-        resumo.processadas++;
-        resumo[cat] = (resumo[cat] || 0) + 1;
-        continue;
-      }
-
-      await garantirTag(tagRaw, tagsCriadas);
-
-      const dataUTC = new Date(`${paraISO(dataDate)}T00:00:00.000Z`);
-
-      const existente = await prisma.parteDiaria.findFirst({
-        where: { tag: tagRaw, data: dataUTC },
-        select: { id: true },
-      });
-
-      if (existente) {
-        await prisma.parteDiaria.update({
-          where: { id: existente.id },
-          data: {
-            status_operacional: statusOperacional,
-            status_relatorio:   'APROVADO',
-            status_aprovacao:   'Aprovado',
-            atualizado_por:     'importacao-historico',
-          },
-        });
-      } else {
-        await prisma.parteDiaria.create({
-          data: {
-            tag:                tagRaw,
-            data:               dataUTC,
-            status:             'APROVADO',
-            status_operacional: statusOperacional,
-            status_relatorio:   'APROVADO',
-            status_aprovacao:   'Aprovado',
-            status_assinatura:  'APROVADO',
-            possui_pendencia:   false,
-            criado_por:         'importacao-historico',
-            atualizado_por:     'importacao-historico',
-          },
-        });
-      }
-
-      resumo.upserts++;
-      resumo.processadas++;
-      const cat = categoriaDeStatus(statusOperacional);
-      resumo[cat] = (resumo[cat] || 0) + 1;
-
-      if (resumo.processadas % 100 === 0) {
-        console.log(`  -> ${resumo.processadas} registros gravados...`);
-      }
-    } catch (e) {
-      const tagTxt = norm(linha[IDX_TAG]) || `linha ${numLinha}`;
-      resumo.falhas.push({ linha: numLinha, tag: tagTxt, erro: e.message });
-      console.error(`  [FALHA] Linha ${numLinha} TAG="${tagTxt}": ${e.message}`);
+    if (DRY_RUN && impressos < 50) {
+      console.log(`  [DRY] ${String(numLinha).padStart(5)} TAG=${tagRaw.padEnd(12)} DATA=${iso} STATUS="${statusOperacional}" -> ${categoriaDeStatus(statusOperacional)}`);
+      impressos++;
     }
   }
 
-  console.log('\n==================================================================');
-  console.log('  RESUMO DA IMPORTACAO');
-  console.log('==================================================================');
-  console.log(`Total de linhas lidas:             ${resumo.lidas}`);
-  console.log(`Registros processados:             ${resumo.processadas}`);
-  console.log(`Upserts realizados (banco):        ${DRY_RUN ? 'N/A (dry-run)' : resumo.upserts}`);
-  console.log('------------------------------------------------------------------');
-  console.log(`Ignorados: Pendente:               ${resumo.ignoradas_pendente}`);
-  console.log(`Ignorados: Data invalida:           ${resumo.ignoradas_sem_data}`);
-  console.log(`Ignorados: Status desconhecido:     ${resumo.ignoradas_status_desconhecido}`);
-  console.log('------------------------------------------------------------------');
-  console.log(`Categoria: OPERACAO:               ${resumo.operacao}`);
-  console.log(`Categoria: CORRETIVA:              ${resumo.corretiva}`);
-  console.log(`Categoria: INDISPONIBILIDADE:      ${resumo.indisponibilidade}`);
-  console.log(`Categoria: INTERDICAO:             ${resumo.interdicao}`);
-  console.log(`Categoria: PREVENTIVA (isenta):    ${resumo.preventiva_isenta}`);
-  console.log('------------------------------------------------------------------');
-  console.log(`Falhas:                            ${resumo.falhas.length}`);
-  console.log('==================================================================');
-
-  if (resumo.falhas.length > 0) {
-    console.log('\nDetalhamento das falhas:');
-    for (const f of resumo.falhas) {
-      console.error(`  Linha ${f.linha} TAG="${f.tag}": ${f.erro}`);
-    }
+  resumo.chaves = candidatos.size;
+  for (const c of candidatos.values()) {
+    const cat = categoriaDeStatus(c.statusOperacional);
+    resumo[cat] = (resumo[cat] || 0) + 1;
   }
 
   if (DRY_RUN) {
+    imprimirResumo(resumo);
     console.log('\n[DRY-RUN] Nenhuma alteracao foi feita no banco.');
     console.log('Execute sem --dry-run para importar de verdade.\n');
+    await prisma.$disconnect();
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Passo 2 (opcional): limpeza dos registros criados por importacoes.
+  // ---------------------------------------------------------------------------
+  if (LIMPAR) {
+    const removidos = await prisma.parteDiaria.deleteMany({
+      where: { criado_por: { in: CRIADORES_HISTORICO } },
+    });
+    resumo.limpeza_removidos = removidos.count;
+    console.log(`\n[LIMPEZA] ${removidos.count} registro(s) de historico removidos (criado_por in ${CRIADORES_HISTORICO.join(', ')}).\n`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Passo 3: garante as TAGs de destino (fantasma quando ausente em mob_desmob).
+  // ---------------------------------------------------------------------------
+  const tagsNecessarias = [...new Set([...candidatos.values()].map((c) => c.tag))];
+  const tagsExistentes = await prisma.mobDesmob.findMany({
+    where: { tag: { in: tagsNecessarias } },
+    select: { tag: true },
+  });
+  const setTags = new Set(tagsExistentes.map((t) => t.tag));
+  const tagsCriadas = new Set();
+  for (const tag of tagsNecessarias) {
+    if (setTags.has(tag)) continue;
+    await garantirTag(tag, tagsCriadas);
+  }
+  console.log(`TAGs no historico: ${tagsNecessarias.length} | fantasmas criadas agora: ${tagsCriadas.size}`);
+
+  // ---------------------------------------------------------------------------
+  // Passo 4: cria o que falta em lote e atualiza o que ja existe.
+  // ---------------------------------------------------------------------------
+  const existentes = await prisma.parteDiaria.findMany({
+    where: { tag: { in: tagsNecessarias } },
+    select: { id: true, tag: true, data: true },
+  });
+  const idPorChave = new Map(existentes.map((p) => [`${p.tag}|${paraISO(p.data)}`, p.id]));
+
+  const criar = [];
+  const atualizar = [];
+  for (const [chave, c] of candidatos) {
+    const id = idPorChave.get(chave);
+    if (id) atualizar.push({ id, ...c });
+    else criar.push(c);
+  }
+
+  console.log(`Registros a criar: ${criar.length} | a atualizar: ${atualizar.length}\n`);
+
+  for (let i = 0; i < criar.length; i += TAMANHO_LOTE) {
+    const lote = criar.slice(i, i + TAMANHO_LOTE).map((c) => ({
+      tag:                c.tag,
+      data:               c.dataUTC,
+      status:             'APROVADO',
+      status_operacional: c.statusOperacional,
+      status_relatorio:   'APROVADO',
+      status_aprovacao:   'Aprovado',
+      status_assinatura:  'APROVADO',
+      possui_pendencia:   false,
+      criado_por:         'importacao-historico',
+      atualizado_por:     'importacao-historico',
+    }));
+    try {
+      const resultado = await prisma.parteDiaria.createMany({ data: lote, skipDuplicates: true });
+      resumo.criados += resultado.count;
+    } catch (e) {
+      console.error(`  [FALHA] Lote de criacao a partir do indice ${i}: ${e.message}`);
+      for (const item of lote) resumo.falhas.push({ tag: item.tag, erro: e.message });
+    }
+    if ((i / TAMANHO_LOTE + 1) % 5 === 0 || i + TAMANHO_LOTE >= criar.length) {
+      console.log(`  -> criados: ${resumo.criados}/${criar.length}`);
+    }
+  }
+
+  for (const item of atualizar) {
+    try {
+      await prisma.parteDiaria.update({
+        where: { id: item.id },
+        data: {
+          status_operacional: item.statusOperacional,
+          status_relatorio:   'APROVADO',
+          status_aprovacao:   'Aprovado',
+          atualizado_por:     'importacao-historico',
+        },
+      });
+      resumo.atualizados++;
+    } catch (e) {
+      resumo.falhas.push({ tag: item.tag, erro: e.message });
+      console.error(`  [FALHA] TAG="${item.tag}": ${e.message}`);
+    }
+  }
+
+  imprimirResumo(resumo);
+
+  if (resumo.falhas.length > 0) {
+    console.log('Detalhamento das falhas:');
+    for (const f of resumo.falhas.slice(0, 20)) console.error(`  TAG="${f.tag}": ${f.erro}`);
   } else {
     console.log('\n[OK] Importacao concluida. O BI de Eficiencia agora reflete o historico.\n');
   }

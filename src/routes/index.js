@@ -47,6 +47,8 @@ router.get('/', (req, res) => {
       anexo_documento: '/api/documentacao-veiculos/:id/anexo (campo `arquivo` -> anexo_url)',
       evidencia_parte: '/api/partes-diarias/:id/evidencia (campo `arquivo` -> evidencia_url)',
       eficiencia: 'GET /api/eficiencia?dataInicio=&dataFim=&tag=&modelo=&contrato=&situacao=MOB|DESMOB|TODOS (dashboard: eficiencia por TAG/modelo/mes, KPIs e calendario de paradas; preventiva isenta do denominador)',
+      eficiencia_matriz: 'GET /api/eficiencia/matriz?mes=YYYY-MM&tag=&modelo=&contrato=&situacao=TODOS|MOB|DESMOB (Matriz Calendario: status dia a dia por veiculo; sabado/domingo e feriados fora da contagem de pendencias; pior caso quando ha mais de um lancamento no dia; TODA TAG com apontamento no mes aparece, inclusive desmobilizada — historico preservado; padrao TODOS; dias fora da janela mob/desmob expostos via data_mob/data_desmob para bloqueio no front)',
+      apontamento_rapido: 'POST /api/partes-diarias/apontamento-rapido { tag, data, status_operacional } (ADM; upsert leve da Matriz Calendario — atualiza a classificacao do dia ou cria registro minimo aprovado)',
     },
   });
 });

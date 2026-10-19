@@ -115,6 +115,17 @@ function strOuNull(v) {
   return s === '' ? null : s;
 }
 
+// 'YYYY-MM-DD' (calendario da operacao) -> Date UTC a meia-noite, como o
+// restante do sistema grava o campo `data`. Retorna null se invalido.
+function dataISOParaUTC(iso) {
+  const s = String(iso || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [ano, mes, dia] = s.split('-').map(Number);
+  const d = new Date(Date.UTC(ano, mes - 1, dia));
+  if (d.getUTCFullYear() !== ano || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) return null;
+  return d;
+}
+
 function autorDaRequisicao(req, corpo = {}) {
   return (
     corpo.atualizado_por ||
@@ -976,6 +987,156 @@ export const deletarParteDiaria = asyncHandler(async (req, res) => {
   const { id } = req.params;
   await prisma.parteDiaria.delete({ where: { id } });
   res.status(204).send();
+});
+
+// ============================================================================
+// POST /api/partes-diarias/apontamento-rapido
+// Upsert leve usado pela Matriz Calendario do BI de Eficiencia (requerAdmin):
+// define o status operacional de um veiculo em um dia sem passar pelo
+// formulario completo.
+//   - Registro(s) existente(s) do (TAG, dia): atualiza SOMENTE a classificacao
+//     do dia (status_operacional + status legado); o fluxo de aprovacao e os
+//     demais campos ficam intactos. Atualiza todos os lancamentos do dia para
+//     o BI nunca manter o pior caso antigo.
+//   - Sem registro: cria um registro minimo ja aprovado (mesma modelagem da
+//     importacao de historico) e limpa descarte/override de pendencia.
+// Body: { tag, data: 'YYYY-MM-DD', status_operacional }
+// ============================================================================
+export const apontamentoRapido = asyncHandler(async (req, res) => {
+  const tagBruta = strOuNull(req.body?.tag);
+  const dataISO = strOuNull(req.body?.data);
+  const novoStatus = strOuNull(req.body?.status_operacional) || strOuNull(req.body?.status);
+
+  if (!tagBruta) {
+    return res.status(400).json({ error: 'Campos obrigatorios', message: 'Informe a TAG do veiculo.' });
+  }
+  const diaData = dataISOParaUTC(dataISO);
+  if (!diaData) {
+    return res.status(400).json({ error: 'Data invalida', message: 'Informe `data` no formato YYYY-MM-DD.' });
+  }
+  if (!novoStatus || !STATUS_OPERACIONAL_VALIDOS.includes(novoStatus)) {
+    return res.status(400).json({
+      error: 'Status invalido',
+      message: `status_operacional deve ser um de: ${STATUS_OPERACIONAL_VALIDOS.join(', ')}.`,
+    });
+  }
+
+  const veiculo = await prisma.mobDesmob.findFirst({
+    where: { tag: { equals: tagBruta, mode: 'insensitive' } },
+  });
+  if (!veiculo) {
+    return res.status(400).json({
+      error: 'Veiculo invalido',
+      message: `TAG "${tagBruta}" não encontrada na frota. Selecione um veículo da matriz.`,
+    });
+  }
+
+  const autor = autorDaRequisicao(req, req.body || {})
+    || req.atuante?.matricula
+    || req.atuante?.nome
+    || null;
+
+  const existentes = await prisma.parteDiaria.findMany({
+    where: { tag: { equals: veiculo.tag, mode: 'insensitive' }, data: diaData },
+    select: { id: true, status_operacional: true },
+    orderBy: { created_at: 'asc' },
+  });
+
+  if (existentes.length) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        for (const parte of existentes) {
+          await tx.parteDiaria.update({
+            where: { id: parte.id },
+            data: {
+              status_operacional: novoStatus,
+              status: novoStatus,
+              ...(autor ? { atualizado_por: autor } : {}),
+            },
+          });
+          await registrarLog(tx, parte.id, 'APONTAMENTO_RAPIDO', autor, {
+            de: parte.status_operacional,
+            para: novoStatus,
+            origem: 'matriz-calendario',
+          });
+        }
+        // Timeout estendido: o Neon (pooler) tem latencia alta no primeiro toque.
+      }, { timeout: 30000, maxWait: 15000 });
+    } catch (e) {
+      console.error('Erro no apontamento rapido:', e);
+      return res.status(500).json({
+        error: 'Erro interno no servidor',
+        message: 'Não foi possível atualizar o apontamento. Tente novamente.',
+        ...(config.nodeEnv === 'development' && { details: e.message, stack: e.stack }),
+      });
+    }
+    return res.json({
+      data: {
+        tag: veiculo.tag,
+        data: dataISO,
+        status_operacional: novoStatus,
+        atualizados: existentes.length,
+        criado: false,
+      },
+    });
+  }
+
+  let criado;
+  try {
+    criado = await prisma.parteDiaria.create({
+      data: {
+        tag: veiculo.tag,
+        data: diaData,
+        dia_semana: diaSemanaPT(diaData),
+        status: novoStatus,
+        status_operacional: novoStatus,
+        status_aprovacao: 'Aprovado',
+        status_relatorio: 'APROVADO',
+        status_assinatura: 'APROVADO',
+        possui_pendencia: false,
+        criado_por: autor,
+        atualizado_por: autor,
+      },
+    });
+  } catch (e) {
+    console.error('Erro no apontamento rapido:', e);
+    return res.status(500).json({
+      error: 'Erro interno no servidor',
+      message: 'Não foi possível gravar o apontamento no banco de dados. Tente novamente.',
+      ...(config.nodeEnv === 'development' && { details: e.message, stack: e.stack }),
+    });
+  }
+
+  await registrarLog(prisma, criado.id, 'APONTAMENTO_RAPIDO', autor, {
+    para: novoStatus,
+    origem: 'matriz-calendario',
+    criado: true,
+  });
+
+  // Baixa automatica na auditoria de pendencias de lancamento (mesma regra do
+  // POST /): o lancamento elimina a pendencia derivada e o descarte manual.
+  try {
+    await Promise.all([
+      prisma.pendenciaParteDiariaIgnorada.deleteMany({
+        where: { tag: { equals: veiculo.tag, mode: 'insensitive' }, data: diaData },
+      }),
+      prisma.pendenciaParteDiariaOperador.deleteMany({
+        where: { tag: { equals: veiculo.tag, mode: 'insensitive' }, data: diaData },
+      }),
+    ]);
+  } catch {
+    /* higiene da auditoria nao bloqueia o salvamento */
+  }
+
+  return res.status(201).json({
+    data: {
+      tag: veiculo.tag,
+      data: dataISO,
+      status_operacional: novoStatus,
+      atualizados: 0,
+      criado: true,
+    },
+  });
 });
 
 // POST /api/partes-diarias/:id/evidencia — campo `arquivo` (imagem).

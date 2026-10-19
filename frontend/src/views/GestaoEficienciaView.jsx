@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { authHeaders } from '../utils/sessao.js';
 import { hojeISO } from '../utils/datas.js';
+import MatrizCalendarioMensal from '../components/MatrizCalendarioMensal.jsx';
 
 // ============================================================================
 // Dashboard de Eficiencia de Transporte (layout escuro corporativo).
@@ -358,7 +359,9 @@ function CalendarioParadas({ calendario, periodo, filtro, setFiltro }) {
 // ---------------------------------------------------------------------------
 // View principal
 // ---------------------------------------------------------------------------
-const FILTROS_INICIAIS = { tag: '', modelo: '', contrato: '', situacao: 'MOB' };
+// Filtro de situacao vazio = MOB + DESMOB (historico completo): veiculos
+// desmobilizados com apontamentos no periodo continuam visiveis no BI.
+const FILTROS_INICIAIS = { tag: '', modelo: '', contrato: '', situacao: '' };
 // Periodo padrao: inicio do historico importado (01/01/2026) ate hoje, para o
 // grafico mensal exibir o ano completo (Jan a Out) ao abrir o painel.
 const PERIODO_INICIAL = { inicio: '2026-01-01', fim: hojeISO() };
@@ -378,7 +381,7 @@ export default function GestaoEficienciaView({ sessao }) {
     if (filtros.tag) params.set('tag', filtros.tag);
     if (filtros.modelo) params.set('modelo', filtros.modelo);
     if (filtros.contrato) params.set('contrato', filtros.contrato);
-    if (filtros.situacao) params.set('situacao', filtros.situacao);
+    params.set('situacao', filtros.situacao || 'TODOS');
     if (periodo.inicio) params.set('dataInicio', periodo.inicio);
     if (periodo.fim) params.set('dataFim', periodo.fim);
     const query = params.toString();
@@ -491,8 +494,8 @@ export default function GestaoEficienciaView({ sessao }) {
         <FiltroSelect
           rotulo="MOB / DESMOB"
           valor={filtros.situacao}
-          onChange={(v) => setFiltros((f) => ({ ...f, situacao: v || 'MOB' }))}
-          vazio="MOB + DESMOB"
+          onChange={(v) => setFiltros((f) => ({ ...f, situacao: v }))}
+          vazio="MOB + DESMOB (histórico completo)"
           opcoes={[
             { valor: 'MOB', rotulo: 'MOB — mobilizados' },
             { valor: 'DESMOB', rotulo: 'DESMOB — desmobilizados' },
@@ -624,6 +627,14 @@ export default function GestaoEficienciaView({ sessao }) {
           </div>
         </div>
       )}
+
+      {/* Secao inferior: Matriz Calendario — analise mensal dia a dia por veiculo,
+          com apontamento rapido na celula e exportacao em PDF. */}
+      <MatrizCalendarioMensal
+        sessao={sessao}
+        filtros={filtros}
+        onAtualizado={() => buscar()}
+      />
     </div>
   );
 }

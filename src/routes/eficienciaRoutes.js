@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { obterEficiencia, importarHistorico } from '../controllers/eficienciaController.js';
+import { obterEficiencia, obterMatrizMensal, importarHistorico } from '../controllers/eficienciaController.js';
 import { requerAdmin } from '../middleware/sessao.js';
 
 const router = Router();
@@ -19,6 +19,10 @@ const uploadXlsx = multer({
 // Eficiencia = dias de Operacao / (Operacao + Corretiva + Indisponibilidade + Interdicao).
 // Preventiva fica isenta do denominador; dias uteis sem lancamento contam como pendentes.
 router.get('/', requerAdmin, obterEficiencia);
+
+// Matriz Calendario — status dia a dia por veiculo no mes selecionado.
+// GET /api/eficiencia/matriz?mes=YYYY-MM&tag=&modelo=&contrato=&situacao=
+router.get('/matriz', requerAdmin, obterMatrizMensal);
 
 // POST /api/eficiencia/importar-historico
 // Importacao em lote do historico de Partes Diarias para o BI de Eficiencia.

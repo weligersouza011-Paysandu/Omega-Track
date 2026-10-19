@@ -24,6 +24,18 @@
 // Resposta: indicadores globais, eficiencia por TAG e por MODELO (crescente),
 // evolucao mensal, calendario de paradas por dia e opcoes de filtro.
 //
+// GET /api/eficiencia/matriz?mes=YYYY-MM&tag=&modelo=&contrato=&situacao=
+//   Matriz calendario do mes: status dia a dia por veiculo (celulas da tela
+//   "Matriz Calendario"). Sabado/domingo e feriados nacionais ficam fora da
+//   contagem de pendencias; pendencia = dia util (seg-sex) sem lancamento,
+//   dentro da janela de mobilizacao e sem descarte manual. Celula com mais de
+//   um lancamento no dia usa o pior caso (desvio > preventiva > operacao).
+//   Escopo de veiculos: TODA TAG com apontamento no mes aparece (inclusive
+//   desmobilizado/inativo — historico preservado); sem apontamento, o veiculo
+//   entra quando respeita o filtro MOB/DESMOB (padrao TODOS) e a janela de
+//   mobilizacao cruza o mes. Cada veiculo devolve data_mob/data_desmob para o
+//   front bloquear as celulas fora da janela.
+//
 // POST /api/eficiencia/importar-historico  (multipart, campo: arquivo .xlsx)
 //   Importa em lote o historico de Partes Diarias para o BI de Eficiencia.
 //   Mesmas regras de negocio do script CLI scripts/importarHistoricoLocal.js.
@@ -43,6 +55,17 @@ const STATUS_INTERDICAO = 'Interdição';
 const SECOES = ['operacao', 'corretiva', 'preventiva', 'interdicao', 'indisponibilidade'];
 // Secoes de manutencao listadas no calendario de paradas (por veiculo).
 const SECOES_CALENDARIO = ['corretiva', 'preventiva', 'interdicao', 'indisponibilidade'];
+
+// Prioridade da celula da Matriz Calendario quando o dia tem mais de um
+// lancamento para a mesma TAG: o pior caso prevalece (mesma regra da
+// importacao de historico). Pendentes nao sobrescrevem lancamento real.
+const PRIORIDADE_MATRIZ = {
+  corretiva: 3,
+  indisponibilidade: 3,
+  interdicao: 3,
+  preventiva: 2,
+  operacao: 1,
+};
 
 const PERIODO_MAX_DIAS = 366;
 const MESES_PADRAO_JANELA = 6; // periodo padrao: mes atual + 5 anteriores
@@ -81,6 +104,46 @@ function eISOValida(iso) {
   const [ano, mes, dia] = s.split('-').map(Number);
   const d = new Date(Date.UTC(ano, mes - 1, dia));
   return d.getUTCFullYear() === ano && d.getUTCMonth() === mes - 1 && d.getUTCDate() === dia;
+}
+
+// Domingo de Pascoa (algoritmo de Meeus/Jones/Butcher, calendario gregoriano).
+function domingoDePascoa(ano) {
+  const a = ano % 19;
+  const b = Math.floor(ano / 100);
+  const c = ano % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mes = Math.floor((h + l - 7 * m + 114) / 31);
+  const dia = ((h + l - 7 * m + 114) % 31) + 1;
+  return `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+}
+
+// Feriados nacionais brasileiros do ano (fixos + moveis), em ISO.
+// Usados pela Matriz Calendario: feriado nao gera pendencia.
+function feriadosNacionais(ano) {
+  const pascoa = domingoDePascoa(ano);
+  return new Set([
+    `${ano}-01-01`, // Confraternizacao Universal
+    `${ano}-04-21`, // Tiradentes
+    `${ano}-05-01`, // Dia do Trabalho
+    `${ano}-09-07`, // Independencia
+    `${ano}-10-12`, // Nossa Senhora Aparecida
+    `${ano}-11-02`, // Finados
+    `${ano}-11-15`, // Proclamacao da Republica
+    `${ano}-11-20`, // Consciencia Negra
+    `${ano}-12-25`, // Natal
+    somarDiasISO(pascoa, -48), // Carnaval (segunda)
+    somarDiasISO(pascoa, -47), // Carnaval (terca)
+    somarDiasISO(pascoa, -2),  // Sexta-feira Santa
+    somarDiasISO(pascoa, 60),  // Corpus Christi
+  ]);
 }
 
 function normalizar(v) {
@@ -400,6 +463,191 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
 });
 
 // ============================================================================
+// GET /api/eficiencia/matriz?mes=YYYY-MM&tag=&modelo=&contrato=&situacao=
+// Matriz Calendario — analise mensal detalhada por veiculo (secao inferior da
+// tela de Gestao de Eficiencia).
+//
+// Celula (TAG, dia): secao do lancamento ('operacao', 'corretiva',
+// 'preventiva', 'interdicao', 'indisponibilidade'), 'pendentes' (dia util
+// seg-sex, sem feriado, dentro da janela de mobilizacao, sem lancamento e sem
+// descarte manual) ou null (fim de semana, feriado, dia futuro ou fora da
+// janela). Aderencia do veiculo/mes = Operacao / (Operacao + Desvios).
+// ============================================================================
+export const obterMatrizMensal = asyncHandler(async (req, res) => {
+  const mes = normalizar(req.query.mes);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) {
+    return res.status(400).json({ error: 'Parametros invalidos', message: 'Informe `mes` no formato YYYY-MM.' });
+  }
+  if (mes > hojeISO().slice(0, 7)) {
+    return res.status(400).json({ error: 'Parametros invalidos', message: 'O mes informado ainda nao comecou.' });
+  }
+
+  const filtroTag = normalizar(req.query.tag);
+  const filtroModelo = normalizar(req.query.modelo);
+  const filtroContrato = normalizar(req.query.contrato);
+  // Padrao TODOS: historico completo (nao esconde desmobilizados que
+  // trabalharam no mes). MOB/DESMOB restringem apenas veiculos SEM apontamento.
+  const situacao = (normalizar(req.query.situacao) || 'TODOS').toUpperCase(); // MOB | DESMOB | TODOS
+
+  const [ano, mesNum] = mes.split('-').map(Number);
+  const diasNoMes = new Date(Date.UTC(ano, mesNum, 0)).getUTCDate();
+  const inicio = `${mes}-01`;
+  const fim = `${mes}-${String(diasNoMes).padStart(2, '0')}`;
+  const hoje = hojeISO();
+  const feriados = feriadosNacionais(ano);
+
+  const dias = [];
+  for (let dia = 1; dia <= diasNoMes; dia++) {
+    const iso = `${mes}-${String(dia).padStart(2, '0')}`;
+    const diaSemana = new Date(Date.UTC(ano, mesNum - 1, dia)).getUTCDay();
+    dias.push({
+      dia,
+      iso,
+      fim_semana: diaSemana === 0 || diaSemana === 6,
+      feriado: feriados.has(iso),
+      futuro: iso > hoje,
+    });
+  }
+
+  const inicioData = isoParaData(inicio);
+  const fimData = isoParaData(fim);
+
+  const veiculosTodos = await comRetryConexao(() => prisma.mobDesmob.findMany({
+    select: { tag: true, placa: true, modelo: true, contrato: true, status: true, data_mob: true, data_desmob: true },
+    orderBy: { tag: 'asc' },
+  }), 3, 700, 'eficiencia');
+
+  // Universo por TAG/modelo/contrato (sem situacao): a matriz precisa das
+  // partes do mes ANTES de decidir quais veiculos aparecem.
+  const universo = veiculosTodos.filter((v) => {
+    if (filtroTag && normalizar(v.tag) !== filtroTag) return false;
+    if (filtroModelo && normalizar(v.modelo) !== filtroModelo) return false;
+    if (filtroContrato && normalizar(v.contrato) !== filtroContrato) return false;
+    return true;
+  });
+  const tagsUniverso = universo.map((v) => v.tag);
+
+  const [partes, ignoradas] = await Promise.all([
+    tagsUniverso.length
+      ? comRetryConexao(() => prisma.parteDiaria.findMany({
+        where: { tag: { in: tagsUniverso }, data: { gte: inicioData, lte: fimData } },
+        select: { tag: true, data: true, status_operacional: true },
+      }), 3, 700, 'eficiencia')
+      : Promise.resolve([]),
+    comRetryConexao(() => prisma.pendenciaParteDiariaIgnorada.findMany({
+      where: { data: { gte: inicioData, lte: fimData } },
+      select: { tag: true, data: true },
+    }), 3, 700, 'eficiencia'),
+  ]);
+
+  const tagsComRegistro = new Set(partes.map((p) => normalizar(p.tag)));
+
+  const passaSituacao = (v) => {
+    if (situacao === 'MOB') return v.status !== 'Desmobilizado';
+    if (situacao === 'DESMOB') return v.status === 'Desmobilizado';
+    return true; // TODOS
+  };
+
+  // Escopo da matriz: TAG com apontamento no mes SEMPRE aparece (inclusive
+  // desmobilizada/inativa — historico preservado). Sem apontamento, entra
+  // quando respeita o filtro MOB/DESMOB e a janela de mobilizacao cruza o mes
+  // (necessario para exibir as pendencias do periodo).
+  const veiculos = universo.filter((v) => {
+    if (tagsComRegistro.has(normalizar(v.tag))) return true;
+    if (!passaSituacao(v)) return false;
+    const mobISO = v.data_mob ? isoDeData(v.data_mob) : null;
+    const desmobISO = v.data_desmob ? isoDeData(v.data_desmob) : null;
+    if (mobISO && mobISO > fim) return false; // ainda nao mobilizado no mes
+    if (desmobISO && desmobISO < inicio) return false; // ja desmobilizado antes do mes
+    return true;
+  });
+
+  const descartes = new Set(ignoradas.map((i) => `${normalizar(i.tag)}|${isoDeData(i.data)}`));
+
+  // Pior caso por (TAG, dia); status fora do dominio / pendente explicito
+  // equivale a "sem lancamento" (a celula cai na regra de pendencia).
+  const lancamentos = new Map();
+  for (const p of partes) {
+    const secao = secaoDoStatus(p.status_operacional);
+    if (!secao || secao === 'pendentes') continue;
+    const chave = `${normalizar(p.tag)}|${isoDeData(p.data)}`;
+    const prioridade = PRIORIDADE_MATRIZ[secao] ?? -1;
+    const atual = lancamentos.get(chave);
+    if (!atual || prioridade >= atual.prioridade) lancamentos.set(chave, { secao, prioridade });
+  }
+
+  const global = zerado();
+  const linhas = veiculos.map((v) => {
+    const tagKey = normalizar(v.tag);
+    const mobISO = v.data_mob ? isoDeData(v.data_mob) : null;
+    const desmobISO = v.data_desmob ? isoDeData(v.data_desmob) : null;
+    const stats = zerado();
+    const celulas = {};
+    for (const d of dias) {
+      const chave = `${tagKey}|${d.iso}`;
+      const lancamento = lancamentos.get(chave);
+      if (lancamento) {
+        celulas[d.dia] = lancamento.secao;
+        stats[lancamento.secao] += 1;
+        global[lancamento.secao] += 1;
+        continue;
+      }
+      const dentroJanela = (!mobISO || d.iso >= mobISO) && (!desmobISO || d.iso <= desmobISO);
+      if (!d.fim_semana && !d.feriado && !d.futuro && dentroJanela && !descartes.has(chave)) {
+        celulas[d.dia] = 'pendentes';
+        stats.pendentes += 1;
+        global.pendentes += 1;
+      } else {
+        celulas[d.dia] = null;
+      }
+    }
+    return {
+      tag: v.tag,
+      placa: v.placa,
+      modelo: normalizar(v.modelo) || 'Sem modelo',
+      contrato: normalizar(v.contrato) || null,
+      status: v.status || null,
+      data_mob: v.data_mob ? isoDeData(v.data_mob) : null,
+      data_desmob: v.data_desmob ? isoDeData(v.data_desmob) : null,
+      dias: celulas,
+      ...comIndicadores(stats),
+    };
+  }).sort((a, b) => {
+    if (a.eficiencia === null && b.eficiencia === null) return a.tag.localeCompare(b.tag, 'pt-BR');
+    if (a.eficiencia === null) return 1;
+    if (b.eficiencia === null) return -1;
+    if (a.eficiencia !== b.eficiencia) return a.eficiencia - b.eficiencia;
+    return a.tag.localeCompare(b.tag, 'pt-BR');
+  });
+
+  const resumo = {
+    veiculos: linhas.length,
+    dias_no_mes: diasNoMes,
+    ...comIndicadores(global),
+    dias_validos: global.operacao + desvioDe(global),
+    meta: 0.95,
+  };
+
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.json({
+    data: {
+      mes,
+      ano,
+      dias,
+      feriados: [...feriados].filter((f) => f.startsWith(mes)),
+      resumo,
+      veiculos: linhas,
+      filtros: {
+        tag: filtroTag || null,
+        modelo: filtroModelo || null,
+        contrato: filtroContrato || null,
+        situacao,
+      },
+    },
+  });
+});
+
+// ============================================================================
 // POST /api/eficiencia/importar-historico
 // Recebe um arquivo .xlsx via multipart (campo: `arquivo`) e importa em lote
 // o historico de Partes Diarias para o BI de Eficiencia.
@@ -413,21 +661,19 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
 //   Qualquer "Pendente"                          -> DESCARTADO
 // ============================================================================
 
-const MAP_STATUS_BI = [
-  { re: /^Parte Di.ria Feita \(Manuten..o Corretiva\)$/i,  valor: STATUS_CORRETIVA },
-  { re: /^Parte Di.ria Feita \(Indisponibilidade\)$/i,      valor: STATUS_INDISPONIBILIDADE },
-  { re: /^Parte Di.ria Feita \(Interdi..o\)$/i,            valor: STATUS_INTERDICAO },
-  { re: /^Parte Di.ria Feita \(Manuten..o Preventiva\)$/i, valor: STATUS_PREVENTIVA },
-  { re: /^Parte Di.ria Feita$/i,                            valor: STATUS_OPERACAO },
-  { re: /^Opera..o$/i,                                      valor: STATUS_OPERACAO },
-];
-
+// STATUS da planilha -> status canonico do app. Classificacao tolerante
+// (trim + sem acentos + caixa baixa + por conteudo), identica ao script CLI
+// scripts/importarHistoricoLocal.js. Desvios antes de "parte diaria feita".
+//   null = Pendente (descartar) | undefined = fora do dominio.
 function mapearStatusBI(rawStatus) {
-  const s = normalizar(rawStatus);
-  if (/pendente/i.test(s)) return null; // descarta
-  for (const entry of MAP_STATUS_BI) {
-    if (entry.re.test(s)) return entry.valor;
-  }
+  const s = normalizarStatus(rawStatus);
+  if (!s) return undefined;
+  if (s.includes('pendente')) return null;
+  if (s.includes('corretiva')) return STATUS_CORRETIVA;
+  if (s.includes('preventiva')) return STATUS_PREVENTIVA;
+  if (s.includes('interdicao')) return STATUS_INTERDICAO;
+  if (s.includes('indisponibilidade')) return STATUS_INDISPONIBILIDADE;
+  if (s.includes('operacao') || s.includes('parte diaria feita') || s.includes('concluid')) return STATUS_OPERACAO;
   return undefined; // fora do dominio
 }
 
