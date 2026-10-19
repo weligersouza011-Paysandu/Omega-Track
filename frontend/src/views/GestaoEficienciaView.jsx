@@ -17,6 +17,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { authHeaders } from '../utils/sessao.js';
+import { hojeISO } from '../utils/datas.js';
 
 // ============================================================================
 // Dashboard de Eficiencia de Transporte (layout escuro corporativo).
@@ -98,6 +99,22 @@ function FiltroSelect({ rotulo, valor, onChange, opcoes, vazio = 'Todos' }) {
           <option key={o.valor} value={o.valor}>{o.rotulo}</option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function FiltroData({ rotulo, valor, onChange, min, max }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{rotulo}</span>
+      <input
+        type="date"
+        value={valor}
+        min={min}
+        max={max}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-sm font-medium text-slate-200 outline-none transition-colors focus:border-sky-500"
+      />
     </label>
   );
 }
@@ -342,9 +359,13 @@ function CalendarioParadas({ calendario, periodo, filtro, setFiltro }) {
 // View principal
 // ---------------------------------------------------------------------------
 const FILTROS_INICIAIS = { tag: '', modelo: '', contrato: '', situacao: 'MOB' };
+// Periodo padrao: inicio do historico importado (01/01/2026) ate hoje, para o
+// grafico mensal exibir o ano completo (Jan a Out) ao abrir o painel.
+const PERIODO_INICIAL = { inicio: '2026-01-01', fim: hojeISO() };
 
 export default function GestaoEficienciaView({ sessao }) {
   const [filtros, setFiltros] = useState(FILTROS_INICIAIS);
+  const [periodo, setPeriodo] = useState({ ...PERIODO_INICIAL });
   const [dados, setDados] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
@@ -353,27 +374,30 @@ export default function GestaoEficienciaView({ sessao }) {
   const buscar = useCallback(async (signal) => {
     setCarregando(true);
     setErro(null);
+    const params = new URLSearchParams();
+    if (filtros.tag) params.set('tag', filtros.tag);
+    if (filtros.modelo) params.set('modelo', filtros.modelo);
+    if (filtros.contrato) params.set('contrato', filtros.contrato);
+    if (filtros.situacao) params.set('situacao', filtros.situacao);
+    if (periodo.inicio) params.set('dataInicio', periodo.inicio);
+    if (periodo.fim) params.set('dataFim', periodo.fim);
+    const query = params.toString();
     try {
-      const params = new URLSearchParams();
-      if (filtros.tag) params.set('tag', filtros.tag);
-      if (filtros.modelo) params.set('modelo', filtros.modelo);
-      if (filtros.contrato) params.set('contrato', filtros.contrato);
-      if (filtros.situacao) params.set('situacao', filtros.situacao);
-      const resp = await fetch(`/api/eficiencia?${params.toString()}`, { headers: authHeaders(sessao), signal });
+      const resp = await fetch(`/api/eficiencia?${query}`, { headers: authHeaders(sessao), signal });
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo?.message || `Falha ao carregar a eficiência (HTTP ${resp.status}).`);
       setDados(corpo.data);
     } catch (e) {
       if (e?.name === 'AbortError') return;
       console.error('[eficiencia] Falha ao consultar o dashboard', {
-        url: `/api/eficiencia?${new URLSearchParams(filtros).toString()}`,
+        url: `/api/eficiencia?${query}`,
         erro: e,
       });
       setErro(e?.message || 'Falha ao consultar o dashboard de eficiência.');
     } finally {
       setCarregando(false);
     }
-  }, [filtros, sessao]);
+  }, [filtros, periodo, sessao]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -393,7 +417,10 @@ export default function GestaoEficienciaView({ sessao }) {
   const opcoesModelo = useMemo(() => (opcoes?.modelos || []).map((m) => ({ valor: m, rotulo: m })), [opcoes]);
   const opcoesContrato = useMemo(() => (opcoes?.contratos || []).map((c) => ({ valor: c, rotulo: c })), [opcoes]);
 
-  const filtrosAtivos = Object.entries(filtros).some(([chave, valor]) => valor && valor !== FILTROS_INICIAIS[chave]);
+  const filtrosAtivos =
+    Object.entries(filtros).some(([chave, valor]) => valor && valor !== FILTROS_INICIAIS[chave]) ||
+    periodo.inicio !== PERIODO_INICIAL.inicio ||
+    periodo.fim !== PERIODO_INICIAL.fim;
 
   const itensPorTag = useMemo(
     () => (dados?.por_tag || []).map((t) => ({
@@ -471,9 +498,21 @@ export default function GestaoEficienciaView({ sessao }) {
             { valor: 'DESMOB', rotulo: 'DESMOB — desmobilizados' },
           ]}
         />
+        <FiltroData
+          rotulo="Data inicial"
+          valor={periodo.inicio}
+          onChange={(v) => setPeriodo((p) => ({ ...p, inicio: v }))}
+          max={periodo.fim || undefined}
+        />
+        <FiltroData
+          rotulo="Data final"
+          valor={periodo.fim}
+          onChange={(v) => setPeriodo((p) => ({ ...p, fim: v }))}
+          min={periodo.inicio || undefined}
+        />
         <button
           type="button"
-          onClick={() => setFiltros(FILTROS_INICIAIS)}
+          onClick={() => { setFiltros(FILTROS_INICIAIS); setPeriodo({ ...PERIODO_INICIAL }); }}
           disabled={!filtrosAtivos}
           className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 transition-colors hover:border-sky-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
         >

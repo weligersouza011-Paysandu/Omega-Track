@@ -2,13 +2,18 @@
 // Motor de calculo do Dashboard de Eficiencia de Transporte.
 //
 // Regra de valoracao da Parte Diaria (campo `status_operacional`):
-//   - "Operacao" ......................................... valor 1 (sucesso);
+//   - "Operacao" / "Parte Diaria Feita" / "Concluido" .... valor 1 (sucesso);
 //   - "Manutencao Corretiva" / "Indisponibilidade" /
 //     "Interdicao" ...................................... valor 0 (desvio);
 //   - "Manutencao Preventiva" ............................ parada programada:
 //        ISENTA do denominador da eficiencia; conta apenas como total;
+//   - "Pendente" explicito ou status nulo ................ conta como PENDENTE;
 //   - Dia util (seg-sab) sem lancamento, dentro da janela de mobilizacao e
 //     sem descarte manual: conta como PENDENTE.
+//
+//   O casamento do status e tolerante (comparacao sem acentos, caixa baixa e
+//   por conteudo), aceitando tanto os valores gravados pelo app quanto os
+//   textos da planilha de historico revisada.
 //
 //   Eficiencia = Operacao / (Operacao + Desvios)
 //
@@ -18,7 +23,12 @@
 //
 // Resposta: indicadores globais, eficiencia por TAG e por MODELO (crescente),
 // evolucao mensal, calendario de paradas por dia e opcoes de filtro.
+//
+// POST /api/eficiencia/importar-historico  (multipart, campo: arquivo .xlsx)
+//   Importa em lote o historico de Partes Diarias para o BI de Eficiencia.
+//   Mesmas regras de negocio do script CLI scripts/importarHistoricoLocal.js.
 // ============================================================================
+import XLSX from 'xlsx';
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
@@ -77,14 +87,30 @@ function normalizar(v) {
   return String(v || '').trim();
 }
 
+// Normaliza o status para comparacao tolerante: sem acentos, caixa baixa e
+// sem espacos sobrando (aceita as variacoes gravadas pela importacao).
+function normalizarStatus(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
 // Mapeia o status_operacional da Parte Diaria para a secao do dashboard.
+// Desvios sao verificados antes de "parte diaria feita", pois o sufixo entre
+// parenteses define a secao. PENDENTE somente quando o status e explicitamente
+// "pendente" (ou nulo) — nunca para os status importados da planilha.
 function secaoDoStatus(status) {
-  const valor = normalizar(status);
-  if (valor === STATUS_OPERACAO) return 'operacao';
-  if (valor === STATUS_CORRETIVA) return 'corretiva';
-  if (valor === STATUS_PREVENTIVA) return 'preventiva';
-  if (valor === STATUS_INDISPONIBILIDADE) return 'indisponibilidade';
-  if (valor === STATUS_INTERDICAO) return 'interdicao';
+  const valor = normalizarStatus(status);
+  if (!valor || valor === 'pendente') return 'pendentes';
+  if (valor.includes('corretiva')) return 'corretiva';
+  if (valor.includes('preventiva')) return 'preventiva';
+  if (valor.includes('interdicao')) return 'interdicao';
+  if (valor.includes('indisponibilidade')) return 'indisponibilidade';
+  if (valor.includes('operacao')) return 'operacao';
+  if (valor.includes('parte diaria feita')) return 'operacao';
+  if (valor.includes('concluid')) return 'operacao';
   return null; // status fora do dominio: ignora
 }
 
@@ -371,4 +397,202 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
       opcoes,
     },
   });
+});
+
+// ============================================================================
+// POST /api/eficiencia/importar-historico
+// Recebe um arquivo .xlsx via multipart (campo: `arquivo`) e importa em lote
+// o historico de Partes Diarias para o BI de Eficiencia.
+//
+// Regras de mapeamento (STATUS planilha -> status_operacional):
+//   "Parte Diaria Feita" | "Operacao"            -> "Operacao"             (+1 denominador)
+//   "Parte Diaria Feita (Manutencao Corretiva)"  -> "Manutencao Corretiva" (+1 denominador, valor 0)
+//   "Parte Diaria Feita (Indisponibilidade)"     -> "Indisponibilidade"    (+1 denominador, valor 0)
+//   "Parte Diaria Feita (Interdicao)"            -> "Interdicao"           (+1 denominador, valor 0)
+//   "Parte Diaria Feita (Manutencao Preventiva)" -> "Manutencao Preventiva"(isento do denominador)
+//   Qualquer "Pendente"                          -> DESCARTADO
+// ============================================================================
+
+const MAP_STATUS_BI = [
+  { re: /^Parte Di.ria Feita \(Manuten..o Corretiva\)$/i,  valor: STATUS_CORRETIVA },
+  { re: /^Parte Di.ria Feita \(Indisponibilidade\)$/i,      valor: STATUS_INDISPONIBILIDADE },
+  { re: /^Parte Di.ria Feita \(Interdi..o\)$/i,            valor: STATUS_INTERDICAO },
+  { re: /^Parte Di.ria Feita \(Manuten..o Preventiva\)$/i, valor: STATUS_PREVENTIVA },
+  { re: /^Parte Di.ria Feita$/i,                            valor: STATUS_OPERACAO },
+  { re: /^Opera..o$/i,                                      valor: STATUS_OPERACAO },
+];
+
+function mapearStatusBI(rawStatus) {
+  const s = normalizar(rawStatus);
+  if (/pendente/i.test(s)) return null; // descarta
+  for (const entry of MAP_STATUS_BI) {
+    if (entry.re.test(s)) return entry.valor;
+  }
+  return undefined; // fora do dominio
+}
+
+function excelSerialParaDateBI(valor) {
+  if (valor === null || valor === undefined || valor === '') return null;
+  if (valor instanceof Date) return isNaN(valor.getTime()) ? null : valor;
+  if (typeof valor === 'number' && Number.isFinite(valor)) {
+    return new Date(Math.round((valor - 25569) * 86400 * 1000));
+  }
+  const d = new Date(String(valor));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+async function garantirTagBI(tag, tagsCriadas) {
+  if (tagsCriadas.has(tag)) return;
+  const existe = await prisma.mobDesmob.findUnique({ where: { tag } });
+  if (!existe) {
+    const placaBase = `HIST-${tag}`.slice(0, 20);
+    try {
+      await prisma.mobDesmob.upsert({
+        where:  { tag },
+        update: {},
+        create: { tag, placa: placaBase, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
+      });
+    } catch (e) {
+      if (e.code === 'P2002') {
+        const placaAlt = `HIST-${tag}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`.slice(0, 20);
+        await prisma.mobDesmob.upsert({
+          where:  { tag },
+          update: {},
+          create: { tag, placa: placaAlt, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
+        });
+      } else {
+        throw e;
+      }
+    }
+  }
+  tagsCriadas.add(tag);
+}
+
+export const importarHistorico = asyncHandler(async (req, res) => {
+  if (!req.file || !req.file.buffer) {
+    return res.status(400).json({
+      error: 'Arquivo ausente',
+      message: 'Envie um .xlsx no campo `arquivo` (multipart/form-data).',
+    });
+  }
+
+  const wb = XLSX.read(req.file.buffer, { cellDates: true });
+  const nomeAba = wb.SheetNames[0];
+  const linhas = XLSX.utils.sheet_to_json(wb.Sheets[nomeAba], { header: 1, defval: null });
+
+  if (linhas.length < 2) {
+    return res.status(422).json({ error: 'Planilha vazia ou sem dados apos o cabecalho.' });
+  }
+
+  const cabecalho = linhas[0].map((c) => normalizar(c).toUpperCase());
+
+  function encontrarColuna(...nomes) {
+    for (const nome of nomes) {
+      const idx = cabecalho.findIndex((c) => c === nome.toUpperCase());
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  }
+
+  const IDX_TAG    = encontrarColuna('TAG', 'MATRICULA/TAG', 'EQUIPAMENTO', 'VEICULO');
+  const IDX_DATA   = encontrarColuna('DATA', 'DATE', 'DT');
+  const IDX_STATUS = encontrarColuna('STATUS', 'TIPO', 'SITUACAO', 'STATUS/TIPO');
+
+  if (IDX_TAG === -1 || IDX_DATA === -1 || IDX_STATUS === -1) {
+    return res.status(422).json({
+      error: 'Colunas nao encontradas',
+      message: `Colunas lidas: ${cabecalho.join(' | ')}. Necessarias: TAG, DATA, STATUS.`,
+    });
+  }
+
+  const dados = linhas.slice(1).filter((r) => r[IDX_TAG] != null && normalizar(r[IDX_TAG]) !== '');
+  const resumo = {
+    lidas: dados.length,
+    processadas: 0,
+    ignoradas_pendente: 0,
+    ignoradas_sem_data: 0,
+    ignoradas_status_desconhecido: 0,
+    upserts: 0,
+    operacao: 0,
+    corretiva: 0,
+    indisponibilidade: 0,
+    interdicao: 0,
+    preventiva_isenta: 0,
+    falhas: [],
+  };
+
+  const tagsCriadas = new Set();
+
+  const catMap = {
+    [STATUS_OPERACAO]:          'operacao',
+    [STATUS_CORRETIVA]:         'corretiva',
+    [STATUS_INDISPONIBILIDADE]: 'indisponibilidade',
+    [STATUS_INTERDICAO]:        'interdicao',
+    [STATUS_PREVENTIVA]:        'preventiva_isenta',
+  };
+
+  for (let i = 0; i < dados.length; i++) {
+    const linha = dados[i];
+    const numLinha = i + 2;
+    try {
+      const tagRaw  = normalizar(linha[IDX_TAG]);
+      const dataRaw = linha[IDX_DATA];
+      const stRaw   = normalizar(linha[IDX_STATUS]);
+
+      const dataDate = excelSerialParaDateBI(dataRaw);
+      if (!dataDate) { resumo.ignoradas_sem_data++; continue; }
+
+      const statusOperacional = mapearStatusBI(stRaw);
+      if (statusOperacional === null)      { resumo.ignoradas_pendente++; continue; }
+      if (statusOperacional === undefined) { resumo.ignoradas_status_desconhecido++; continue; }
+
+      await garantirTagBI(tagRaw, tagsCriadas);
+
+      const dataISO = dataDate.toISOString().slice(0, 10);
+      const dataUTC = new Date(`${dataISO}T00:00:00.000Z`);
+
+      const existente = await prisma.parteDiaria.findFirst({
+        where: { tag: tagRaw, data: dataUTC },
+        select: { id: true },
+      });
+
+      if (existente) {
+        await prisma.parteDiaria.update({
+          where: { id: existente.id },
+          data: {
+            status_operacional: statusOperacional,
+            status_relatorio:   'APROVADO',
+            status_aprovacao:   'Aprovado',
+            atualizado_por:     'importacao-historico-api',
+          },
+        });
+      } else {
+        await prisma.parteDiaria.create({
+          data: {
+            tag:                tagRaw,
+            data:               dataUTC,
+            status:             'APROVADO',
+            status_operacional: statusOperacional,
+            status_relatorio:   'APROVADO',
+            status_aprovacao:   'Aprovado',
+            status_assinatura:  'APROVADO',
+            possui_pendencia:   false,
+            criado_por:         'importacao-historico-api',
+            atualizado_por:     'importacao-historico-api',
+          },
+        });
+      }
+
+      resumo.upserts++;
+      resumo.processadas++;
+      const cat = catMap[statusOperacional];
+      if (cat) resumo[cat]++;
+    } catch (e) {
+      const tagTxt = normalizar(linha[IDX_TAG]) || `linha ${numLinha}`;
+      resumo.falhas.push({ linha: numLinha, tag: tagTxt, erro: e.message });
+    }
+  }
+
+  const status = resumo.falhas.length > 0 ? 207 : 200;
+  return res.status(status).json({ data: { aba: nomeAba, resumo } });
 });
