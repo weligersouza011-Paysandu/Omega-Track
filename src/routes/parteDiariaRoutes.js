@@ -17,7 +17,7 @@ import {
 } from '../controllers/parteDiariaController.js';
 import { listarPendencias, ignorarPendencia, trocarOperadorPendencia } from '../controllers/pendenciasController.js';
 import { authApiKey } from '../middleware/auth.js';
-import { requerAdmin } from '../middleware/sessao.js';
+import { requerAdmin, requerMaster } from '../middleware/sessao.js';
 
 const router = Router();
 
@@ -39,8 +39,8 @@ router.get('/ultima-km', buscarUltimaKm);
 router.get('/:id/logs', listarLogs);
 router.get('/:id', buscarParteDiaria);
 router.post('/', criarParteDiaria);
-// Upsert leve da Matriz Calendario do BI de Eficiencia (ADM/Transporte/Gestao).
-router.post('/apontamento-rapido', requerAdmin, apontamentoRapido);
+// Upsert leve da Matriz Calendario do BI de Eficiencia (somente MASTER).
+router.post('/apontamento-rapido', requerAdmin, requerMaster, apontamentoRapido);
 router.post('/:id/assinar', authApiKey, assinarParteDiaria);
 // Fluxo de aprovacao em 3 etapas (formulario modelo Omega Service).
 router.post('/:id/assinaturas', assinarEtapa);

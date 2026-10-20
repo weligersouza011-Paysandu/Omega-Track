@@ -3,9 +3,6 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
   FilterX,
   Gauge,
   Hammer,
@@ -24,44 +21,58 @@ import MatrizCalendarioMensal from '../components/MatrizCalendarioMensal.jsx';
 // Dashboard de Eficiencia de Transporte (layout escuro corporativo).
 // Consome GET /api/eficiencia: KPIs (corretiva/preventiva/interdicao/operacao/
 // pendencias), gauge de eficiencia geral, barras por TAG e por modelo, evolucao
-// mensal, interdições por veiculo e calendario mensal de paradas.
+// mensal e interdições por veiculo.
+//
+// Os filtros globais desta secao (TAG/Modelo/Contrato/MOB-DESMOB/datas)
+// afetam SOMENTE este painel superior. A Matriz Calendario inferior e
+// totalmente independente: tem seletor de mes proprio e nao recebe filtros
+// desta view.
+//
+// Escala de cores de eficiencia (rigorosa):
+//   >= 95% ........ Azul   #3B82F6
+//   >= 85% ........ Verde  #10B981
+//   >= 80% ........ Amarelo #F59E0B
+//   >= 50% ........ Laranja #D97706
+//    < 50% ........ Vermelho #EF4444
 // ============================================================================
 
-const SECOES = {
-  operacao: { rotulo: 'Operação', cor: '#34d399', classe: 'text-emerald-400' },
-  corretiva: { rotulo: 'Manutenção Corretiva', curto: 'Corretiva', cor: '#f87171', classe: 'text-red-400' },
-  preventiva: { rotulo: 'Manutenção Preventiva', curto: 'Preventiva', cor: '#fbbf24', classe: 'text-amber-400' },
-  interdicao: { rotulo: 'Interdição', curto: 'Interdição', cor: '#fb923c', classe: 'text-orange-400' },
-  indisponibilidade: { rotulo: 'Indisponibilidade', curto: 'Indisp.', cor: '#a78bfa', classe: 'text-violet-400' },
-  pendentes: { rotulo: 'Pendências', curto: 'Pendências', cor: '#60a5fa', classe: 'text-sky-400' },
+const CORES_EFICIENCIA = {
+  azul: '#3B82F6',
+  verde: '#10B981',
+  amarelo: '#F59E0B',
+  laranja: '#D97706',
+  vermelho: '#EF4444',
+  neutro: '#475569',
 };
 
-const MESES_LONGOS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-const DIAS_SEMANA = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
-const TIPOS_CALENDARIO = ['corretiva', 'preventiva', 'interdicao', 'indisponibilidade'];
+const FAIXAS_EFICIENCIA = [
+  { rotulo: '≥ 95%', cor: CORES_EFICIENCIA.azul },
+  { rotulo: '85–94,9%', cor: CORES_EFICIENCIA.verde },
+  { rotulo: '80–84,9%', cor: CORES_EFICIENCIA.amarelo },
+  { rotulo: '50–79,9%', cor: CORES_EFICIENCIA.laranja },
+  { rotulo: '< 50%', cor: CORES_EFICIENCIA.vermelho },
+];
 
-const fmtPct = (v) => (v === null || v === undefined ? '—' : `${(v * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
+const SECOES = {
+  operacao: { rotulo: 'Operação', cor: '#10B981', classe: 'text-emerald-400' },
+  corretiva: { rotulo: 'Manutenção Corretiva', curto: 'Corretiva', cor: '#EF4444', classe: 'text-red-400' },
+  preventiva: { rotulo: 'Manutenção Preventiva', curto: 'Preventiva', cor: '#F59E0B', classe: 'text-amber-400' },
+  interdicao: { rotulo: 'Interdição', curto: 'Interdição', cor: '#D97706', classe: 'text-orange-400' },
+  indisponibilidade: { rotulo: 'Indisponibilidade', curto: 'Indisp.', cor: '#8B5CF6', classe: 'text-violet-400' },
+  pendentes: { rotulo: 'Pendências', curto: 'Pendências', cor: '#3B82F6', classe: 'text-blue-400' },
+};
+
+const fmtPct = (v) => (v === null || v === undefined ? '—' : `${(v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
 const fmtNum = (n) => Number(n || 0).toLocaleString('pt-BR');
 const dataBR = (iso) => (iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '');
 
 function corPorEficiencia(v) {
-  if (v === null || v === undefined) return '#475569';
-  if (v >= 0.8) return '#34d399';
-  if (v >= 0.5) return '#fbbf24';
-  return '#f87171';
-}
-
-function rotuloMesLongo(ym) {
-  const [ano, mes] = String(ym).split('-').map(Number);
-  return `${MESES_LONGOS[(mes || 1) - 1]} ${ano}`;
-}
-
-function somarMes(ym, delta) {
-  let [ano, mes] = String(ym).split('-').map(Number);
-  mes += delta;
-  if (mes > 12) { mes = 1; ano += 1; }
-  if (mes < 1) { mes = 12; ano -= 1; }
-  return `${ano}-${String(mes).padStart(2, '0')}`;
+  if (v === null || v === undefined) return CORES_EFICIENCIA.neutro;
+  if (v >= 0.95) return CORES_EFICIENCIA.azul;
+  if (v >= 0.85) return CORES_EFICIENCIA.verde;
+  if (v >= 0.80) return CORES_EFICIENCIA.amarelo;
+  if (v >= 0.50) return CORES_EFICIENCIA.laranja;
+  return CORES_EFICIENCIA.vermelho;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +131,7 @@ function FiltroData({ rotulo, valor, onChange, min, max }) {
   );
 }
 
-// Gauge semicircular com ponteiro (SVG puro).
+// Gauge semicircular com ponteiro (SVG puro) e escala rigorosa de 5 faixas.
 function GaugeEficiencia({ valor }) {
   const temValor = valor !== null && valor !== undefined;
   const e = temValor ? Math.max(0, Math.min(1, valor)) : 0;
@@ -141,17 +152,19 @@ function GaugeEficiencia({ valor }) {
   return (
     <div className="flex flex-col items-center">
       <svg viewBox="0 0 240 138" className="w-full max-w-[280px]">
-        <path d={arco(0.005, 0.492)} stroke="#ef4444" strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.85" />
-        <path d={arco(0.508, 0.792)} stroke="#f59e0b" strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.85" />
-        <path d={arco(0.808, 0.995)} stroke="#10b981" strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.85" />
+        <path d={arco(0.005, 0.493)} stroke={CORES_EFICIENCIA.vermelho} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
+        <path d={arco(0.507, 0.793)} stroke={CORES_EFICIENCIA.laranja} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
+        <path d={arco(0.807, 0.843)} stroke={CORES_EFICIENCIA.amarelo} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
+        <path d={arco(0.857, 0.943)} stroke={CORES_EFICIENCIA.verde} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
+        <path d={arco(0.957, 0.995)} stroke={CORES_EFICIENCIA.azul} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
         <g transform={`rotate(${angulo} ${cx} ${cy})`}>
           <polygon points={`${cx - 4},${cy} ${cx + 4},${cy} ${cx},${cy - r + 26}`} fill="#e2e8f0" />
         </g>
         <circle cx={cx} cy={cy} r="9" fill="#0f172a" stroke="#e2e8f0" strokeWidth="3" />
       </svg>
       <div className="-mt-3 text-center">
-        <div className="text-4xl font-extrabold tabular-nums tracking-tight text-white">
-          {temValor ? e.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+        <div className="text-4xl font-extrabold tabular-nums tracking-tight" style={{ color: temValor ? corPorEficiencia(valor) : '#ffffff' }}>
+          {temValor ? `${(e * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : '—'}
         </div>
         <div className="mt-1 text-[11px] font-bold uppercase tracking-widest text-slate-400">Eficiência Geral</div>
         <div className="mt-0.5 text-[10px] text-slate-500">Operação ÷ (Operação + Desvios)</div>
@@ -160,7 +173,20 @@ function GaugeEficiencia({ valor }) {
   );
 }
 
-// Barras horizontais genéricas (TAG / Modelo / Interdições).
+function FaixasEficiencia({ className = '' }) {
+  return (
+    <div className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 ${className}`}>
+      {FAIXAS_EFICIENCIA.map((faixa) => (
+        <span key={faixa.rotulo} className="flex items-center gap-1 text-[9px] font-semibold text-slate-400">
+          <span className="h-2 w-2 rounded-full" style={{ background: faixa.cor }} />
+          {faixa.rotulo}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// Barras horizontais genéricas (TAG / Modelo).
 function BarrasHorizontais({ itens, maxAltura = 'max-h-72', descricaoValor, corDe = corPorEficiencia }) {
   if (!itens.length) {
     return <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-center text-xs text-slate-500">Sem dados no período.</p>;
@@ -231,128 +257,138 @@ function EstadoCarregando() {
 }
 
 // ---------------------------------------------------------------------------
-// Calendário mensal de paradas
+// Painel de interdições com tooltip rico: motivo, datas, TAG e impactos.
 // ---------------------------------------------------------------------------
-function CalendarioParadas({ calendario, periodo, filtro, setFiltro }) {
-  const mesInicio = periodo?.inicio?.slice(0, 7) || null;
-  const mesFim = periodo?.fim?.slice(0, 7) || null;
-  const [mes, setMes] = useState(() => mesFim || mesInicio);
-
-  useEffect(() => {
-    if (mesFim && (!mes || mes > mesFim || mes < mesInicio)) setMes(mesFim);
-  }, [mesInicio, mesFim]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const porDia = useMemo(() => {
-    const mapa = new Map();
-    for (const dia of calendario || []) mapa.set(dia.data, dia);
-    return mapa;
-  }, [calendario]);
-
-  if (!mesInicio || !mesFim) return null;
-
-  const [ano, mesNum] = mes.split('-').map(Number);
-  const primeiroDiaSemana = (new Date(Date.UTC(ano, mesNum - 1, 1)).getUTCDay() + 6) % 7; // segunda = 0
-  const diasNoMes = new Date(Date.UTC(ano, mesNum, 0)).getUTCDate();
-  const celulas = [
-    ...Array.from({ length: primeiroDiaSemana }, () => null),
-    ...Array.from({ length: diasNoMes }, (_, i) => i + 1),
-  ];
-
-  const tiposVisiveis = filtro === 'todas' ? TIPOS_CALENDARIO : [filtro];
-  const podeVoltar = mes > mesInicio;
-  const podeAvancar = mes < mesFim;
+function CorpoTooltipInterdicao({ detalhes }) {
+  const datas = detalhes.datas || [];
+  const datasVisiveis = datas.slice(0, 12);
+  const restantes = datas.length - datasVisiveis.length;
 
   return (
-    <Card>
-      <TituloCard
-        icone={CalendarDays}
-        titulo="Calendário de Paradas"
-        subtitulo="Veículos em manutenção ou interdição por dia"
-        extra={
-          <select
-            value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs font-medium text-slate-200 outline-none focus:border-sky-500"
-          >
-            <option value="todas">Todas as paradas</option>
-            {TIPOS_CALENDARIO.map((t) => (
-              <option key={t} value={t}>{SECOES[t].rotulo}</option>
-            ))}
-          </select>
-        }
-      />
-
-      <div className="mt-4 flex items-center justify-between">
-        <button
-          type="button"
-          disabled={!podeVoltar}
-          onClick={() => setMes((m) => somarMes(m, -1))}
-          className="rounded-lg border border-slate-700 p-1.5 text-slate-300 transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <ChevronLeft size={16} />
-        </button>
-        <span className="text-sm font-bold text-slate-100">{rotuloMesLongo(mes)}</span>
-        <button
-          type="button"
-          disabled={!podeAvancar}
-          onClick={() => setMes((m) => somarMes(m, 1))}
-          className="rounded-lg border border-slate-700 p-1.5 text-slate-300 transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <ChevronRight size={16} />
-        </button>
+    <>
+      <div className="flex items-start justify-between gap-2 border-b border-slate-700 pb-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-extrabold text-white">{detalhes.tag}</div>
+          <div className="truncate text-[10px] text-slate-400">
+            {[detalhes.placa, detalhes.modelo].filter(Boolean).join(' · ') || 'Sem placa/modelo'}
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full bg-orange-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-orange-300">
+          Interdição
+        </span>
       </div>
 
-      <div className="mt-3 grid grid-cols-7 gap-1.5">
-        {DIAS_SEMANA.map((d) => (
-          <div key={d} className="pb-1 text-center text-[10px] font-bold uppercase tracking-wider text-slate-500">{d}</div>
-        ))}
-        {celulas.map((dia, indice) => {
-          if (dia === null) return <div key={`vazio-${indice}`} />;
-          const iso = `${mes}-${String(dia).padStart(2, '0')}`;
-          const registro = porDia.get(iso);
-          const chips = tiposVisiveis
-            .map((t) => ({ tipo: t, qtd: registro?.[t] || 0, veiculos: registro?.veiculos?.[t] || [] }))
-            .filter((c) => c.qtd > 0);
-          const tooltip = chips.length
-            ? chips.map((c) => `${SECOES[c.tipo].rotulo}: ${c.veiculos.map((v) => v.tag).join(', ')}`).join('\n')
-            : undefined;
-          return (
+      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10px]">
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Contrato</div>
+          <div className="truncate font-semibold text-slate-200">{detalhes.contrato || '—'}</div>
+        </div>
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Situação</div>
+          <div className="truncate font-semibold text-slate-200">{detalhes.status || '—'}</div>
+        </div>
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Dias interditados</div>
+          <div className="font-semibold text-slate-200">{fmtNum(detalhes.dias)} {detalhes.dias === 1 ? 'dia' : 'dias'}</div>
+        </div>
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Impacto no período</div>
+          <div className="font-semibold text-slate-200">{fmtPct(detalhes.percentualDias)}</div>
+        </div>
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Desvios acumulados</div>
+          <div className="font-semibold text-slate-200">{fmtNum(detalhes.desvio)} dia(s)</div>
+        </div>
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Eficiência da TAG</div>
+          <div className="font-bold" style={{ color: corPorEficiencia(detalhes.eficiencia) }}>{fmtPct(detalhes.eficiencia)}</div>
+        </div>
+      </div>
+
+      <div className="mt-2 border-t border-slate-700/70 pt-2">
+        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Motivo</div>
+        <p className="mt-0.5 text-[10px] leading-snug text-slate-300">{detalhes.motivo || 'Não informado no apontamento.'}</p>
+      </div>
+
+      <div className="mt-2">
+        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Datas ({datas.length})</div>
+        <p className="mt-0.5 text-[10px] leading-snug text-slate-300">
+          {datas.length ? datasVisiveis.map(dataBR).join(', ') : '—'}
+          {restantes > 0 ? ` e mais ${restantes}` : ''}
+        </p>
+      </div>
+    </>
+  );
+}
+
+function InterdicoesPainel({ itens, maxAltura = 'max-h-56' }) {
+  const [tooltip, setTooltip] = useState(null);
+
+  useEffect(() => {
+    setTooltip(null);
+  }, [itens]);
+
+  if (!itens.length) {
+    return <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-center text-xs text-slate-500">Sem interdições no período.</p>;
+  }
+
+  const larguraTooltip = 332;
+  const alturaTooltip = 300;
+
+  const mostrar = (item, event) => {
+    const x = Math.min(Math.max(12, event.clientX + 16), window.innerWidth - larguraTooltip - 12);
+    const y = Math.min(Math.max(12, event.clientY + 16), window.innerHeight - alturaTooltip - 12);
+    setTooltip({ item, x, y });
+  };
+
+  const mostrarPorFoco = (item, elemento) => {
+    const caixa = elemento.getBoundingClientRect();
+    const x = Math.min(Math.max(12, caixa.left), window.innerWidth - larguraTooltip - 12);
+    const y = Math.min(Math.max(12, caixa.bottom + 8), window.innerHeight - alturaTooltip - 12);
+    setTooltip({ item, x, y });
+  };
+
+  return (
+    <div className={`mt-3 space-y-2.5 overflow-y-auto pr-1 ${maxAltura}`}>
+      {itens.map((item) => (
+        <div
+          key={item.chave}
+          tabIndex={0}
+          onMouseEnter={(event) => mostrar(item, event)}
+          onMouseLeave={() => setTooltip(null)}
+          onFocus={(event) => mostrarPorFoco(item, event.currentTarget)}
+          onBlur={() => setTooltip(null)}
+          className="group cursor-help rounded-lg px-1 py-0.5 outline-none transition-colors hover:bg-slate-800/50 focus-visible:bg-slate-800/50"
+          aria-label={`${item.detalhes.tag}: ${item.rotuloValor} de interdição. Passe o mouse ou foque para ver motivo, datas e impactos.`}
+        >
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-[11px] font-semibold text-slate-200">
+              {item.rotulo}
+              {item.sub && <span className="ml-1.5 font-normal text-slate-500">{item.sub}</span>}
+            </span>
+            <span className="shrink-0 text-[11px] font-bold tabular-nums" style={{ color: SECOES.interdicao.cor }}>
+              {item.rotuloValor}
+            </span>
+          </div>
+          <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-800">
             <div
-              key={iso}
-              title={tooltip}
-              className={
-                'min-h-[52px] rounded-lg border p-1.5 transition-colors ' +
-                (chips.length ? 'border-slate-700 bg-slate-900' : 'border-slate-800/60 bg-slate-900/30')
-              }
-            >
-              <div className={'text-[11px] font-semibold tabular-nums ' + (chips.length ? 'text-slate-200' : 'text-slate-600')}>
-                {dia}
-              </div>
-              <div className="mt-1 flex flex-wrap gap-0.5">
-                {chips.map((c) => (
-                  <span
-                    key={c.tipo}
-                    className="rounded px-1 text-[9px] font-bold tabular-nums"
-                    style={{ background: `${SECOES[c.tipo].cor}26`, color: SECOES[c.tipo].cor }}
-                  >
-                    {c.qtd}
-                  </span>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              className="h-2 rounded-full transition-all duration-500 group-hover:brightness-110"
+              style={{ width: `${Math.max((item.valor ?? 0) * 100, 4)}%`, background: SECOES.interdicao.cor }}
+            />
+          </div>
+        </div>
+      ))}
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-slate-800 pt-3">
-        {TIPOS_CALENDARIO.map((t) => (
-          <span key={t} className="flex items-center gap-1.5 text-[10px] font-medium text-slate-400">
-            <span className="h-2 w-2 rounded-full" style={{ background: SECOES[t].cor }} />
-            {SECOES[t].rotulo}
-          </span>
-        ))}
-      </div>
-    </Card>
+      {tooltip && (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-[80] w-[320px] max-w-[calc(100vw-24px)] rounded-xl border border-slate-600 bg-slate-900/95 p-3 shadow-2xl ring-1 ring-black/40 backdrop-blur"
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          <CorpoTooltipInterdicao detalhes={tooltip.item.detalhes} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -372,7 +408,6 @@ export default function GestaoEficienciaView({ sessao }) {
   const [dados, setDados] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
-  const [filtroCalendario, setFiltroCalendario] = useState('todas');
 
   const buscar = useCallback(async (signal) => {
     setCarregando(true);
@@ -450,16 +485,34 @@ export default function GestaoEficienciaView({ sessao }) {
   );
 
   const itensInterdicao = useMemo(() => {
-    const linhas = (dados?.por_tag || []).filter((t) => t.interdicao > 0).sort((a, b) => b.interdicao - a.interdicao);
-    const maximo = linhas.length ? linhas[0].interdicao : 1;
-    return linhas.map((t) => ({
-      chave: t.tag,
-      rotulo: t.tag,
-      sub: t.placa || '',
-      valor: t.interdicao / maximo,
-      rotuloValor: `${fmtNum(t.interdicao)} ${t.interdicao === 1 ? 'dia' : 'dias'}`,
-      tooltip: `${t.tag} — ${fmtNum(t.interdicao)} dia(s) de interdição`,
-    }));
+    const linhas = (dados?.por_tag || [])
+      .filter((t) => t.interdicao > 0)
+      .sort((a, b) => b.interdicao - a.interdicao);
+    const maximo = linhas.reduce((maior, t) => Math.max(maior, t.interdicoes?.dias ?? t.interdicao), 0) || 1;
+    return linhas.map((t) => {
+      const detalhe = t.interdicoes || {};
+      const dias = detalhe.dias ?? t.interdicao;
+      return {
+        chave: t.tag,
+        rotulo: t.tag,
+        sub: t.placa || '',
+        valor: dias / maximo,
+        rotuloValor: `${fmtNum(dias)} ${dias === 1 ? 'dia' : 'dias'}`,
+        detalhes: {
+          tag: t.tag,
+          placa: t.placa,
+          modelo: t.modelo,
+          contrato: t.contrato,
+          status: t.status,
+          motivo: detalhe.motivo,
+          datas: detalhe.datas || [],
+          dias,
+          percentualDias: detalhe.percentual_dias_uteis ?? detalhe.percentual_dias_validos,
+          desvio: t.desvio,
+          eficiencia: t.eficiencia,
+        },
+      };
+    });
   }, [dados]);
 
   const meses = dados?.por_mes || [];
@@ -552,6 +605,7 @@ export default function GestaoEficienciaView({ sessao }) {
               <div className="mt-2">
                 <GaugeEficiencia valor={indicadores?.eficiencia} />
               </div>
+              <FaixasEficiencia className="mt-2" />
               <div className="mt-2 grid grid-cols-3 gap-2 border-t border-slate-800 pt-3 text-center">
                 <div>
                   <div className="text-sm font-bold tabular-nums text-emerald-400">{fmtNum(totais.operacao)}</div>
@@ -579,7 +633,7 @@ export default function GestaoEficienciaView({ sessao }) {
             </Card>
           </div>
 
-          {/* Bloco central/direito: KPIs + evolução mensal + interdições + calendário */}
+          {/* Bloco central/direito: KPIs + evolução mensal + interdições */}
           <div className="space-y-4 xl:col-span-7">
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
               <KpiCard chave="corretiva" total={totais.corretiva} percentual={percentuais.corretiva} />
@@ -614,25 +668,19 @@ export default function GestaoEficienciaView({ sessao }) {
             </Card>
 
             <Card>
-              <TituloCard icone={ShieldAlert} titulo="Interdições de Veículos" subtitulo="Dias em interdição por TAG no período" />
-              <BarrasHorizontais itens={itensInterdicao} corDe={() => SECOES.interdicao.cor} maxAltura="max-h-56" />
+              <TituloCard icone={ShieldAlert} titulo="Interdições de Veículos" subtitulo="Dias em interdição por TAG no período · passe o mouse para ver motivo, datas e impactos" />
+              <InterdicoesPainel itens={itensInterdicao} />
             </Card>
-
-            <CalendarioParadas
-              calendario={dados?.calendario || []}
-              periodo={dados?.periodo}
-              filtro={filtroCalendario}
-              setFiltro={setFiltroCalendario}
-            />
           </div>
         </div>
       )}
 
       {/* Secao inferior: Matriz Calendario — analise mensal dia a dia por veiculo,
-          com apontamento rapido na celula e exportacao em PDF. */}
+          com apontamento rapido na celula e exportacao em PDF.
+          IMPORTANTE: os filtros globais da secao superior nao sao repassados —
+          a matriz tem seletor de mes/ano proprio e e totalmente independente. */}
       <MatrizCalendarioMensal
         sessao={sessao}
-        filtros={filtros}
         onAtualizado={() => buscar()}
       />
     </div>

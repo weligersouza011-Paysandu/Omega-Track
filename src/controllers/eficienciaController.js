@@ -282,7 +282,21 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
     tags.length
       ? comRetryConexao(() => prisma.parteDiaria.findMany({
         where: { tag: { in: tags }, data: { gte: inicioData, lte: fimData } },
-        select: { tag: true, data: true, status_operacional: true, operador: true, funcionario: true },
+        select: {
+          tag: true,
+          data: true,
+          status_operacional: true,
+          operador: true,
+          funcionario: true,
+          observacao_rapida: true,
+          // Motivo operacional das paradas: o formulario completo grava o
+          // motivo da parada como ocorrencia (descricao).
+          ocorrencias: {
+            select: { descricao: true },
+            orderBy: { created_at: 'desc' },
+            take: 3,
+          },
+        },
       }), 3, 700, 'eficiencia')
       : Promise.resolve([]),
     comRetryConexao(() => prisma.pendenciaParteDiariaIgnorada.findMany({
@@ -307,6 +321,8 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   const porMes = new Map(); // 'YYYY-MM' -> stats
   const porDia = new Map(); // ISO -> contagens + veiculos em manutencao
   const presentes = new Map(); // tag -> Set(dia) dos lancamentos
+  // Detalhes operacionais das interdições por TAG (tooltip do painel superior).
+  const interdicoesPorTag = new Map(); // tag -> { datas:Set, motivos:Set }
 
   for (const v of veiculos) {
     porTag.set(normalizar(v.tag), {
@@ -314,6 +330,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
       placa: v.placa,
       modelo: normalizar(v.modelo) || 'Sem modelo',
       contrato: normalizar(v.contrato) || null,
+      status: v.status || null,
       ...zerado(),
     });
   }
@@ -330,6 +347,19 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
     if (!secao) continue;
     stats[secao] += 1;
     global[secao] += 1;
+
+    if (secao === 'interdicao') {
+      if (!interdicoesPorTag.has(tagKey)) {
+        interdicoesPorTag.set(tagKey, { datas: new Set(), motivos: new Set() });
+      }
+      const detalhe = interdicoesPorTag.get(tagKey);
+      detalhe.datas.add(dia);
+      const motivoOcorrencia = normalizar(
+        (p.ocorrencias || []).map((o) => o?.descricao).find((d) => normalizar(d)),
+      );
+      const motivo = normalizar(p.observacao_rapida) || motivoOcorrencia;
+      if (motivo) detalhe.motivos.add(motivo);
+    }
 
     const mes = dia.slice(0, 7);
     if (!porMes.has(mes)) porMes.set(mes, zerado());
@@ -377,7 +407,25 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   const pct = (n) => (totalObservado > 0 ? n / totalObservado : null);
 
   const porTagLista = [...porTag.values()]
-    .map(comIndicadores)
+    .map((linha) => {
+      const indicadores = comIndicadores(linha);
+      const detalhe = interdicoesPorTag.get(normalizar(linha.tag));
+      const datas = detalhe ? [...detalhe.datas].sort() : [];
+      const motivos = detalhe ? [...detalhe.motivos] : [];
+      const baseValidada = indicadores.operacao + indicadores.desvio;
+      return {
+        ...indicadores,
+        interdicoes: {
+          dias: datas.length,
+          datas,
+          motivo: motivos[0] || null,
+          motivos,
+          dias_uteis_periodo: diasGrade.length,
+          percentual_dias_uteis: diasGrade.length ? datas.length / diasGrade.length : null,
+          percentual_dias_validos: baseValidada > 0 ? datas.length / baseValidada : null,
+        },
+      };
+    })
     .sort((a, b) => {
       if (a.eficiencia === null && b.eficiencia === null) return a.tag.localeCompare(b.tag, 'pt-BR');
       if (a.eficiencia === null) return 1;
@@ -472,6 +520,11 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
 // seg-sex, sem feriado, dentro da janela de mobilizacao, sem lancamento e sem
 // descarte manual) ou null (fim de semana, feriado, dia futuro ou fora da
 // janela). Aderencia do veiculo/mes = Operacao / (Operacao + Desvios).
+//
+// Escopo: TODA TAG com apontamento no mes aparece, independentemente do
+// status atual (MOB/DESMOB) ou de existir em MobDesmob. O filtro `situacao`
+// restringe apenas veiculos SEM apontamento no mes; o front bloqueia os dias
+// posteriores a data_desmob.
 // ============================================================================
 export const obterMatrizMensal = asyncHandler(async (req, res) => {
   const mes = normalizar(req.query.mes);
@@ -517,30 +570,45 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
     orderBy: { tag: 'asc' },
   }), 3, 700, 'eficiencia');
 
-  // Universo por TAG/modelo/contrato (sem situacao): a matriz precisa das
-  // partes do mes ANTES de decidir quais veiculos aparecem.
+  // Universo por TAG/modelo/contrato (sem situacao): a matriz precisa dos
+  // apontamentos do mes ANTES de decidir quais veiculos aparecem.
   const universo = veiculosTodos.filter((v) => {
     if (filtroTag && normalizar(v.tag) !== filtroTag) return false;
     if (filtroModelo && normalizar(v.modelo) !== filtroModelo) return false;
     if (filtroContrato && normalizar(v.contrato) !== filtroContrato) return false;
     return true;
   });
-  const tagsUniverso = universo.map((v) => v.tag);
+  const tagsUniverso = new Set(universo.map((v) => normalizar(v.tag)));
+  const veiculosPorTag = new Map(veiculosTodos.map((v) => [normalizar(v.tag), v]));
 
-  const [partes, ignoradas] = await Promise.all([
-    tagsUniverso.length
-      ? comRetryConexao(() => prisma.parteDiaria.findMany({
-        where: { tag: { in: tagsUniverso }, data: { gte: inicioData, lte: fimData } },
-        select: { tag: true, data: true, status_operacional: true },
-      }), 3, 700, 'eficiencia')
-      : Promise.resolve([]),
+  // Leitura ampla do mes: toda TAG com registro no banco precisa aparecer,
+  // mesmo que nao esteja mais em MobDesmob (historico importado) ou que o
+  // filtro MOB/DESMOB atual a esconderia. TAGs sem cadastro so entram quando
+  // nao ha filtro de modelo/contrato (nao ha como classifica-las).
+  const [partesBrutas, ignoradas] = await Promise.all([
+    comRetryConexao(() => prisma.parteDiaria.findMany({
+      where: {
+        data: { gte: inicioData, lte: fimData },
+        ...(filtroTag ? { tag: filtroTag } : {}),
+      },
+      select: { tag: true, data: true, status_operacional: true, observacao_rapida: true, updated_at: true },
+    }), 3, 700, 'eficiencia'),
     comRetryConexao(() => prisma.pendenciaParteDiariaIgnorada.findMany({
       where: { data: { gte: inicioData, lte: fimData } },
       select: { tag: true, data: true },
     }), 3, 700, 'eficiencia'),
   ]);
 
-  const tagsComRegistro = new Set(partes.map((p) => normalizar(p.tag)));
+  const partes = partesBrutas.filter((p) => {
+    const tagKey = normalizar(p.tag);
+    if (veiculosPorTag.has(tagKey)) return tagsUniverso.has(tagKey);
+    return !filtroModelo && !filtroContrato;
+  });
+  const tagsComRegistro = new Map(); // tagKey -> tag original
+  for (const p of partes) {
+    const tagKey = normalizar(p.tag);
+    if (!tagsComRegistro.has(tagKey)) tagsComRegistro.set(tagKey, p.tag);
+  }
 
   const passaSituacao = (v) => {
     if (situacao === 'MOB') return v.status !== 'Desmobilizado';
@@ -562,15 +630,38 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
     return true;
   });
 
+  // TAGs historicas sem cadastro em MobDesmob: cria uma linha sintetica para
+  // nao perder apontamentos antigos (ex.: importacoes de outra base).
+  for (const [tagKey, tagOriginal] of tagsComRegistro) {
+    if (veiculosPorTag.has(tagKey)) continue;
+    veiculos.push({
+      tag: tagOriginal,
+      placa: null,
+      modelo: null,
+      contrato: null,
+      status: null,
+      data_mob: null,
+      data_desmob: null,
+    });
+  }
+
   const descartes = new Set(ignoradas.map((i) => `${normalizar(i.tag)}|${isoDeData(i.data)}`));
 
   // Pior caso por (TAG, dia); status fora do dominio / pendente explicito
   // equivale a "sem lancamento" (a celula cai na regra de pendencia).
   const lancamentos = new Map();
+  // Observacao rapida mais recente por (TAG, dia) — exibida ao reabrir o modal.
+  const observacoes = new Map();
   for (const p of partes) {
+    const chave = `${normalizar(p.tag)}|${isoDeData(p.data)}`;
+    const textoObs = normalizar(p.observacao_rapida);
+    if (textoObs) {
+      const ts = p.updated_at ? new Date(p.updated_at).getTime() : 0;
+      const atualObs = observacoes.get(chave);
+      if (!atualObs || ts >= atualObs.ts) observacoes.set(chave, { texto: textoObs, ts });
+    }
     const secao = secaoDoStatus(p.status_operacional);
     if (!secao || secao === 'pendentes') continue;
-    const chave = `${normalizar(p.tag)}|${isoDeData(p.data)}`;
     const prioridade = PRIORIDADE_MATRIZ[secao] ?? -1;
     const atual = lancamentos.get(chave);
     if (!atual || prioridade >= atual.prioridade) lancamentos.set(chave, { secao, prioridade });
@@ -583,6 +674,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
     const desmobISO = v.data_desmob ? isoDeData(v.data_desmob) : null;
     const stats = zerado();
     const celulas = {};
+    const celulasObservacao = {};
     for (const d of dias) {
       const chave = `${tagKey}|${d.iso}`;
       const lancamento = lancamentos.get(chave);
@@ -590,16 +682,18 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
         celulas[d.dia] = lancamento.secao;
         stats[lancamento.secao] += 1;
         global[lancamento.secao] += 1;
-        continue;
-      }
-      const dentroJanela = (!mobISO || d.iso >= mobISO) && (!desmobISO || d.iso <= desmobISO);
-      if (!d.fim_semana && !d.feriado && !d.futuro && dentroJanela && !descartes.has(chave)) {
-        celulas[d.dia] = 'pendentes';
-        stats.pendentes += 1;
-        global.pendentes += 1;
       } else {
-        celulas[d.dia] = null;
+        const dentroJanela = (!mobISO || d.iso >= mobISO) && (!desmobISO || d.iso <= desmobISO);
+        if (!d.fim_semana && !d.feriado && !d.futuro && dentroJanela && !descartes.has(chave)) {
+          celulas[d.dia] = 'pendentes';
+          stats.pendentes += 1;
+          global.pendentes += 1;
+        } else {
+          celulas[d.dia] = null;
+        }
       }
+      const obs = observacoes.get(chave);
+      if (obs) celulasObservacao[d.dia] = obs.texto;
     }
     return {
       tag: v.tag,
@@ -610,6 +704,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
       data_mob: v.data_mob ? isoDeData(v.data_mob) : null,
       data_desmob: v.data_desmob ? isoDeData(v.data_desmob) : null,
       dias: celulas,
+      observacoes: celulasObservacao,
       ...comIndicadores(stats),
     };
   }).sort((a, b) => {

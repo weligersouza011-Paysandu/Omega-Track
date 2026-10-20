@@ -94,6 +94,8 @@ model ParteDiaria {
   km_final            String?  @db.VarChar(50)
   criado_por          String?  @db.VarChar(255)
   atualizado_por      String?  @db.VarChar(255)
+  // Observacao curta do apontamento rapido (Matriz Calendario).
+  observacao_rapida   String?  @db.Text
   visualizacoes       Int      @default(0)
   updated_at          DateTime @default(now()) @updatedAt @db.Timestamp(6)
 

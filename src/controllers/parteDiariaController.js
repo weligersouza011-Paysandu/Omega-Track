@@ -991,21 +991,23 @@ export const deletarParteDiaria = asyncHandler(async (req, res) => {
 
 // ============================================================================
 // POST /api/partes-diarias/apontamento-rapido
-// Upsert leve usado pela Matriz Calendario do BI de Eficiencia (requerAdmin):
+// Upsert leve usado pela Matriz Calendario do BI de Eficiencia (requerMaster):
 // define o status operacional de um veiculo em um dia sem passar pelo
 // formulario completo.
 //   - Registro(s) existente(s) do (TAG, dia): atualiza SOMENTE a classificacao
-//     do dia (status_operacional + status legado); o fluxo de aprovacao e os
-//     demais campos ficam intactos. Atualiza todos os lancamentos do dia para
-//     o BI nunca manter o pior caso antigo.
+//     do dia (status_operacional + status legado) e a observacao rapida; o
+//     fluxo de aprovacao e os demais campos ficam intactos. Atualiza todos os
+//     lancamentos do dia para o BI nunca manter o pior caso antigo.
 //   - Sem registro: cria um registro minimo ja aprovado (mesma modelagem da
 //     importacao de historico) e limpa descarte/override de pendencia.
-// Body: { tag, data: 'YYYY-MM-DD', status_operacional }
+// Body: { tag, data: 'YYYY-MM-DD', status_operacional, observacao? }
 // ============================================================================
 export const apontamentoRapido = asyncHandler(async (req, res) => {
   const tagBruta = strOuNull(req.body?.tag);
   const dataISO = strOuNull(req.body?.data);
   const novoStatus = strOuNull(req.body?.status_operacional) || strOuNull(req.body?.status);
+  const temObservacao = Object.prototype.hasOwnProperty.call(req.body || {}, 'observacao');
+  const observacaoRapida = temObservacao ? strOuNull(req.body?.observacao) : undefined;
 
   if (!tagBruta) {
     return res.status(400).json({ error: 'Campos obrigatorios', message: 'Informe a TAG do veiculo.' });
@@ -1018,6 +1020,12 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
     return res.status(400).json({
       error: 'Status invalido',
       message: `status_operacional deve ser um de: ${STATUS_OPERACIONAL_VALIDOS.join(', ')}.`,
+    });
+  }
+  if (observacaoRapida && observacaoRapida.length > 2000) {
+    return res.status(400).json({
+      error: 'Observacao muito longa',
+      message: 'A observação rápida deve ter no máximo 2000 caracteres.',
     });
   }
 
@@ -1051,12 +1059,14 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
             data: {
               status_operacional: novoStatus,
               status: novoStatus,
+              ...(observacaoRapida !== undefined ? { observacao_rapida: observacaoRapida } : {}),
               ...(autor ? { atualizado_por: autor } : {}),
             },
           });
           await registrarLog(tx, parte.id, 'APONTAMENTO_RAPIDO', autor, {
             de: parte.status_operacional,
             para: novoStatus,
+            ...(observacaoRapida !== undefined ? { observacao: observacaoRapida } : {}),
             origem: 'matriz-calendario',
           });
         }
@@ -1075,6 +1085,7 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
         tag: veiculo.tag,
         data: dataISO,
         status_operacional: novoStatus,
+        observacao: observacaoRapida ?? null,
         atualizados: existentes.length,
         criado: false,
       },
@@ -1093,6 +1104,7 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
         status_aprovacao: 'Aprovado',
         status_relatorio: 'APROVADO',
         status_assinatura: 'APROVADO',
+        observacao_rapida: observacaoRapida ?? null,
         possui_pendencia: false,
         criado_por: autor,
         atualizado_por: autor,
@@ -1109,6 +1121,7 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
 
   await registrarLog(prisma, criado.id, 'APONTAMENTO_RAPIDO', autor, {
     para: novoStatus,
+    ...(observacaoRapida !== undefined ? { observacao: observacaoRapida } : {}),
     origem: 'matriz-calendario',
     criado: true,
   });
@@ -1133,6 +1146,7 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
       tag: veiculo.tag,
       data: dataISO,
       status_operacional: novoStatus,
+      observacao: observacaoRapida ?? null,
       atualizados: 0,
       criado: true,
     },
