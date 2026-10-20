@@ -209,7 +209,7 @@ function GaugeAderencia({ valor }) {
 // ---------------------------------------------------------------------------
 function BarrasPorVeiculo({ veiculos }) {
   if (!veiculos.length) {
-    return <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-center text-xs text-slate-500">Sem veículos no filtro para este mês.</p>;
+    return <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-center text-xs text-slate-500">Nenhum veículo com lançamento neste mês.</p>;
   }
   return (
     <div className="mt-3 max-h-[360px] space-y-2.5 overflow-y-auto pr-1">
@@ -385,6 +385,15 @@ function ModalApontamento({ celula, salvando, erro, onFechar, onSalvar }) {
 // Grade TAG x dias (matriz calendario).
 // ---------------------------------------------------------------------------
 function GradeMatriz({ dados, veiculos = [], podeEditar, onClicarCelula, ordemTag, onAlternarOrdemTag }) {
+  if (!dados) return null;
+  if (!veiculos.length) {
+    return (
+      <div className="mt-3 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 px-4 py-10 text-center" data-matriz-vazia="1">
+        <p className="text-sm font-semibold text-slate-300">Nenhum veículo com lançamento neste mês.</p>
+        <p className="mt-1 text-xs text-slate-500">A matriz exibe apenas veículos com ao menos um registro no período selecionado.</p>
+      </div>
+    );
+  }
   return (
     <div className="mt-3 overflow-x-auto rounded-xl border border-slate-800" data-matriz-scroll="1">
       <table className="w-full border-separate border-spacing-0 text-[10px]">
@@ -803,8 +812,7 @@ export default function MatrizCalendarioMensal({ sessao, onAtualizado }) {
     setErro(null);
     const params = new URLSearchParams({ mes });
     // A matriz tem filtro proprio e independente do dashboard superior.
-    // Padrao TODOS = historico completo do mes (veiculos com apontamento
-    // sempre aparecem, mesmo que hoje estejam desmobilizados).
+    // Somente TAGs com ao menos um apontamento no mes entram na tabela.
     params.set('situacao', situacao);
     const query = params.toString();
     try {

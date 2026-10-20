@@ -33,11 +33,11 @@
 //   dentro da janela de mobilizacao e sem descarte manual. Celula com mais de
 //   um lancamento no dia usa o pior caso (desvio > preventiva > operacao >
 //   nao operado).
-//   Escopo de veiculos: TODA TAG com apontamento no mes aparece (inclusive
-//   desmobilizado/inativo — historico preservado); sem apontamento, o veiculo
-//   entra quando respeita o filtro MOB/DESMOB (padrao TODOS) e a janela de
-//   mobilizacao cruza o mes. Cada veiculo devolve data_mob/data_desmob para o
-//   front bloquear as celulas fora da janela.
+//   Escopo de veiculos: SOMENTE TAG com ao menos um lancamento no mes. Frota
+//   ativa sem apontamento nao e exibida, nem para mostrar pendencias. O filtro
+//   MOB/DESMOB (padrao TODOS) restringe as TAGs que possuem registro. Cada
+//   veiculo devolve data_mob/data_desmob para o front bloquear as celulas fora
+//   da janela.
 //
 // POST /api/eficiencia/importar-historico  (multipart, campo: arquivo .xlsx)
 //   Importa em lote o historico de Partes Diarias para o BI de Eficiencia.
@@ -539,10 +539,9 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
 // lancamento e sem descarte manual) ou null (fim de semana, feriado, dia futuro
 // ou fora da janela). Aderencia do veiculo/mes = Operacao / (Operacao + Desvios).
 //
-// Escopo: TODA TAG com apontamento no mes aparece, independentemente do
-// status atual (MOB/DESMOB) ou de existir em MobDesmob. O filtro `situacao`
-// restringe apenas veiculos SEM apontamento no mes; o front bloqueia os dias
-// posteriores a data_desmob.
+// Escopo: SOMENTE TAG com ao menos um apontamento no mes. Frota ativa sem
+// registro nao entra na tabela. O filtro `situacao` restringe as TAGs que
+// possuem apontamento; o front bloqueia os dias posteriores a data_desmob.
 // ============================================================================
 export const obterMatrizMensal = asyncHandler(async (req, res) => {
   const mes = normalizar(req.query.mes);
@@ -556,8 +555,9 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
   const filtroTag = normalizar(req.query.tag);
   const filtroModelo = normalizar(req.query.modelo);
   const filtroContrato = normalizar(req.query.contrato);
-  // Padrao TODOS: historico completo (nao esconde desmobilizados que
-  // trabalharam no mes). MOB/DESMOB restringem apenas veiculos SEM apontamento.
+  // Padrao TODOS: todas as TAGs com apontamento no mes. MOB/DESMOB refinam
+  // esse conjunto pelo status atual (historico importado sem cadastro so
+  // aparece em TODOS).
   const situacao = (normalizar(req.query.situacao) || 'TODOS').toUpperCase(); // MOB | DESMOB | TODOS
 
   const [ano, mesNum] = mes.split('-').map(Number);
@@ -599,10 +599,10 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
   const tagsUniverso = new Set(universo.map((v) => normalizar(v.tag)));
   const veiculosPorTag = new Map(veiculosTodos.map((v) => [normalizar(v.tag), v]));
 
-  // Leitura ampla do mes: toda TAG com registro no banco precisa aparecer,
-  // mesmo que nao esteja mais em MobDesmob (historico importado) ou que o
-  // filtro MOB/DESMOB atual a esconderia. TAGs sem cadastro so entram quando
-  // nao ha filtro de modelo/contrato (nao ha como classifica-las).
+  // Leitura ampla do mes: precisamos descobrir quais TAGs possuem registro
+  // (inclusive historico importado que nao esta mais em MobDesmob). TAGs sem
+  // cadastro so entram quando nao ha filtro de modelo/contrato (nao ha como
+  // classifica-las).
   const [partesBrutas, ignoradas] = await Promise.all([
     comRetryConexao(() => prisma.parteDiaria.findMany({
       where: {
@@ -634,33 +634,29 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
     return true; // TODOS
   };
 
-  // Escopo da matriz: TAG com apontamento no mes SEMPRE aparece (inclusive
-  // desmobilizada/inativa — historico preservado). Sem apontamento, entra
-  // quando respeita o filtro MOB/DESMOB e a janela de mobilizacao cruza o mes
-  // (necessario para exibir as pendencias do periodo).
-  const veiculos = universo.filter((v) => {
-    if (tagsComRegistro.has(normalizar(v.tag))) return true;
-    if (!passaSituacao(v)) return false;
-    const mobISO = v.data_mob ? isoDeData(v.data_mob) : null;
-    const desmobISO = v.data_desmob ? isoDeData(v.data_desmob) : null;
-    if (mobISO && mobISO > fim) return false; // ainda nao mobilizado no mes
-    if (desmobISO && desmobISO < inicio) return false; // ja desmobilizado antes do mes
-    return true;
-  });
+  // Escopo da matriz: SOMENTE TAG com ao menos um lancamento no mes. A frota
+  // ativa sem apontamento nao entra na tabela (nem para exibir pendencias);
+  // o filtro MOB/DESMOB continua valendo para as TAGs que possuem registro.
+  const veiculos = universo.filter((v) => (
+    tagsComRegistro.has(normalizar(v.tag)) && passaSituacao(v)
+  ));
 
   // TAGs historicas sem cadastro em MobDesmob: cria uma linha sintetica para
-  // nao perder apontamentos antigos (ex.: importacoes de outra base).
-  for (const [tagKey, tagOriginal] of tagsComRegistro) {
-    if (veiculosPorTag.has(tagKey)) continue;
-    veiculos.push({
-      tag: tagOriginal,
-      placa: null,
-      modelo: null,
-      contrato: null,
-      status: null,
-      data_mob: null,
-      data_desmob: null,
-    });
+  // nao perder apontamentos antigos (ex.: importacoes de outra base). Como
+  // nao ha status cadastrado, so entram na visao de historico completo.
+  if (situacao === 'TODOS') {
+    for (const [tagKey, tagOriginal] of tagsComRegistro) {
+      if (veiculosPorTag.has(tagKey)) continue;
+      veiculos.push({
+        tag: tagOriginal,
+        placa: null,
+        modelo: null,
+        contrato: null,
+        status: null,
+        data_mob: null,
+        data_desmob: null,
+      });
+    }
   }
 
   const descartes = new Set(ignoradas.map((i) => `${normalizar(i.tag)}|${isoDeData(i.data)}`));
