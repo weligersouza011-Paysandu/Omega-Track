@@ -28,12 +28,12 @@ import MatrizCalendarioMensal from '../components/MatrizCalendarioMensal.jsx';
 // totalmente independente: tem seletor de mes proprio e nao recebe filtros
 // desta view.
 //
-// Escala de cores de eficiencia (rigorosa):
-//   >= 95% ........ Azul   #3B82F6
-//   >= 85% ........ Verde  #10B981
-//   >= 80% ........ Amarelo #F59E0B
-//   >= 50% ........ Laranja #D97706
-//    < 50% ........ Vermelho #EF4444
+// Escala de cores de eficiencia (rigorosa, sobre o percentual exibido com 1 casa):
+//   100,0% ........ Azul     #3B82F6 (exclusivo)
+//    99,0–99,9% ... Verde    #10B981
+//    90,0–98,9% ... Amarelo  #F59E0B
+//    85,0–89,9% ... Laranja  #D97706
+//    < 85,0% ....... Vermelho #EF4444
 // ============================================================================
 
 const CORES_EFICIENCIA = {
@@ -46,15 +46,24 @@ const CORES_EFICIENCIA = {
 };
 
 const FAIXAS_EFICIENCIA = [
-  { rotulo: '≥ 95%', cor: CORES_EFICIENCIA.azul },
-  { rotulo: '85–94,9%', cor: CORES_EFICIENCIA.verde },
-  { rotulo: '80–84,9%', cor: CORES_EFICIENCIA.amarelo },
-  { rotulo: '50–79,9%', cor: CORES_EFICIENCIA.laranja },
-  { rotulo: '< 50%', cor: CORES_EFICIENCIA.vermelho },
+  { rotulo: '100,0%', cor: CORES_EFICIENCIA.azul },
+  { rotulo: '99,0–99,9%', cor: CORES_EFICIENCIA.verde },
+  { rotulo: '90,0–98,9%', cor: CORES_EFICIENCIA.amarelo },
+  { rotulo: '85,0–89,9%', cor: CORES_EFICIENCIA.laranja },
+  { rotulo: '< 85,0%', cor: CORES_EFICIENCIA.vermelho },
+];
+
+// Arcos proporcionais do gauge (0 a 1) alinhados as faixas acima.
+const ARCOS_GAUGE = [
+  { inicio: 0.004, fim: 0.843, cor: CORES_EFICIENCIA.vermelho },
+  { inicio: 0.857, fim: 0.893, cor: CORES_EFICIENCIA.laranja },
+  { inicio: 0.907, fim: 0.987, cor: CORES_EFICIENCIA.amarelo },
+  { inicio: 0.993, fim: 0.9965, cor: CORES_EFICIENCIA.verde },
+  { inicio: 0.9995, fim: 1, cor: CORES_EFICIENCIA.azul },
 ];
 
 const SECOES = {
-  operacao: { rotulo: 'Operação', cor: '#10B981', classe: 'text-emerald-400' },
+  operacao: { rotulo: 'Operação', curto: 'Operação', cor: '#10B981', classe: 'text-emerald-400' },
   corretiva: { rotulo: 'Manutenção Corretiva', curto: 'Corretiva', cor: '#EF4444', classe: 'text-red-400' },
   preventiva: { rotulo: 'Manutenção Preventiva', curto: 'Preventiva', cor: '#F59E0B', classe: 'text-amber-400' },
   interdicao: { rotulo: 'Interdição', curto: 'Interdição', cor: '#D97706', classe: 'text-orange-400' },
@@ -68,10 +77,11 @@ const dataBR = (iso) => (iso ? String(iso).slice(0, 10).split('-').reverse().joi
 
 function corPorEficiencia(v) {
   if (v === null || v === undefined) return CORES_EFICIENCIA.neutro;
-  if (v >= 0.95) return CORES_EFICIENCIA.azul;
-  if (v >= 0.85) return CORES_EFICIENCIA.verde;
-  if (v >= 0.80) return CORES_EFICIENCIA.amarelo;
-  if (v >= 0.50) return CORES_EFICIENCIA.laranja;
+  const percentual = Math.round(Math.max(0, Math.min(1, v)) * 1000) / 10;
+  if (percentual >= 100) return CORES_EFICIENCIA.azul;
+  if (percentual >= 99) return CORES_EFICIENCIA.verde;
+  if (percentual >= 90) return CORES_EFICIENCIA.amarelo;
+  if (percentual >= 85) return CORES_EFICIENCIA.laranja;
   return CORES_EFICIENCIA.vermelho;
 }
 
@@ -79,7 +89,7 @@ function corPorEficiencia(v) {
 // Componentes de apoio
 // ---------------------------------------------------------------------------
 function Card({ children, className = '' }) {
-  return <section className={`rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-lg ${className}`}>{children}</section>;
+  return <section className={`rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-lg sm:p-5 ${className}`}>{children}</section>;
 }
 
 function TituloCard({ icone: Icone, titulo, subtitulo, extra }) {
@@ -152,11 +162,17 @@ function GaugeEficiencia({ valor }) {
   return (
     <div className="flex flex-col items-center">
       <svg viewBox="0 0 240 138" className="w-full max-w-[280px]">
-        <path d={arco(0.005, 0.493)} stroke={CORES_EFICIENCIA.vermelho} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
-        <path d={arco(0.507, 0.793)} stroke={CORES_EFICIENCIA.laranja} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
-        <path d={arco(0.807, 0.843)} stroke={CORES_EFICIENCIA.amarelo} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
-        <path d={arco(0.857, 0.943)} stroke={CORES_EFICIENCIA.verde} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
-        <path d={arco(0.957, 0.995)} stroke={CORES_EFICIENCIA.azul} strokeWidth="15" strokeLinecap="round" fill="none" opacity="0.9" />
+        {ARCOS_GAUGE.map((faixa) => (
+          <path
+            key={faixa.cor}
+            d={arco(faixa.inicio, faixa.fim)}
+            stroke={faixa.cor}
+            strokeWidth="15"
+            strokeLinecap="round"
+            fill="none"
+            opacity="0.9"
+          />
+        ))}
         <g transform={`rotate(${angulo} ${cx} ${cy})`}>
           <polygon points={`${cx - 4},${cy} ${cx + 4},${cy} ${cx},${cy - r + 26}`} fill="#e2e8f0" />
         </g>
@@ -177,7 +193,7 @@ function FaixasEficiencia({ className = '' }) {
   return (
     <div className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 ${className}`}>
       {FAIXAS_EFICIENCIA.map((faixa) => (
-        <span key={faixa.rotulo} className="flex items-center gap-1 text-[9px] font-semibold text-slate-400">
+        <span key={faixa.rotulo} className="flex items-center gap-1 text-[10px] font-semibold text-slate-400">
           <span className="h-2 w-2 rounded-full" style={{ background: faixa.cor }} />
           {faixa.rotulo}
         </span>
@@ -187,28 +203,28 @@ function FaixasEficiencia({ className = '' }) {
 }
 
 // Barras horizontais genéricas (TAG / Modelo).
-function BarrasHorizontais({ itens, maxAltura = 'max-h-72', descricaoValor, corDe = corPorEficiencia }) {
+function BarrasHorizontais({ itens, maxAltura = 'max-h-60', descricaoValor, corDe = corPorEficiencia }) {
   if (!itens.length) {
     return <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-center text-xs text-slate-500">Sem dados no período.</p>;
   }
   return (
-    <div className={`mt-3 space-y-2.5 overflow-y-auto pr-1 ${maxAltura}`}>
+    <div className={`mt-3 space-y-3 overflow-y-auto pr-1 ${maxAltura}`}>
       {itens.map((item) => {
         const cor = corDe(item.valor);
         return (
           <div key={item.chave} title={item.tooltip}>
             <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-[11px] font-semibold text-slate-200">
+              <span className="min-w-0 truncate text-[11px] font-semibold text-slate-200">
                 {item.rotulo}
                 {item.sub && <span className="ml-1.5 font-normal text-slate-500">{item.sub}</span>}
               </span>
-              <span className="shrink-0 text-[11px] font-bold tabular-nums" style={{ color: cor }}>
+              <span className="shrink-0 text-right text-[11px] font-bold tabular-nums" style={{ color: cor }}>
                 {item.rotuloValor ?? fmtPct(item.valor)}
               </span>
             </div>
-            <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-800">
+            <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-slate-800">
               <div
-                className="h-2 rounded-full transition-all duration-500"
+                className="h-2.5 rounded-full transition-all duration-500"
                 style={{ width: `${(item.valor ?? 0) * 100}%`, background: cor }}
               />
             </div>
@@ -232,11 +248,11 @@ function KpiCard({ chave, total, percentual }) {
     pendentes: AlertTriangle,
   }[chave];
   return (
-    <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900/80 p-3">
+    <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900/80 p-3.5">
       <span className="absolute inset-x-0 top-0 h-1" style={{ background: cfg.cor }} />
       <div className="flex items-center gap-1.5">
-        <Icone size={13} style={{ color: cfg.cor }} />
-        <span className="truncate text-[10px] font-bold uppercase tracking-widest text-slate-400">{cfg.curto}</span>
+        <Icone size={13} style={{ color: cfg.cor }} className="shrink-0" />
+        <span className="min-w-0 truncate text-[9px] font-bold uppercase tracking-wide text-slate-400">{cfg.curto}</span>
       </div>
       <div className="mt-2 text-2xl font-extrabold tabular-nums text-white">{fmtPct(percentual)}</div>
       <div className="text-[11px] text-slate-400">{fmtNum(total)} {total === 1 ? 'dia' : 'dias'}</div>
@@ -249,8 +265,8 @@ function EstadoCarregando() {
     <div className="space-y-4">
       <div className="h-24 animate-pulse rounded-2xl bg-slate-900" />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <div className="h-96 animate-pulse rounded-2xl bg-slate-900 xl:col-span-5" />
-        <div className="h-96 animate-pulse rounded-2xl bg-slate-900 xl:col-span-7" />
+        <div className="h-96 animate-pulse rounded-2xl bg-slate-900 xl:col-span-6" />
+        <div className="h-96 animate-pulse rounded-2xl bg-slate-900 xl:col-span-6" />
       </div>
     </div>
   );
@@ -321,7 +337,7 @@ function CorpoTooltipInterdicao({ detalhes }) {
   );
 }
 
-function InterdicoesPainel({ itens, maxAltura = 'max-h-56' }) {
+function InterdicoesPainel({ itens, maxAltura = 'max-h-60' }) {
   const [tooltip, setTooltip] = useState(null);
 
   useEffect(() => {
@@ -349,7 +365,7 @@ function InterdicoesPainel({ itens, maxAltura = 'max-h-56' }) {
   };
 
   return (
-    <div className={`mt-3 space-y-2.5 overflow-y-auto pr-1 ${maxAltura}`}>
+    <div className={`mt-3 space-y-3 overflow-y-auto pr-1 ${maxAltura}`}>
       {itens.map((item) => (
         <div
           key={item.chave}
@@ -362,17 +378,17 @@ function InterdicoesPainel({ itens, maxAltura = 'max-h-56' }) {
           aria-label={`${item.detalhes.tag}: ${item.rotuloValor} de interdição. Passe o mouse ou foque para ver motivo, datas e impactos.`}
         >
           <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate text-[11px] font-semibold text-slate-200">
+            <span className="min-w-0 truncate text-[11px] font-semibold text-slate-200">
               {item.rotulo}
               {item.sub && <span className="ml-1.5 font-normal text-slate-500">{item.sub}</span>}
             </span>
-            <span className="shrink-0 text-[11px] font-bold tabular-nums" style={{ color: SECOES.interdicao.cor }}>
+            <span className="shrink-0 text-right text-[11px] font-bold tabular-nums" style={{ color: SECOES.interdicao.cor }}>
               {item.rotuloValor}
             </span>
           </div>
-          <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-800">
+          <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-slate-800">
             <div
-              className="h-2 rounded-full transition-all duration-500 group-hover:brightness-110"
+              className="h-2.5 rounded-full transition-all duration-500 group-hover:brightness-110"
               style={{ width: `${Math.max((item.valor ?? 0) * 100, 4)}%`, background: SECOES.interdicao.cor }}
             />
           </div>
@@ -599,7 +615,7 @@ export default function GestaoEficienciaView({ sessao }) {
       ) : (
         <div className={'grid grid-cols-1 gap-4 xl:grid-cols-12 ' + (carregando ? 'opacity-60 transition-opacity' : '')}>
           {/* Bloco esquerdo: gauge + eficiência por TAG + por modelo */}
-          <div className="space-y-4 xl:col-span-5">
+          <div className="min-w-0 space-y-4 xl:col-span-6">
             <Card>
               <TituloCard icone={Gauge} titulo="Eficiência Geral" subtitulo="Prevalece sobre paradas programadas" extra={carregando ? <RefreshCw size={14} className="animate-spin text-slate-500" /> : null} />
               <div className="mt-2">
@@ -622,20 +638,22 @@ export default function GestaoEficienciaView({ sessao }) {
               </div>
             </Card>
 
-            <Card>
-              <TituloCard icone={BarChart3} titulo="Eficiência por TAG" subtitulo="Do menor para o maior aproveitamento" />
-              <BarrasHorizontais itens={itensPorTag} />
-            </Card>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Card>
+                <TituloCard icone={BarChart3} titulo="Eficiência por TAG" subtitulo="Do menor para o maior aproveitamento" />
+                <BarrasHorizontais itens={itensPorTag} />
+              </Card>
 
-            <Card>
-              <TituloCard icone={Truck} titulo="Eficiência por Modelo" subtitulo="Média ponderada dos veículos do modelo" />
-              <BarrasHorizontais itens={itensPorModelo} />
-            </Card>
+              <Card>
+                <TituloCard icone={Truck} titulo="Eficiência por Modelo" subtitulo="Média ponderada dos veículos do modelo" />
+                <BarrasHorizontais itens={itensPorModelo} />
+              </Card>
+            </div>
           </div>
 
           {/* Bloco central/direito: KPIs + evolução mensal + interdições */}
-          <div className="space-y-4 xl:col-span-7">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <div className="min-w-0 space-y-4 xl:col-span-6">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 2xl:grid-cols-5">
               <KpiCard chave="corretiva" total={totais.corretiva} percentual={percentuais.corretiva} />
               <KpiCard chave="preventiva" total={totais.preventiva} percentual={percentuais.preventiva} />
               <KpiCard chave="interdicao" total={totais.interdicao} percentual={percentuais.interdicao} />
