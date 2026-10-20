@@ -95,11 +95,11 @@ function Card({ children, className = '' }) {
 function TituloCard({ icone: Icone, titulo, subtitulo, extra }) {
   return (
     <div className="flex items-start justify-between gap-3">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <Icone size={17} className="shrink-0 text-sky-400" />
-        <div>
-          <h2 className="text-sm font-bold text-slate-100">{titulo}</h2>
-          {subtitulo && <p className="text-[11px] text-slate-500">{subtitulo}</p>}
+        <div className="min-w-0">
+          <h2 className="truncate text-[13px] font-bold text-slate-100 2xl:text-sm" title={titulo}>{titulo}</h2>
+          {subtitulo && <p className="truncate text-[10px] text-slate-500 2xl:text-[11px]" title={subtitulo}>{subtitulo}</p>}
         </div>
       </div>
       {extra}
@@ -203,9 +203,9 @@ function FaixasEficiencia({ className = '' }) {
 }
 
 // Barras horizontais genéricas (TAG / Modelo).
-function BarrasHorizontais({ itens, maxAltura = 'max-h-60', descricaoValor, corDe = corPorEficiencia }) {
+function BarrasHorizontais({ itens, maxAltura = 'min-h-[280px] max-h-[280px]', descricaoValor, corDe = corPorEficiencia }) {
   if (!itens.length) {
-    return <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-center text-xs text-slate-500">Sem dados no período.</p>;
+    return <div className="mt-3 flex min-h-[280px] items-center justify-center overflow-y-auto rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-center text-xs text-slate-500">Sem dados no período.</div>;
   }
   return (
     <div className={`mt-3 space-y-3 overflow-y-auto pr-1 ${maxAltura}`}>
@@ -248,14 +248,14 @@ function KpiCard({ chave, total, percentual }) {
     pendentes: AlertTriangle,
   }[chave];
   return (
-    <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900/80 p-3.5">
+    <div className="relative min-h-[100px] overflow-hidden rounded-xl border border-slate-800 bg-slate-900/80 p-3.5">
       <span className="absolute inset-x-0 top-0 h-1" style={{ background: cfg.cor }} />
       <div className="flex items-center gap-1.5">
-        <Icone size={13} style={{ color: cfg.cor }} className="shrink-0" />
-        <span className="min-w-0 truncate text-[9px] font-bold uppercase tracking-wide text-slate-400">{cfg.curto}</span>
+        <Icone size={13} style={{ color: cfg.cor }} className="hidden shrink-0 2xl:block" />
+        <span className="min-w-0 truncate text-[7.5px] font-bold uppercase tracking-tight text-slate-400 2xl:text-[9px] 2xl:tracking-wide" title={cfg.curto}>{cfg.curto}</span>
       </div>
       <div className="mt-2 text-2xl font-extrabold tabular-nums text-white">{fmtPct(percentual)}</div>
-      <div className="text-[11px] text-slate-400">{fmtNum(total)} {total === 1 ? 'dia' : 'dias'}</div>
+      <div className="whitespace-nowrap text-[10px] text-slate-400 2xl:text-[11px]">{fmtNum(total)} {total === 1 ? 'dia' : 'dias'}</div>
     </div>
   );
 }
@@ -337,7 +337,7 @@ function CorpoTooltipInterdicao({ detalhes }) {
   );
 }
 
-function InterdicoesPainel({ itens, maxAltura = 'max-h-60' }) {
+function InterdicoesPainel({ itens, maxAltura = 'min-h-[280px] max-h-[280px]' }) {
   const [tooltip, setTooltip] = useState(null);
 
   useEffect(() => {
@@ -345,7 +345,7 @@ function InterdicoesPainel({ itens, maxAltura = 'max-h-60' }) {
   }, [itens]);
 
   if (!itens.length) {
-    return <p className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-center text-xs text-slate-500">Sem interdições no período.</p>;
+    return <div className="mt-3 flex min-h-[280px] items-center justify-center overflow-y-auto rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 text-center text-xs text-slate-500">Sem interdições no período.</div>;
   }
 
   const larguraTooltip = 332;
@@ -653,7 +653,7 @@ export default function GestaoEficienciaView({ sessao }) {
 
           {/* Bloco central/direito: KPIs + evolução mensal + interdições */}
           <div className="min-w-0 space-y-4 xl:col-span-6">
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 2xl:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
               <KpiCard chave="corretiva" total={totais.corretiva} percentual={percentuais.corretiva} />
               <KpiCard chave="preventiva" total={totais.preventiva} percentual={percentuais.preventiva} />
               <KpiCard chave="interdicao" total={totais.interdicao} percentual={percentuais.interdicao} />
@@ -663,11 +663,11 @@ export default function GestaoEficienciaView({ sessao }) {
 
             <Card>
               <TituloCard icone={LayoutGrid} titulo="Eficiência por Mês" subtitulo="Percentual mensal (Operação ÷ Operação + Desvios)" />
-              <div className="mt-4 flex gap-2 sm:gap-3">
+              <div className="mt-3 flex gap-2 sm:gap-3">
                 {meses.map((m) => (
                   <div key={m.mes} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
                     <span className="text-[10px] font-bold tabular-nums text-slate-300">{fmtPct(m.eficiencia)}</span>
-                    <div className="flex h-40 w-full items-end">
+                    <div className="flex h-36 w-full items-end">
                       <div
                         className="w-full rounded-t-md transition-all duration-500"
                         style={{
