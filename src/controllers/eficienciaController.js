@@ -7,6 +7,8 @@
 //     "Interdicao" ...................................... valor 0 (desvio);
 //   - "Manutencao Preventiva" ............................ parada programada:
 //        ISENTA do denominador da eficiencia; conta apenas como total;
+//   - "Nao Operado" / "Sem Operacao" (folga / sem demanda): categoria neutra,
+//        ISENTA do denominador e retirada das pendencias;
 //   - "Pendente" explicito ou status nulo ................ conta como PENDENTE;
 //   - Dia util (seg-sab) sem lancamento, dentro da janela de mobilizacao e
 //     sem descarte manual: conta como PENDENTE.
@@ -29,7 +31,8 @@
 //   "Matriz Calendario"). Sabado/domingo e feriados nacionais ficam fora da
 //   contagem de pendencias; pendencia = dia util (seg-sex) sem lancamento,
 //   dentro da janela de mobilizacao e sem descarte manual. Celula com mais de
-//   um lancamento no dia usa o pior caso (desvio > preventiva > operacao).
+//   um lancamento no dia usa o pior caso (desvio > preventiva > operacao >
+//   nao operado).
 //   Escopo de veiculos: TODA TAG com apontamento no mes aparece (inclusive
 //   desmobilizado/inativo — historico preservado); sem apontamento, o veiculo
 //   entra quando respeita o filtro MOB/DESMOB (padrao TODOS) e a janela de
@@ -50,21 +53,24 @@ const STATUS_CORRETIVA = 'Manutenção Corretiva';
 const STATUS_PREVENTIVA = 'Manutenção Preventiva';
 const STATUS_INDISPONIBILIDADE = 'Indisponibilidade';
 const STATUS_INTERDICAO = 'Interdição';
+const STATUS_NAO_OPERADO = 'Não Operado';
 
 // Secoes do dashboard (chaves usadas nos acumuladores e na resposta).
-const SECOES = ['operacao', 'corretiva', 'preventiva', 'interdicao', 'indisponibilidade'];
+const SECOES = ['operacao', 'corretiva', 'preventiva', 'interdicao', 'indisponibilidade', 'nao_operado'];
 // Secoes de manutencao listadas no calendario de paradas (por veiculo).
 const SECOES_CALENDARIO = ['corretiva', 'preventiva', 'interdicao', 'indisponibilidade'];
 
 // Prioridade da celula da Matriz Calendario quando o dia tem mais de um
 // lancamento para a mesma TAG: o pior caso prevalece (mesma regra da
-// importacao de historico). Pendentes nao sobrescrevem lancamento real.
+// importacao de historico). Pendentes nao sobrescrevem lancamento real e
+// "nao operado" e neutro (so aparece quando nao ha status operacional no dia).
 const PRIORIDADE_MATRIZ = {
   corretiva: 3,
   indisponibilidade: 3,
   interdicao: 3,
   preventiva: 2,
   operacao: 1,
+  nao_operado: 0,
 };
 
 const PERIODO_MAX_DIAS = 366;
@@ -160,6 +166,16 @@ function normalizarStatus(valor) {
     .toLowerCase();
 }
 
+// Categoria neutra: folga / sem demanda. Nao entra no denominador da
+// eficiencia e, por ter lancamento, tambem nao gera pendencia.
+function ehStatusNaoOperado(valorNormalizado) {
+  return valorNormalizado.includes('nao operado')
+    || valorNormalizado.includes('nao operacao')
+    || valorNormalizado.includes('sem operacao')
+    || valorNormalizado.includes('sem demanda')
+    || valorNormalizado.includes('folga');
+}
+
 // Mapeia o status_operacional da Parte Diaria para a secao do dashboard.
 // Desvios sao verificados antes de "parte diaria feita", pois o sufixo entre
 // parenteses define a secao. PENDENTE somente quando o status e explicitamente
@@ -171,6 +187,7 @@ function secaoDoStatus(status) {
   if (valor.includes('preventiva')) return 'preventiva';
   if (valor.includes('interdicao')) return 'interdicao';
   if (valor.includes('indisponibilidade')) return 'indisponibilidade';
+  if (ehStatusNaoOperado(valor)) return 'nao_operado';
   if (valor.includes('operacao')) return 'operacao';
   if (valor.includes('parte diaria feita')) return 'operacao';
   if (valor.includes('concluid')) return 'operacao';
@@ -178,7 +195,7 @@ function secaoDoStatus(status) {
 }
 
 function zerado() {
-  return { operacao: 0, corretiva: 0, preventiva: 0, interdicao: 0, indisponibilidade: 0, pendentes: 0 };
+  return { operacao: 0, corretiva: 0, preventiva: 0, interdicao: 0, indisponibilidade: 0, nao_operado: 0, pendentes: 0 };
 }
 
 function desvioDe(stats) {
@@ -196,7 +213,7 @@ function comIndicadores(stats) {
   return {
     ...stats,
     desvio,
-    total_registrado: stats.operacao + stats.corretiva + stats.preventiva + stats.interdicao + stats.indisponibilidade,
+    total_registrado: stats.operacao + stats.corretiva + stats.preventiva + stats.interdicao + stats.indisponibilidade + stats.nao_operado,
     eficiencia: eficienciaDe(stats),
   };
 }
@@ -403,7 +420,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
     desvio: desvioDe(global),
   };
   const baseEficiencia = totais.operacao + totais.desvio;
-  const totalObservado = baseEficiencia + totais.preventiva + totais.pendentes;
+  const totalObservado = baseEficiencia + totais.preventiva + totais.nao_operado + totais.pendentes;
   const pct = (n) => (totalObservado > 0 ? n / totalObservado : null);
 
   const porTagLista = [...porTag.values()]
@@ -496,6 +513,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
           preventiva: pct(totais.preventiva),
           interdicao: pct(totais.interdicao),
           indisponibilidade: pct(totais.indisponibilidade),
+          nao_operado: pct(totais.nao_operado),
           pendentes: pct(totais.pendentes),
         },
         total_observado: totalObservado,
@@ -516,10 +534,10 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
 // tela de Gestao de Eficiencia).
 //
 // Celula (TAG, dia): secao do lancamento ('operacao', 'corretiva',
-// 'preventiva', 'interdicao', 'indisponibilidade'), 'pendentes' (dia util
-// seg-sex, sem feriado, dentro da janela de mobilizacao, sem lancamento e sem
-// descarte manual) ou null (fim de semana, feriado, dia futuro ou fora da
-// janela). Aderencia do veiculo/mes = Operacao / (Operacao + Desvios).
+// 'preventiva', 'interdicao', 'indisponibilidade', 'nao_operado'), 'pendentes'
+// (dia util seg-sex, sem feriado, dentro da janela de mobilizacao, sem
+// lancamento e sem descarte manual) ou null (fim de semana, feriado, dia futuro
+// ou fora da janela). Aderencia do veiculo/mes = Operacao / (Operacao + Desvios).
 //
 // Escopo: TODA TAG com apontamento no mes aparece, independentemente do
 // status atual (MOB/DESMOB) ou de existir em MobDesmob. O filtro `situacao`
@@ -753,6 +771,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
 //   "Parte Diaria Feita (Indisponibilidade)"     -> "Indisponibilidade"    (+1 denominador, valor 0)
 //   "Parte Diaria Feita (Interdicao)"            -> "Interdicao"           (+1 denominador, valor 0)
 //   "Parte Diaria Feita (Manutencao Preventiva)" -> "Manutencao Preventiva"(isento do denominador)
+//   "Nao Operado" | "Sem Operacao"               -> "Nao Operado"            (isento do denominador)
 //   Qualquer "Pendente"                          -> DESCARTADO
 // ============================================================================
 
@@ -768,6 +787,7 @@ function mapearStatusBI(rawStatus) {
   if (s.includes('preventiva')) return STATUS_PREVENTIVA;
   if (s.includes('interdicao')) return STATUS_INTERDICAO;
   if (s.includes('indisponibilidade')) return STATUS_INDISPONIBILIDADE;
+  if (ehStatusNaoOperado(s)) return STATUS_NAO_OPERADO;
   if (s.includes('operacao') || s.includes('parte diaria feita') || s.includes('concluid')) return STATUS_OPERACAO;
   return undefined; // fora do dominio
 }
@@ -859,6 +879,7 @@ export const importarHistorico = asyncHandler(async (req, res) => {
     indisponibilidade: 0,
     interdicao: 0,
     preventiva_isenta: 0,
+    nao_operado_isento: 0,
     falhas: [],
   };
 
@@ -870,6 +891,7 @@ export const importarHistorico = asyncHandler(async (req, res) => {
     [STATUS_INDISPONIBILIDADE]: 'indisponibilidade',
     [STATUS_INTERDICAO]:        'interdicao',
     [STATUS_PREVENTIVA]:        'preventiva_isenta',
+    [STATUS_NAO_OPERADO]:       'nao_operado_isento',
   };
 
   for (let i = 0; i < dados.length; i++) {

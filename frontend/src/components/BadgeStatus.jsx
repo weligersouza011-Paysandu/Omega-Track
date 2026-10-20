@@ -5,6 +5,8 @@ const STATUS_MAP = {
   'Manutenção Corretiva': { bg: 'bg-red-100', text: 'text-red-800', ring: 'ring-red-600/25', label: 'Manutenção Corretiva' },
   'Indisponibilidade': { bg: 'bg-purple-100', text: 'text-purple-800', ring: 'ring-purple-600/25', label: 'Indisponibilidade' },
   'Interdição': { bg: 'bg-slate-800', text: 'text-slate-100', ring: 'ring-slate-900', label: 'Interdição' },
+  'Não Operado': { bg: 'bg-slate-100', text: 'text-slate-700', ring: 'ring-slate-500/25', label: 'Não Operado' },
+  'Sem Operação': { bg: 'bg-slate-100', text: 'text-slate-700', ring: 'ring-slate-500/25', label: 'Sem Operação' },
 
   // Status do Fluxo de Aprovação do Relatório
   'Em Preenchimento': { bg: 'bg-slate-100', text: 'text-slate-700', ring: 'ring-slate-600/20', label: 'Em Preenchimento' },

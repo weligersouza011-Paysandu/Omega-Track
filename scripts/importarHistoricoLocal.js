@@ -11,6 +11,7 @@
 //   "indisponibilidade"                              -> "Indisponibilidade"    (valor 0)
 //   "interdicao"                                     -> "Interdicao"           (valor 0)
 //   "preventiva" | "manutencao preventiva"           -> "Manutencao Preventiva"(isenta)
+//   "nao operado" | "sem operacao" | "sem demanda"    -> "Nao Operado"           (isenta)
 //   Qualquer status contendo "pendente"              -> DESCARTADO
 //
 //   Os desvios sao checados antes de "parte diaria feita", pois o sufixo
@@ -59,6 +60,7 @@ const STATUS_CORRETIVA         = 'Manuten\u00e7\u00e3o Corretiva';
 const STATUS_PREVENTIVA        = 'Manuten\u00e7\u00e3o Preventiva';
 const STATUS_INDISPONIBILIDADE = 'Indisponibilidade';
 const STATUS_INTERDICAO        = 'Interdi\u00e7\u00e3o';
+const STATUS_NAO_OPERADO       = 'N\u00e3o Operado';
 
 // Registros elegiveis para a limpeza (--limpar).
 const CRIADORES_HISTORICO = ['importacao-historico', 'importacao-historico-api'];
@@ -70,6 +72,7 @@ const PRIORIDADE_STATUS = {
   [STATUS_INTERDICAO]:        3,
   [STATUS_PREVENTIVA]:        2,
   [STATUS_OPERACAO]:          1,
+  [STATUS_NAO_OPERADO]:       0,
 };
 
 const TAMANHO_LOTE = 500;
@@ -116,6 +119,7 @@ function mapearStatus(rawStatus) {
   if (s.includes('preventiva')) return STATUS_PREVENTIVA;
   if (s.includes('interdicao')) return STATUS_INTERDICAO;
   if (s.includes('indisponibilidade')) return STATUS_INDISPONIBILIDADE;
+  if (s.includes('nao operado') || s.includes('nao operacao') || s.includes('sem operacao') || s.includes('sem demanda') || s.includes('folga')) return STATUS_NAO_OPERADO;
   if (s.includes('operacao') || s.includes('parte diaria feita') || s.includes('concluid')) return STATUS_OPERACAO;
   return undefined;
 }
@@ -127,6 +131,7 @@ function categoriaDeStatus(statusOperacional) {
     case STATUS_INDISPONIBILIDADE: return 'indisponibilidade';
     case STATUS_INTERDICAO:        return 'interdicao';
     case STATUS_PREVENTIVA:        return 'preventiva_isenta';
+    case STATUS_NAO_OPERADO:       return 'nao_operado_isento';
     default:                       return 'desconhecido';
   }
 }
@@ -178,6 +183,7 @@ function imprimirResumo(resumo) {
   console.log(`Categoria: INDISPONIBILIDADE:      ${resumo.indisponibilidade}`);
   console.log(`Categoria: INTERDICAO:             ${resumo.interdicao}`);
   console.log(`Categoria: PREVENTIVA (isenta):    ${resumo.preventiva_isenta}`);
+  console.log(`Categoria: NAO OPERADO (isenta):   ${resumo.nao_operado_isento}`);
   console.log('------------------------------------------------------------------');
   console.log(`Falhas:                            ${resumo.falhas.length}`);
   console.log('==================================================================');
@@ -250,6 +256,7 @@ async function main() {
     indisponibilidade: 0,
     interdicao: 0,
     preventiva_isenta: 0,
+    nao_operado_isento: 0,
     falhas: [],
   };
 

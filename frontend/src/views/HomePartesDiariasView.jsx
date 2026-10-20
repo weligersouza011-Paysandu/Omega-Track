@@ -19,13 +19,24 @@ function normalizar(v) {
 // Paradas/manutencoes nao tem alocacao em obra: o selo principal da linha
 // passa a ser o proprio tipo da parada e a frente vira "Oficina / Patio".
 const STATUS_PARADA = ['Manutenção Preventiva', 'Manutenção Corretiva', 'Indisponibilidade', 'Interdição'];
+// Dias sem operacao por folga/sem demanda: neutros no BI, sem alocacao em obra.
+const STATUS_NEUTRO = ['Não Operado', 'Sem Operação'];
 
 // Coluna STATUS da listagem:
 // - Operacao: fluxo de aprovacao (Em Preenchimento -> Aprovado) + obra abaixo;
-// - Parada/Manutencao: selo do tipo da parada + indicador de oficina/patio.
+// - Parada/Manutencao: selo do tipo da parada + indicador de oficina/patio;
+// - Nao Operado: selo neutro + motivo (folga/sem demanda).
 function StatusDaParte({ parte, direita = false }) {
   const statusOperacional = String(parte?.status_operacional || parte?.status || '').trim();
   const alinhamento = direita ? 'items-end text-right' : 'items-start';
+  if (STATUS_NEUTRO.includes(statusOperacional)) {
+    return (
+      <div className={`flex flex-col gap-1 ${alinhamento}`}>
+        <BadgeStatus status={statusOperacional} />
+        <span className="text-[11px] text-slate-400 italic">Folga / sem demanda</span>
+      </div>
+    );
+  }
   if (STATUS_PARADA.includes(statusOperacional)) {
     return (
       <div className={`flex flex-col gap-1 ${alinhamento}`}>

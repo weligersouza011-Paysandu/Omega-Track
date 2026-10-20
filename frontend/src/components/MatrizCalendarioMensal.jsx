@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowDownZA,
+  ArrowUpAZ,
   CalendarRange,
   ChevronLeft,
   ChevronRight,
@@ -63,20 +65,22 @@ const MARGEM_PDF_MM = 8;
 const ESCALA_MINIMA_PDF = 0.24;
 
 const STATUS_MATRIZ = {
-  operacao: { rotulo: 'Operação', cor: '#10B981' },
-  preventiva: { rotulo: 'Manutenção Preventiva', cor: '#F59E0B' },
-  corretiva: { rotulo: 'Manutenção Corretiva', cor: '#EF4444' },
-  interdicao: { rotulo: 'Interdição', cor: '#D97706' },
-  indisponibilidade: { rotulo: 'Indisponibilidade', cor: '#8B5CF6' },
+  operacao: { rotulo: 'Operação', sigla: 'O', cor: '#10B981', texto: '#052e16' },
+  preventiva: { rotulo: 'Manutenção Preventiva', sigla: 'P', cor: '#F59E0B', texto: '#451a03' },
+  corretiva: { rotulo: 'Manutenção Corretiva', sigla: 'C', cor: '#EF4444', texto: '#450a0a' },
+  interdicao: { rotulo: 'Interdição', sigla: 'I', cor: '#D97706', texto: '#431407' },
+  indisponibilidade: { rotulo: 'Indisponibilidade', sigla: 'ND', cor: '#8B5CF6', texto: '#2e1065' },
+  nao_operado: { rotulo: 'Não Operado', sigla: 'NO', cor: '#64748B', texto: '#f8fafc' },
   pendentes: { rotulo: 'Pendente', cor: '#6B7280' },
 };
 
 const STATUS_OPCOES = [
-  'Operação',
-  'Manutenção Preventiva',
-  'Manutenção Corretiva',
-  'Interdição',
-  'Indisponibilidade',
+  { valor: 'Operação', rotulo: 'Operação' },
+  { valor: 'Manutenção Preventiva', rotulo: 'Manutenção Preventiva' },
+  { valor: 'Manutenção Corretiva', rotulo: 'Manutenção Corretiva' },
+  { valor: 'Interdição', rotulo: 'Interdição' },
+  { valor: 'Indisponibilidade', rotulo: 'Indisponibilidade' },
+  { valor: 'Não Operado', rotulo: 'Não Operado', descricao: 'Folga / Sem Demanda' },
 ];
 
 const MESES_LONGOS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -112,6 +116,7 @@ function secaoParaStatusOpcao(secao) {
     case 'corretiva': return 'Manutenção Corretiva';
     case 'interdicao': return 'Interdição';
     case 'indisponibilidade': return 'Indisponibilidade';
+    case 'nao_operado': return 'Não Operado';
     default: return 'Operação';
   }
 }
@@ -123,6 +128,7 @@ function statusOpcaoParaSecao(opcao) {
     case 'Manutenção Corretiva': return 'corretiva';
     case 'Interdição': return 'interdicao';
     case 'Indisponibilidade': return 'indisponibilidade';
+    case 'Não Operado': return 'nao_operado';
     default: return 'operacao';
   }
 }
@@ -210,7 +216,7 @@ function BarrasPorVeiculo({ veiculos }) {
       {veiculos.map((v) => {
         const cor = corAderencia(v.eficiencia);
         return (
-          <div key={v.tag} title={`${v.tag} (${v.modelo}) — aderência ${fmtPct(v.eficiencia)} · Operação ${fmtNum(v.operacao)} · Desvios ${fmtNum(v.desvio)} · Preventiva ${fmtNum(v.preventiva)} · Pendências ${fmtNum(v.pendentes)}`}>
+          <div key={v.tag} title={`${v.tag} (${v.modelo}) — aderência ${fmtPct(v.eficiencia)} · Operação ${fmtNum(v.operacao)} · Desvios ${fmtNum(v.desvio)} · Preventiva ${fmtNum(v.preventiva)} · Não Operado ${fmtNum(v.nao_operado)} · Pendências ${fmtNum(v.pendentes)}`}>
             <div className="flex items-baseline justify-between gap-2">
               <span className="truncate text-[11px] font-semibold text-slate-200">
                 {v.tag}
@@ -296,15 +302,15 @@ function ModalApontamento({ celula, salvando, erro, onFechar, onSalvar }) {
           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Novo status do dia</span>
           <div role="radiogroup" aria-label="Novo status do dia" className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {STATUS_OPCOES.map((opcao) => {
-              const cor = corStatusOpcao(opcao);
-              const selecionado = status === opcao;
+              const cor = corStatusOpcao(opcao.valor);
+              const selecionado = status === opcao.valor;
               return (
                 <button
-                  key={opcao}
+                  key={opcao.valor}
                   type="button"
                   role="radio"
                   aria-checked={selecionado}
-                  onClick={() => setStatus(opcao)}
+                  onClick={() => setStatus(opcao.valor)}
                   disabled={salvando}
                   className={
                     'flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors disabled:opacity-50 ' +
@@ -317,7 +323,14 @@ function ModalApontamento({ celula, salvando, erro, onFechar, onSalvar }) {
                     : undefined}
                 >
                   <span className="h-3 w-3 shrink-0 rounded-full ring-2 ring-white/20" style={{ background: cor }} />
-                  {opcao}
+                  <span className="flex min-w-0 flex-col">
+                    <span>{opcao.rotulo}</span>
+                    {opcao.descricao && (
+                      <span className={'text-[9px] font-medium ' + (selecionado ? 'text-white/70' : 'text-slate-500')}>
+                        {opcao.descricao}
+                      </span>
+                    )}
+                  </span>
                 </button>
               );
             })}
@@ -371,15 +384,28 @@ function ModalApontamento({ celula, salvando, erro, onFechar, onSalvar }) {
 // ---------------------------------------------------------------------------
 // Grade TAG x dias (matriz calendario).
 // ---------------------------------------------------------------------------
-function GradeMatriz({ dados, podeEditar, onClicarCelula }) {
-  const veiculos = dados?.veiculos || [];
-
+function GradeMatriz({ dados, veiculos = [], podeEditar, onClicarCelula, ordemTag, onAlternarOrdemTag }) {
   return (
     <div className="mt-3 overflow-x-auto rounded-xl border border-slate-800" data-matriz-scroll="1">
       <table className="w-full border-separate border-spacing-0 text-[10px]">
         <thead>
           <tr>
-            <th data-sticky="1" className="sticky left-0 z-20 w-[84px] min-w-[84px] border-b border-r border-slate-800 bg-slate-900 px-2 py-1.5 text-left font-bold uppercase tracking-wider text-slate-400">TAG</th>
+            <th
+              data-sticky="1"
+              aria-sort={ordemTag === 'asc' ? 'ascending' : 'descending'}
+              className="sticky left-0 z-20 w-[84px] min-w-[84px] border-b border-r border-slate-800 bg-slate-900 px-2 py-1.5 text-left font-bold uppercase tracking-wider text-slate-400"
+            >
+              <button
+                type="button"
+                onClick={onAlternarOrdemTag}
+                className="flex items-center gap-1 uppercase tracking-wider text-slate-400 transition-colors hover:text-white"
+                title={`Ordenar TAG ${ordemTag === 'asc' ? 'de Z para A' : 'de A para Z'}`}
+                aria-label={`Ordenar TAG ${ordemTag === 'asc' ? 'de Z para A' : 'de A para Z'}`}
+              >
+                TAG
+                {ordemTag === 'asc' ? <ArrowUpAZ size={11} /> : <ArrowDownZA size={11} />}
+              </button>
+            </th>
             <th data-sticky="1" className="sticky left-[84px] z-20 w-[132px] min-w-[132px] border-b border-r border-slate-800 bg-slate-900 px-2 py-1.5 text-left font-bold uppercase tracking-wider text-slate-400">Modelo</th>
             <th data-sticky="1" className="sticky left-[216px] z-20 w-[92px] min-w-[92px] border-b border-r border-slate-800 bg-slate-900 px-2 py-1.5 text-left font-bold uppercase tracking-wider text-slate-400">Placa</th>
             {(dados?.dias || []).map((d) => (
@@ -441,7 +467,7 @@ function GradeMatriz({ dados, podeEditar, onClicarCelula }) {
                           onClicarCelula({ tag: v.tag, placa: v.placa, modelo: v.modelo, dia: d.dia, iso: d.iso, secao, observacao });
                         }}
                         className={
-                          'h-5 w-full rounded-[4px] border border-transparent transition-transform ' +
+                          'flex h-5 w-full items-center justify-center rounded-[4px] border border-transparent transition-transform ' +
                           (semPermissao
                             ? 'cursor-default'
                             : d.futuro || bloqueado
@@ -455,7 +481,17 @@ function GradeMatriz({ dados, podeEditar, onClicarCelula }) {
                             ? `${descricao} — bloqueado (${motivoBloqueio})`
                             : descricao}
                         aria-label={`${v.tag} ${dataBR(d.iso)}: ${cfg ? cfg.rotulo : 'sem lançamento'}${bloqueado ? ' (bloqueado)' : ''}${semPermissao ? ' (somente leitura)' : ''}`}
-                      />
+                      >
+                        {!bloqueado && cfg?.sigla && (
+                          <span
+                            aria-hidden="true"
+                            className="pointer-events-none text-[9px] font-extrabold leading-none"
+                            style={{ color: cfg.texto }}
+                          >
+                            {cfg.sigla}
+                          </span>
+                        )}
+                      </button>
                     </td>
                   );
                 })}
@@ -473,8 +509,7 @@ function GradeMatriz({ dados, podeEditar, onClicarCelula }) {
 // grade completa (TAG x todos os dias do mes). Renderizado fora da tela para
 // ser capturado pelo html2canvas em alta resolucao.
 // ---------------------------------------------------------------------------
-function RelatorioPdf({ dados, mes, contrato, situacao }) {
-  const veiculos = dados?.veiculos || [];
+function RelatorioPdf({ dados, veiculos = [], mes, contrato, situacao }) {
   const dias = dados?.dias || [];
   const resumo = dados?.resumo || {};
   const larguraConteudo = LARGURA_COLUNA_PDF.tag + LARGURA_COLUNA_PDF.modelo + LARGURA_COLUNA_PDF.placa
@@ -488,6 +523,7 @@ function RelatorioPdf({ dados, mes, contrato, situacao }) {
     { rotulo: 'Dias em operação', valor: fmtNum(resumo.operacao), cor: '#047857' },
     { rotulo: 'Desvios', valor: fmtNum(resumo.desvio), cor: '#b91c1c' },
     { rotulo: 'Preventiva', valor: fmtNum(resumo.preventiva), cor: '#b45309' },
+    { rotulo: 'Não Operado', valor: fmtNum(resumo.nao_operado), cor: '#475569' },
     { rotulo: 'Pendências', valor: fmtNum(resumo.pendentes), cor: '#b45309' },
     { rotulo: 'Veículos no mês', valor: fmtNum(veiculos.length), cor: '#0f172a' },
   ];
@@ -666,7 +702,24 @@ function RelatorioPdf({ dados, mes, contrato, situacao }) {
                           backgroundColor: fundo,
                           backgroundImage: bloqueado ? HACHURA_BLOQUEIO_PDF : undefined,
                         }}
-                      />
+                      >
+                        {!bloqueado && cfg?.sigla && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              height: 18,
+                              fontSize: 7,
+                              fontWeight: 800,
+                              lineHeight: '18px',
+                              color: cfg.texto,
+                            }}
+                          >
+                            {cfg.sigla}
+                          </div>
+                        )}
+                      </td>
                     );
                   })}
                 </tr>
@@ -721,6 +774,7 @@ function RelatorioPdf({ dados, mes, contrato, situacao }) {
 export default function MatrizCalendarioMensal({ sessao, onAtualizado }) {
   const [mes, setMes] = useState(() => hojeISO().slice(0, 7));
   const [situacao, setSituacao] = useState('TODOS');
+  const [ordemTag, setOrdemTag] = useState('asc');
   const [dados, setDados] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
@@ -734,6 +788,15 @@ export default function MatrizCalendarioMensal({ sessao, onAtualizado }) {
   const mesAtual = hojeISO().slice(0, 7);
   // Somente MASTER edita a matriz; o backend reforca a regra (403).
   const podeEditar = ehMaster(sessao?.usuario);
+
+  const veiculosOrdenados = useMemo(() => {
+    const linhas = [...(dados?.veiculos || [])];
+    const fator = ordemTag === 'asc' ? 1 : -1;
+    return linhas.sort((a, b) => fator * String(a.tag || '').localeCompare(String(b.tag || ''), 'pt-BR', {
+      numeric: true,
+      sensitivity: 'base',
+    }));
+  }, [dados, ordemTag]);
 
   const buscar = useCallback(async (signal) => {
     setCarregando(true);
@@ -1046,7 +1109,10 @@ export default function MatrizCalendarioMensal({ sessao, onAtualizado }) {
             <div className="xl:col-span-12">
               <GradeMatriz
                 dados={dados}
+                veiculos={veiculosOrdenados}
                 podeEditar={podeEditar}
+                ordemTag={ordemTag}
+                onAlternarOrdemTag={() => setOrdemTag((ordem) => (ordem === 'asc' ? 'desc' : 'asc'))}
                 onClicarCelula={(c) => { setErroModal(null); setCelula(c); }}
               />
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-slate-800 pt-3">
@@ -1095,6 +1161,7 @@ export default function MatrizCalendarioMensal({ sessao, onAtualizado }) {
         {dados && (
           <RelatorioPdf
             dados={dados}
+            veiculos={veiculosOrdenados}
             mes={dados.mes || mes}
             contrato={contratoRotulo}
             situacao={dados.filtros?.situacao || situacao}

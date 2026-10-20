@@ -21,6 +21,7 @@ export const STATUS_OPERACIONAL_VALIDOS = [
   'Manutenção Preventiva',
   'Indisponibilidade',
   'Interdição',
+  'Não Operado',
 ];
 
 export const STATUS_APROVACAO_VALIDOS = [
@@ -627,8 +628,8 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   // IMPORTANTE: o POST e SEMPRE aditivo — cria um registro novo e NUNCA
   // substitui/mescla Partes Diarias existentes (outro status, outro tipo de
   // relatorio ou outro dia). Historico 100% preservado: cada lançamento
-  // (Operacao, Preventiva, Corretiva, Indisponibilidade, Interdicao)
-  // coexiste de forma independente na listagem.
+  // (Operacao, Preventiva, Corretiva, Indisponibilidade, Interdicao,
+  // Nao Operado) coexiste de forma independente na listagem.
   const diaRef = new Date(Date.UTC(dataRef.getUTCFullYear(), dataRef.getUTCMonth(), dataRef.getUTCDate()));
 
   // Vinculo com o cadastro de Obras (dropdown da Parte Diaria).

@@ -51,12 +51,13 @@ const STATUS_OPERACIONAL_DIA = [
   'Manutenção Preventiva',
   'Indisponibilidade',
   'Interdição',
+  'Não Operado',
 ];
 // Segregação do formulário (Fase Sênior 3): operação completa, preventiva
 // enxuta (obra + veículo + KM) e parada super enxuta (obra + data + veículo).
 function modoDoStatus(status) {
   if (status === 'Manutenção Preventiva') return 'preventiva';
-  if (['Manutenção Corretiva', 'Indisponibilidade', 'Interdição'].includes(status)) return 'parada';
+  if (['Manutenção Corretiva', 'Indisponibilidade', 'Interdição', 'Não Operado'].includes(status)) return 'parada';
   return 'operacao';
 }
 const TIPOS_OCORRENCIA = ['Operacional', 'Segurança', 'Meio Ambiente', 'Mecânica', 'Outra'];

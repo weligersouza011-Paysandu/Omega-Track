@@ -17,7 +17,8 @@ const uploadXlsx = multer({
 // Dashboard de Eficiencia de Transporte (ADM/Transporte/Gestao/Master).
 // GET /api/eficiencia?dataInicio=&dataFim=&tag=&modelo=&contrato=&situacao=MOB|DESMOB|TODOS
 // Eficiencia = dias de Operacao / (Operacao + Corretiva + Indisponibilidade + Interdicao).
-// Preventiva fica isenta do denominador; dias uteis sem lancamento contam como pendentes.
+// Preventiva e Nao Operado (folga/sem demanda) ficam isentos do denominador;
+// dias uteis sem lancamento contam como pendentes.
 router.get('/', requerAdmin, obterEficiencia);
 
 // Matriz Calendario — status dia a dia por veiculo no mes selecionado.
