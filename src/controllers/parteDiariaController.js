@@ -9,7 +9,7 @@ import { registrarLogAtividade } from '../services/auditService.js';
 // ============================================================================
 // Parte Diaria (Veiculos Leves) — modelo Omega Service
 // Formulario completo: cabecalho/metadata, horarios, modulos dinamicos
-// (mao de obra, equipamentos, atividades, ocorrencias, checklist,
+// (mao de obra, equipamentos, atividades, ocorrencias,
 // comentarios, fotos), assinaturas em 3 etapas e auditoria.
 // ============================================================================
 
@@ -143,12 +143,10 @@ function calcularAderencia(obra, obra_programada) {
   return obra.trim().toUpperCase() === obra_programada.trim().toUpperCase();
 }
 
-// Pendência geral do relatório: checklist sem foto de comprovação ou
-// atividade com status Pendente (ausente conta como pendente).
-function calcularPendencia(checklist = [], atividades = []) {
-  const checkPendente = (checklist || []).some((c) => !c || !String(c.foto_url || '').trim());
-  const ativPendente = (atividades || []).some((a) => !a || !a.status || a.status === 'Pendente');
-  return checkPendente || ativPendente;
+// Pendência geral do relatório: atividade com status Pendente
+// (ausente conta como pendente).
+function calcularPendencia(atividades = []) {
+  return (atividades || []).some((a) => !a || !a.status || a.status === 'Pendente');
 }
 
 const INCLUDE_COMPLETO = {
@@ -158,7 +156,6 @@ const INCLUDE_COMPLETO = {
   equipamentos: { orderBy: { created_at: 'asc' } },
   atividades: { orderBy: { created_at: 'asc' } },
   ocorrencias: { orderBy: { created_at: 'asc' } },
-  checklist: { orderBy: { created_at: 'asc' } },
   comentarios: { orderBy: { created_at: 'asc' } },
   fotos: { orderBy: { created_at: 'asc' } },
   assinaturas: { orderBy: { created_at: 'asc' } },
@@ -169,7 +166,6 @@ const INCLUDE_COMPLETO = {
       equipamentos: true,
       atividades: true,
       ocorrencias: true,
-      checklist: true,
       comentarios: true,
       fotos: true,
       assinaturas: true,
@@ -274,21 +270,6 @@ function normalizarFilhos(corpo = {}) {
           descricao: String(i.descricao).trim(),
           hora: strOuNull(i.hora),
           gravidade: strOuNull(i.gravidade),
-        };
-      });
-  }
-  if (Array.isArray(corpo.checklist)) {
-    filhos.checklist = limitarLista(corpo.checklist, 'checklist')
-      .filter((i) => i && String(i.item || '').trim())
-      .map((i) => {
-        const fotoUrl = strOuNull(i.foto_url);
-        if (fotoUrl) validarUrlMidia(fotoUrl, 'checklist.foto_url');
-        return {
-          item: String(i.item).trim(),
-          conforme: i.conforme === undefined || i.conforme === null ? true : Boolean(i.conforme),
-          observacao: strOuNull(i.observacao),
-          foto_url: fotoUrl,
-          foto_public_id: strOuNull(i.foto_public_id),
         };
       });
   }
@@ -419,7 +400,6 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
             equipamentos: true,
             atividades: true,
             ocorrencias: true,
-            checklist: true,
             comentarios: true,
             fotos: true,
             assinaturas: true,
@@ -546,7 +526,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   const tagFinal = tag || (veiculoModulo ? String(veiculoModulo.tag_patrimonio).trim().toUpperCase() : null);
 
   // Payload flexível por status (Fase Sênior 3): qualquer status aceita o
-  // mínimo (obra + veículo/TAG + status). Checklist, mão de obra, atividades
+  // mínimo (obra + veículo/TAG + status). Mão de obra, atividades
   // e demais módulos são sempre opcionais — viram `possui_pendencia`/listas
   // vazias quando ausentes. Preventiva exige KM no front (âncora do ciclo).
   const statusOperacionalFinal = status_operacional || status || 'Operação';
@@ -681,7 +661,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
           status_operacional: statusOperacionalFinal,
           status_aprovacao: status_aprovacao || 'Em Preenchimento',
           status_relatorio: status_relatorio || statusAprovacaoParaRelatorio(status_aprovacao || 'Em Preenchimento'),
-          possui_pendencia: calcularPendencia(filhos.checklist, filhos.atividades),
+          possui_pendencia: calcularPendencia(filhos.atividades),
           obra_id: obraIdFinal,
           planejador: strOuNull(planejador),
           turno: strOuNull(turno),
@@ -701,7 +681,6 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
           ...(filhos.equipamentos ? { equipamentos: { create: filhos.equipamentos } } : {}),
           ...(filhos.atividades ? { atividades: { create: filhos.atividades } } : {}),
           ...(filhos.ocorrencias ? { ocorrencias: { create: filhos.ocorrencias } } : {}),
-          ...(filhos.checklist ? { checklist: { create: filhos.checklist } } : {}),
           ...(filhos.comentarios ? { comentarios: { create: filhos.comentarios } } : {}),
           ...(filhos.fotos ? { fotos: { create: filhos.fotos } } : {}),
         },
@@ -893,7 +872,7 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   if (autor) dados.atualizado_por = autor;
 
   const filhos = normalizarFilhos(corpo);
-  const colecoes = ['mao_obra', 'equipamentos', 'atividades', 'ocorrencias', 'checklist', 'comentarios', 'fotos'];
+  const colecoes = ['mao_obra', 'equipamentos', 'atividades', 'ocorrencias', 'comentarios', 'fotos'];
   // Só sincroniza coleções que chegaram como array válido: valores nulos ou
   // mal formatados nunca apagam dados nem quebram o createMany (anti-500)
   const temLista = (k) => Array.isArray(corpo[k]);
@@ -924,12 +903,6 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
         await tx.parteDiariaOcorrencia.deleteMany({ where: { parte_id: id } });
         if (filhos.ocorrencias?.length) {
           await tx.parteDiariaOcorrencia.createMany({ data: filhos.ocorrencias.map((i) => ({ ...i, parte_id: id })) });
-        }
-      }
-      if (temLista('checklist')) {
-        await tx.parteDiariaChecklist.deleteMany({ where: { parte_id: id } });
-        if (filhos.checklist?.length) {
-          await tx.parteDiariaChecklist.createMany({ data: filhos.checklist.map((i) => ({ ...i, parte_id: id })) });
         }
       }
       if (temLista('comentarios')) {
@@ -980,15 +953,15 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
     /* higiene da auditoria nao bloqueia o salvamento */
   }
 
-  // Recalcula a pendência geral a partir do estado final (checklists + atividades).
+  // Recalcula a pendência geral a partir do estado final (atividades).
   try {
-    const [checks, ativs] = await Promise.all([
-      prisma.parteDiariaChecklist.findMany({ where: { parte_id: id }, select: { foto_url: true } }),
-      prisma.parteDiariaAtividade.findMany({ where: { parte_id: id }, select: { status: true } }),
-    ]);
+    const ativs = await prisma.parteDiariaAtividade.findMany({
+      where: { parte_id: id },
+      select: { status: true },
+    });
     await prisma.parteDiaria.update({
       where: { id },
-      data: { possui_pendencia: calcularPendencia(checks, ativs) },
+      data: { possui_pendencia: calcularPendencia(ativs) },
     });
   } catch {
     /* pendência é informativa: nunca quebra o salvamento */

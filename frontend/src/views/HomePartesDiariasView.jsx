@@ -658,7 +658,7 @@ export default function HomePartesDiariasView({ sessao }) {
                 <BadgeStatus status={detalhe.status_assinatura} />
                 {detalhe.status_relatorio && <BadgeStatus status={detalhe.status_relatorio} />}
                 {detalhe.possui_pendencia && (
-                  <span className="chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25" title="Checklist sem foto ou atividade pendente">
+                  <span className="chip bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-600/25" title="Atividade pendente no relatório">
                     Pendente
                   </span>
                 )}
@@ -668,7 +668,7 @@ export default function HomePartesDiariasView({ sessao }) {
               <div className="rounded-xl border border-omega-100 bg-omega-50/50 px-3 py-2 sm:col-span-2">
                 <dt className="text-[11px] font-bold uppercase tracking-wider text-omega-500">Módulos do relatório</dt>
                 <dd className="mt-1 text-xs font-semibold text-omega-700">
-                  Mão de obra ({detalhe._count.mao_obra ?? 0}) • Equipamentos ({detalhe._count.equipamentos ?? 0}) • Atividades ({detalhe._count.atividades ?? 0}) • Ocorrências ({detalhe._count.ocorrencias ?? 0}) • Checklist ({detalhe._count.checklist ?? 0}) • Comentários ({detalhe._count.comentarios ?? 0}) • Fotos ({detalhe._count.fotos ?? 0}) • Assinaturas ({detalhe._count.assinaturas ?? 0})
+                  Mão de obra ({detalhe._count.mao_obra ?? 0}) • Equipamentos ({detalhe._count.equipamentos ?? 0}) • Atividades ({detalhe._count.atividades ?? 0}) • Ocorrências ({detalhe._count.ocorrencias ?? 0}) • Comentários ({detalhe._count.comentarios ?? 0}) • Fotos ({detalhe._count.fotos ?? 0}) • Assinaturas ({detalhe._count.assinaturas ?? 0})
                 </dd>
               </div>
             )}

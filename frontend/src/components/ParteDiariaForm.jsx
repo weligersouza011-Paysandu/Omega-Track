@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Trash2, ChevronDown, Clock, Users, Truck, ClipboardList,
-  AlertTriangle, ListChecks, Camera, PenLine, Save,
-  Upload, History, Eye, X, Loader2, CheckCircle2, Search, Check, Gauge, FileText,
+  AlertTriangle, Camera, PenLine, Save,
+  Upload, History, Eye, X, Loader2, CheckCircle2, Search, Check, Gauge, FileText, Building2,
 } from 'lucide-react';
 import Modal from './Modal.jsx';
 import BadgeStatus from './BadgeStatus.jsx';
@@ -53,6 +53,46 @@ const STATUS_OPERACIONAL_DIA = [
   'Interdição',
   'Não Operado',
 ];
+const ROTULOS_STATUS_OPERACIONAL = {
+  'Não Operado': 'Não Operado / Folga',
+};
+// Cores idênticas às da Matriz Calendário.
+const CORES_STATUS_OPERACIONAL = {
+  'Operação': 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50',
+  'Manutenção Preventiva': 'bg-amber-500/20 text-amber-300 border-amber-500/50',
+  'Manutenção Corretiva': 'bg-red-500/20 text-red-300 border-red-500/50',
+  'Interdição': 'bg-orange-500/20 text-orange-300 border-orange-500/50',
+  'Indisponibilidade': 'bg-purple-500/20 text-purple-300 border-purple-500/50',
+  'Não Operado': 'bg-slate-500/20 text-slate-300 border-slate-500/50',
+  'Folga': 'bg-slate-500/20 text-slate-300 border-slate-500/50',
+};
+const HORARIOS_PADRAO_JORNADA = {
+  horario_entrada: '07:00',
+  horario_saida: '17:00',
+  intervalo_entrada: '12:00',
+  intervalo_saida: '13:00',
+};
+// Segunda a quinta: jornada padrão 07:00–17:00, intervalo 12:00–13:00.
+function horariosPadraoDaData(iso) {
+  if (!iso) return null;
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const dia = d.getDay();
+  return dia >= 1 && dia <= 4 ? HORARIOS_PADRAO_JORNADA : null;
+}
+function aplicarHorariosPadraoJornada(form) {
+  const padrao = horariosPadraoDaData(form?.data);
+  if (!padrao) return form;
+  let alterou = false;
+  const proximo = { ...form };
+  for (const [campo, valor] of Object.entries(padrao)) {
+    if (!String(proximo[campo] ?? '').trim()) {
+      proximo[campo] = valor;
+      alterou = true;
+    }
+  }
+  return alterou ? proximo : form;
+}
 // Segregação do formulário (Fase Sênior 3): operação completa, preventiva
 // enxuta (obra + veículo + KM) e parada super enxuta (obra + data + veículo).
 function modoDoStatus(status) {
@@ -70,23 +110,6 @@ const COR_STATUS_ATIV = {
   'Concluído': 'bg-green-100 text-green-700 ring-green-600/20',
 };
 
-// Checklists fixos do relatório (não removíveis, sem + Adicionar).
-const CHECKLIST_FIXOS = [
-  'Check-List de Prevenção de Fadiga',
-  'Inspeção de pré-uso de veículos',
-];
-
-function checklistInicial(itens) {
-  const base = Array.isArray(itens) ? itens : [];
-  return CHECKLIST_FIXOS.map((nome) => {
-    const ex = base.find((c) => c && String(c.item || '') === nome);
-    return {
-      item: nome,
-      foto_url: ex?.foto_url || '',
-      foto_public_id: ex?.foto_public_id || '',
-    };
-  });
-}
 const STATUS_EQUIP = ['Operacional', 'Standby', 'Manutenção'];
 
 const DIAS_PT = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
@@ -116,9 +139,9 @@ function formatarDataHora(valor) {
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function estadoVazio(usuario) {
-  return {
-    data: hojeISO(),
+function estadoVazio(usuario, data = hojeISO()) {
+  return aplicarHorariosPadraoJornada({
+    data,
     numero_contrato: '4800001236',
     obra: '',
     obra_id: '',
@@ -146,9 +169,8 @@ function estadoVazio(usuario) {
     equipamentos: [],
     atividades: [],
     ocorrencias: [],
-    checklist: checklistInicial(),
     fotos: [],
-  };
+  });
 }
 
 function Secao({ icone: Icone, titulo, count, aberto, onToggle, onAdicionar, labelAdicionar, temErro, children }) {
@@ -397,7 +419,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       return;
     }
     setErroData(null);
-    definir('data', iso);
+    sujoRef.current = true;
+    setForm((f) => aplicarHorariosPadraoJornada({ ...f, data: iso }));
   };
 
   // KM Inicial manual invalida o selo de herança (valor passa a ser do operador).
@@ -470,8 +493,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       setParteId(null);
       // Pre-preenchimento do lancamento retroativo (auditoria de pendencias):
       // data do dia pendente + veiculo correspondente ja no 1º equipamento.
-      const base = estadoVazio(usuario);
-      if (prefill?.data) base.data = paraInputData(prefill.data);
+      const dataBase = prefill?.data ? paraInputData(prefill.data) : hojeISO();
+      const base = estadoVazio(usuario, dataBase);
       if (prefill?.tag) {
         const tag = String(prefill.tag).trim().toUpperCase();
         const veiculo = (veiculos || []).find((v) => String(v?.tag || '').toUpperCase() === tag);
@@ -542,7 +565,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             status: 'Operacional',
           });
         }
-        setForm({
+        setForm(aplicarHorariosPadraoJornada({
           data: paraInputData(p.data),
           numero_contrato: p.numero_contrato || '',
           obra: p.obra || '',
@@ -570,9 +593,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             tipo: i.tipo === 'Ambiental' ? 'Meio Ambiente' : (TIPOS_OCORRENCIA.includes(i.tipo) ? i.tipo : 'Operacional'),
             descricao: i.descricao || '',
           })),
-          checklist: checklistInicial(p.checklist),
           fotos: (p.fotos || []).map((i) => ({ url: i.url, legenda: i.legenda || '', public_id: i.public_id || '' })),
-        });
+        }));
         // Registro carregado traz a própria KM (não é herança).
         setKmHerdada(false);
         setKmOrigem(null);
@@ -657,7 +679,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       // Blocos simplificados: só trafegam os campos exibidos (sem duplicados/legados)
       atividades: (f.atividades || []).map((a) => ({ descricao: a.descricao, status: a.status })),
       ocorrencias: ocorrenciasPayload,
-      checklist: f.checklist,
       fotos: f.fotos,
     };
   }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada, statusTravado]);
@@ -1075,80 +1096,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     }
   };
 
-  // ------- foto de comprovação do checklist (fixo) -------
-  const [uploadingCheck, setUploadingCheck] = useState(null);
-  // Preview local imediato (object URL) enquanto sobe para a nuvem.
-  const [previasCheck, setPreviasCheck] = useState({});
-  const TIPOS_FOTO_OK = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-  const MAX_FOTO_BYTES = 5 * 1024 * 1024; // 5 MB (igual ao backend)
-
-  const descartarPreviaCheck = (idx) => {
-    setPreviasCheck((m) => {
-      if (m[idx]) URL.revokeObjectURL(m[idx]);
-      const resto = { ...m };
-      delete resto[idx];
-      return resto;
-    });
-  };
-
-  const enviarFotoChecklist = async (idx, arquivo) => {
-    if (!arquivo) return;
-    if (arquivo.size > MAX_FOTO_BYTES) {
-      setErro('Foto muito grande (máximo 5 MB). Use resolução menor ou escolha outra imagem.');
-      return;
-    }
-    if (arquivo.type && !TIPOS_FOTO_OK.includes(arquivo.type)) {
-      setErro('Tipo de arquivo inválido. Envie JPEG, PNG, WEBP ou HEIC.');
-      return;
-    }
-    const previa = URL.createObjectURL(arquivo);
-    setPreviasCheck((m) => {
-      if (m[idx]) URL.revokeObjectURL(m[idx]);
-      return { ...m, [idx]: previa };
-    });
-    setUploadingCheck(idx);
-    setErro(null);
-    try {
-      const fd = new FormData();
-      fd.append('arquivo', arquivo);
-      const resp = await fetch('/api/upload?pasta=partes-diarias', { method: 'POST', body: fd });
-      const corpo = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(corpo.message || `Falha no upload (${resp.status})`);
-      if (!corpo.data?.url) throw new Error('Upload sem URL de retorno. Tente novamente.');
-      sujoRef.current = true;
-      setForm((f) => ({
-        ...f,
-        checklist: (f.checklist || []).map((it, i) => (i === idx
-          ? { ...it, foto_url: corpo.data.url, foto_public_id: corpo.data.public_id || '' }
-          : it)),
-      }));
-      descartarPreviaCheck(idx);
-    } catch (e) {
-      descartarPreviaCheck(idx);
-      setErro(e.message || 'Falha ao enviar foto do checklist.');
-    } finally {
-      setUploadingCheck(null);
-    }
-  };
-
-  const removerFotoChecklist = async (idx) => {
-    const alvo = form.checklist[idx];
-    sujoRef.current = true;
-    setForm((f) => ({
-      ...f,
-      checklist: (f.checklist || []).map((it, i) => (i === idx
-        ? { ...it, foto_url: '', foto_public_id: '' }
-        : it)),
-    }));
-    if (alvo?.foto_public_id) {
-      fetch('/api/upload', {
-        method: 'DELETE',
-        headers: authHeaders(sessao),
-        body: JSON.stringify({ public_id: alvo.foto_public_id }),
-      }).catch(() => { });
-    }
-  };
-
   // ------- assinaturas (3 etapas) — modal de dupla opção -------
   const [modalAssin, setModalAssin] = useState(null); // { etapa, rotulo } | null
   const [assinando, setAssinando] = useState(false);
@@ -1327,6 +1274,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const btnIcone = 'p-1.5 rounded-md hover:bg-red-50 text-omega-400 hover:text-status-vermelho transition-colors';
   // Modo de segregação do formulário (recalculado a cada render).
   const modo = modoDoStatus(form.status_operacional);
+  const corStatusOperacional = CORES_STATUS_OPERACIONAL[form.status_operacional] || '';
 
   return (
     <>
@@ -1423,18 +1371,18 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                     id="campo-status-operacional"
                     value={form.status_operacional || ''}
                     onChange={(e) => definirStatusOperacional(e.target.value)}
-                    className={`${inputCls} ${
+                    className={`${inputCls} font-bold transition-colors ${corStatusOperacional} ${
                       errosValidacao.status_operacional || !STATUS_OPERACIONAL_DIA.includes(form.status_operacional)
-                        ? '!border-red-500 ring-2 ring-red-500/50 bg-red-50/40 animate-pulse'
+                        ? '!border-red-500 ring-2 ring-red-500/50 !bg-red-50/60 !text-red-700 animate-pulse'
                         : ''
-                    } ${statusTravado ? 'bg-omega-50 text-omega-500 cursor-not-allowed' : ''}`}
+                    } ${statusTravado ? 'opacity-100 cursor-not-allowed' : ''}`}
                     required
                     disabled={statusTravado}
                     title={statusTravado ? 'Fixado em Operação para o seu perfil' : 'Situação operacional da frente de serviço no dia'}
                   >
                     {!statusTravado && <option value="">Selecionar status...</option>}
                     {(statusTravado ? ['Operação'] : STATUS_OPERACIONAL_DIA).map((s) => (
-                      <option key={s} value={s}>{s}</option>
+                      <option key={s} value={s}>{ROTULOS_STATUS_OPERACIONAL[s] || s}</option>
                     ))}
                   </select>
                   {statusTravado && (
@@ -1456,8 +1404,15 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 </div>
                 {modo === 'operacao' && (
                 <>
-                <div>
-                  <label className="label">Obra <span className="text-status-vermelho">*</span></label>
+                <div className={`rounded-xl border-2 p-2.5 shadow-sm transition-colors ${
+                  errosValidacao.obra
+                    ? 'border-red-400 bg-red-50/40 shadow-red-500/10'
+                    : 'border-sky-500/60 bg-sky-50/60 shadow-sky-500/10'
+                }`}>
+                  <label className="label !font-extrabold !text-sky-800 flex items-center gap-1.5">
+                    <Building2 size={13} className="shrink-0" />
+                    Obra <span className="text-status-vermelho">*</span>
+                  </label>
                   <select
                     id="campo-obra"
                     value={form.obra_id || (form.obra ? '__legado__' : '')}
@@ -1465,10 +1420,10 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                       limparErroCampo('obra');
                       selecionarObra(e.target.value);
                     }}
-                    className={`${inputCls} ${
+                    className={`${inputCls} !bg-white/90 font-semibold ${
                       errosValidacao.obra
                         ? '!border-red-500 ring-2 ring-red-500/50 bg-red-50/40 animate-pulse'
-                        : ''
+                        : '!border-sky-500/60 focus:ring-sky-500/20'
                     }`}
                     title="Obras ativas do cadastro — preenche contrato, contratante, gestão e planejador"
                   >
@@ -1785,63 +1740,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               ))}
             </Secao>
             </>
-            )}
-
-            {/* Checklist (só operação) */}
-            {modo === 'operacao' && (
-            <div className="card overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-3">
-                <span className="p-1.5 rounded-lg bg-omega-900 text-white shrink-0">
-                  <ListChecks size={14} />
-                </span>
-                <span className="text-sm font-bold text-omega-900 truncate">Checklist</span>
-                <span className="chip bg-omega-100 text-omega-700 shrink-0">({form.checklist.length})</span>
-              </div>
-              <div className="px-4 pb-4 pt-1 border-t border-omega-100 space-y-3">
-                {form.checklist.map((it, i) => {
-                  const previa = previasCheck[i];
-                  const concluida = !!it.foto_url;
-                  const anexada = concluida || !!previa;
-                  const srcComprovacao = previa || it.foto_url;
-                  const enviando = uploadingCheck === i;
-                  return (
-                    <div key={it.item} className="flex flex-col md:flex-row md:items-center gap-2 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
-                      <div className="flex-1 min-w-0 text-sm font-bold text-omega-900">{it.item}</div>
-                      <span className={`chip shrink-0 ${concluida ? 'bg-green-50 text-status-verde ring-1 ring-inset ring-green-600/20' : 'bg-amber-50 text-status-amarelo ring-1 ring-inset ring-amber-600/20'}`}>
-                        {concluida ? 'Anexado • Concluído' : enviando ? 'Enviando...' : 'Pendente'}
-                      </span>
-                      {anexada && (
-                        <a href={it.foto_url || previa} target="_blank" rel="noreferrer" title="Abrir comprovação" className="shrink-0 block w-14 h-14 rounded-lg overflow-hidden border border-omega-200 bg-omega-100">
-                          <img src={srcComprovacao} alt={`Comprovação — ${it.item}`} className="w-full h-full object-cover hover:scale-105 transition-transform" loading="lazy" />
-                        </a>
-                      )}
-                      <div className="flex md:flex-col gap-1 shrink-0">
-                        <label
-                          htmlFor={`check-foto-${i}`}
-                          className={`btn-secondary !py-1.5 !px-2.5 text-xs whitespace-nowrap cursor-pointer ${enviando ? 'opacity-50 pointer-events-none' : ''}`}
-                          title="Anexar foto / tirar foto"
-                        >
-                          {enviando ? <><Loader2 size={13} className="animate-spin" /> Enviando...</> : <><Camera size={13} /> {anexada ? 'Substituir' : 'Anexar Foto / Tirar Foto'}</>}
-                        </label>
-                        <input
-                          id={`check-foto-${i}`}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          disabled={enviando}
-                          onChange={(e) => { enviarFotoChecklist(i, e.target.files?.[0]); e.target.value = ''; }}
-                        />
-                        {anexada && (
-                          <button onClick={() => removerFotoChecklist(i)} className="btn-secondary !py-1.5 !px-2.5 text-xs whitespace-nowrap" title="Remover foto">
-                            <X size={13} /> Remover
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
             )}
 
             {modo === 'operacao' && (

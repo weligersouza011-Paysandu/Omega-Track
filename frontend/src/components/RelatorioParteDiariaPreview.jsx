@@ -25,8 +25,6 @@
  *   Quilometragem ..... km_inicial, km_final
  *   Atividades ........ atividades[] { descricao, status }
  *   Ocorrências ....... ocorrencias[] { tipo, descricao }
- *   Checklist ......... checklist[] { item, foto_url } (2 itens fixos do
- *                       formulário; situação = foto anexada ou pendente)
  *   Fotos ............. fotos[] { url, legenda }
  *   Assinaturas ....... assinaturas[] { etapa, nome, matricula,
  *                       assinatura_dado|assinatura_url, assinado_em }
@@ -274,7 +272,6 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
     equipamentos  = [],
     atividades    = [],
     ocorrencias   = [],
-    checklist     = [],
     fotos         = [],
     assinaturas   = [],
   } = relatorio;
@@ -798,63 +795,6 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                     </tr>
                   ))
               }
-            </tbody>
-          </table>
-
-          {/* ── Checklist (estrito: itens reais + foto de comprovação) ────
-              O formulário NÃO tem perguntas Sim/Não: cada item fixo tem
-              apenas situação (foto anexada = concluído) + foto. */}
-          <table style={{ ...TAB, ...OUTER }}>
-            <colgroup>
-              <col style={{ width: '72%' }} />
-              <col style={{ width: '28%' }} />
-            </colgroup>
-            <tbody>
-              <SectionHeader title="Checklist" count={checklist.length} />
-              {checklist.length === 0
-                ? <EmptyRow cols={2} text="Nenhum item de checklist." />
-                : checklist.map((c, i) => {
-                    const anexada = !!c.foto_url;
-                    return (
-                      <tr key={c.item || i} style={{ background: i % 2 === 0 ? '#fff' : '#fafcff' }}>
-                        <TdCell style={{ lineHeight: 1.55, whiteSpace: 'normal', width: '72%' }}>
-                          {c.item || '—'}
-                        </TdCell>
-                        <TdCell style={{
-                          width: '28%', textAlign: 'right', fontWeight: 700, fontSize: 11,
-                          whiteSpace: 'nowrap',
-                          color: anexada ? '#166534' : '#92400e',
-                          background: anexada ? '#dcfce7' : '#fef3c7',
-                        }}>
-                          {anexada ? 'Anexado • Concluído' : 'Pendente'}
-                        </TdCell>
-                      </tr>
-                    );
-                  })
-              }
-              {checklist.some((c) => c.foto_url) && (
-                <tr>
-                  <TdCell colSpan={2} style={{ textAlign: 'center', padding: '4px 8px' }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center', boxSizing: 'border-box' }}>
-                      {checklist.filter((c) => c.foto_url).map((c, i) => (
-                        <div key={i} style={{ textAlign: 'center', boxSizing: 'border-box' }}>
-                          <img
-                            src={c.foto_url}
-                            alt={`Comprovação — ${c.item}`}
-                            style={{
-                              width: 210, height: 158, objectFit: 'cover',
-                              borderRadius: 4, border: '1px solid #cbd5e1', display: 'block',
-                            }}
-                          />
-                          <div style={{ fontSize: 10, color: '#0f172a', marginTop: 3, maxWidth: 210 }}>
-                            {c.item}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </TdCell>
-                </tr>
-              )}
             </tbody>
           </table>
 

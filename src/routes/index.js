@@ -26,7 +26,7 @@ router.get('/', (req, res) => {
       documentacao: '/api/documentacao-veiculos',
       documentacao_farol: '/api/documentacao-veiculos/farol',
       obras: '/api/obras (GET aberto; POST/PUT/DELETE restritos a Gestao/Transporte ou ADM Master)',
-      partes_diarias: '/api/partes-diarias (POST/PUT aceitam formulario completo: cabecalho, horarios, mao_obra, equipamentos, atividades, ocorrencias, checklist, comentarios, fotos)',
+      partes_diarias: '/api/partes-diarias (POST/PUT aceitam formulario completo: cabecalho, horarios, mao_obra, equipamentos, atividades, ocorrencias, comentarios, fotos)',
       parte_assinaturas: 'POST /api/partes-diarias/:id/assinaturas { etapa: OPERADOR|TRANSPORTE|PLANEJADOR, nome }',
       parte_fotos: "POST /api/partes-diarias/:id/fotos (campo `arquivo` + legenda)",
       parte_logs: 'GET /api/partes-diarias/:id/logs',
