@@ -66,7 +66,8 @@ export default function PerfilView({ sessao }) {
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo.message || `Falha (${resp.status})`);
 
-      const usuarioAtualizado = { ...usuario, assinatura_url: corpo.data.assinatura_url };
+      const urlSalva = corpo.data?.assinatura_url || corpo.data?.usuario?.assinatura_url || null;
+      const usuarioAtualizado = { ...usuario, assinatura_url: urlSalva, assinatura_padrao: urlSalva };
       setUsuario(usuarioAtualizado);
       if (sessao) {
         sessao.usuario = usuarioAtualizado;
@@ -97,7 +98,7 @@ export default function PerfilView({ sessao }) {
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo.message || `Falha (${resp.status})`);
 
-      const usuarioAtualizado = { ...usuario, assinatura_url: null };
+      const usuarioAtualizado = { ...usuario, assinatura_url: null, assinatura_padrao: null };
       setUsuario(usuarioAtualizado);
       if (sessao) {
         sessao.usuario = usuarioAtualizado;
@@ -181,12 +182,12 @@ export default function PerfilView({ sessao }) {
           </div>
         )}
 
-        {usuario.assinatura_url ? (
+        {(usuario.assinatura_padrao || usuario.assinatura_url) ? (
           <div className="space-y-3">
             <div className="rounded-xl border border-omega-200 bg-omega-50/50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="bg-white rounded-lg p-2.5 border border-omega-200/80 shadow-sm inline-block max-w-[260px]">
                 <img
-                  src={usuario.assinatura_url}
+                  src={usuario.assinatura_padrao || usuario.assinatura_url}
                   alt={`Assinatura de ${usuario.nome}`}
                   className="max-h-20 w-auto object-contain mx-auto"
                 />

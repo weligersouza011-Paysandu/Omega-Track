@@ -104,9 +104,12 @@ function somarMes(ym, delta) {
 
 function corAderencia(v) {
   if (v === null || v === undefined) return '#475569';
-  if (v >= 0.8) return '#10B981';
-  if (v >= 0.5) return '#F59E0B';
-  return '#EF4444';
+  const pct = Math.round(Math.max(0, Math.min(1, v)) * 1000) / 10;
+  if (pct >= 100) return '#3B82F6';  // Azul — 100,0%
+  if (pct >= 99)  return '#10B981';  // Verde — 99,0–99,9%
+  if (pct >= 90)  return '#F59E0B';  // Amarelo — 90,0–98,9%
+  if (pct >= 85)  return '#D97706';  // Laranja — 85,0–89,9%
+  return '#EF4444';                  // Vermelho — < 85,0%
 }
 
 function secaoParaStatusOpcao(secao) {
@@ -195,7 +198,7 @@ function GaugeAderencia({ valor }) {
       </svg>
       <div className="-mt-3 text-center">
         <div className="text-4xl font-extrabold tabular-nums tracking-tight text-white">
-          {temValor ? (e * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+          {temValor ? `${(e * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '—'}
         </div>
         <div className="mt-1 text-[11px] font-bold uppercase tracking-widest text-slate-400">Aderência do Mês</div>
         <div className="mt-0.5 text-[10px] text-slate-500">Operação ÷ (Operação + Desvios)</div>

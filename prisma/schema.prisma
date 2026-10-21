@@ -378,17 +378,18 @@ enum TipoUsuario {
 }
 
 model Usuario {
-  id             String        @id @default(uuid()) @db.Uuid
-  nome           String        @db.VarChar(255)
-  matricula      String        @unique @db.VarChar(50)
-  contrato       String?       @db.VarChar(100)
-  funcao         String?       @db.VarChar(100)
-  tipo           TipoUsuario   @default(OPERACIONAL)
-  setor          SetorUsuario?
-  nivel          NivelUsuario?
-  senha_hash     String?       @db.Text
-  assinatura_url String?       @db.Text
-  created_at     DateTime      @default(now()) @db.Timestamp(6)
+  id                String        @id @default(uuid()) @db.Uuid
+  nome              String        @db.VarChar(255)
+  matricula         String        @unique @db.VarChar(50)
+  contrato          String?       @db.VarChar(100)
+  funcao            String?       @db.VarChar(100)
+  tipo              TipoUsuario   @default(OPERACIONAL)
+  setor             SetorUsuario?
+  nivel             NivelUsuario?
+  senha_hash        String?       @db.Text
+  assinatura_url    String?       @db.Text
+  assinatura_padrao String?       @db.Text
+  created_at        DateTime      @default(now()) @db.Timestamp(6)
 
   logs_atividade LogAtividade[]
 

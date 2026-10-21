@@ -8,6 +8,8 @@ import {
   criarAdmin,
   criarLoteOperacionais,
   atualizarUsuario,
+  obterMinhaAssinatura,
+  salvarMinhaAssinatura,
   salvarAssinaturaUsuario,
   alterarNivel,
   excluirUsuario,
@@ -16,10 +18,12 @@ import {
   restaurarVeiculo,
   restaurarParteDiaria,
 } from '../controllers/usuariosController.js';
-import { requerAdmin, requerMaster } from '../middleware/sessao.js';
+import { requerAdmin, requerMaster, requerSessao } from '../middleware/sessao.js';
 
 const router = Router();
 
+router.get('/minha-assinatura', requerSessao, obterMinhaAssinatura);
+router.put('/minha-assinatura', requerSessao, salvarMinhaAssinatura);
 router.get('/', listarUsuarios);
 // Historico global de atividades (admin) e lixeira (somente Master).
 router.get('/logs', requerAdmin, listarLogsAtividade);

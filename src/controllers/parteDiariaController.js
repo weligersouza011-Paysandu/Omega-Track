@@ -1,7 +1,7 @@
 import prisma from '../config/database.js';
 import config from '../config/index.js';
 import { asyncHandler } from '../middleware/error.js';
-import { sessaoOperacional } from '../middleware/sessao.js';
+import { atuanteDaRequisicao, lerSessao, sessaoOperacional } from '../middleware/sessao.js';
 import { parseKm, obterUltimaKmFinal } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
@@ -10,7 +10,7 @@ import { registrarLogAtividade } from '../services/auditService.js';
 // Parte Diaria (Veiculos Leves) — modelo Omega Service
 // Formulario completo: cabecalho/metadata, horarios, modulos dinamicos
 // (mao de obra, equipamentos, atividades, ocorrencias,
-// comentarios, fotos), assinaturas em 3 etapas e auditoria.
+// comentarios, fotos), assinaturas por etapa e auditoria.
 // ============================================================================
 
 const ETAPAS_ASSINATURA = ['OPERADOR', 'TRANSPORTE', 'PLANEJADOR'];
@@ -32,8 +32,30 @@ export const STATUS_APROVACAO_VALIDOS = [
   'Aprovado',
 ];
 
-export function calcularStatusAprovacao(assinaturas = []) {
+function normalizarModeloVeiculo(modelo) {
+  return String(modelo || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+}
+
+function veiculoEhOnibus(veiculoOuModelo) {
+  const modelo = typeof veiculoOuModelo === 'string'
+    ? veiculoOuModelo
+    : veiculoOuModelo?.modelo;
+  return normalizarModeloVeiculo(modelo) === 'ONIBUS';
+}
+
+export function calcularStatusAprovacao(assinaturas = [], opcoes = {}) {
   const etapas = new Set((assinaturas || []).map((a) => String(a.etapa || '').toUpperCase()));
+  const ehOnibus = opcoes.ehOnibus === true || veiculoEhOnibus(opcoes.veiculo || opcoes.modelo);
+  // Ônibus: o Transporte é a etapa final; o Planejamento não participa.
+  if (ehOnibus) {
+    if (etapas.has('TRANSPORTE')) return 'Aprovado';
+    if (etapas.has('OPERADOR')) return 'Finalizado pelo Operador';
+    return 'Em Preenchimento';
+  }
   if (etapas.has('PLANEJADOR')) return 'Aprovado';
   if (etapas.has('TRANSPORTE')) return 'Revisado pelo Transporte';
   if (etapas.has('OPERADOR')) return 'Finalizado pelo Operador';
@@ -136,6 +158,19 @@ function autorDaRequisicao(req, corpo = {}) {
     req.headers['x-acting-nome'] ||
     null
   );
+}
+
+async function ehMasterAutenticado(req) {
+  const sessao = lerSessao(req);
+  if (sessao?.sub) {
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: sessao.sub },
+      select: { tipo: true, nivel: true },
+    });
+    return usuario?.tipo === 'ADMINISTRADOR' && usuario?.nivel === 'MASTER';
+  }
+  const atuante = await atuanteDaRequisicao(req);
+  return atuante?.nivel === 'MASTER';
 }
 
 function calcularAderencia(obra, obra_programada) {
@@ -557,9 +592,10 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
     });
   }
   // O TAG referencia a frota (mob_desmob): falha aqui indica veículo fora do cadastro
+  let veiculoFrota;
   try {
-    const veiculoExiste = await prisma.mobDesmob.findFirst({ where: { tag: tagFinal, deletado_em: null } });
-    if (!veiculoExiste) {
+    veiculoFrota = await prisma.mobDesmob.findFirst({ where: { tag: tagFinal, deletado_em: null } });
+    if (!veiculoFrota) {
       return res.status(400).json({
         error: 'Veiculo invalido',
         message: `TAG "${tagFinal}" não encontrada na frota. Selecione um veículo do cadastro em Equipamentos.`,
@@ -605,6 +641,9 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   const autor = autorDaRequisicao(req, req.body);
 
   const dataRef = data ? new Date(data) : new Date();
+  if (Number.isNaN(dataRef.getTime())) {
+    return res.status(400).json({ error: 'Data invalida', message: 'Informe uma data válida para a parte diária.' });
+  }
   const filhos = normalizarFilhos(req.body);
   // IMPORTANTE: o POST e SEMPRE aditivo — cria um registro novo e NUNCA
   // substitui/mescla Partes Diarias existentes (outro status, outro tipo de
@@ -612,6 +651,31 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   // (Operacao, Preventiva, Corretiva, Indisponibilidade, Interdicao,
   // Nao Operado) coexiste de forma independente na listagem.
   const diaRef = new Date(Date.UTC(dataRef.getUTCFullYear(), dataRef.getUTCMonth(), dataRef.getUTCDate()));
+
+  // Limite diário por veículo: Ônibus permite 2 registros; os demais, 1.
+  // O MASTER pode ultrapassar o limite para ajustes operacionais.
+  const onibus = veiculoEhOnibus(veiculoFrota);
+  const limiteDiario = onibus ? 2 : 1;
+  const partesNoDia = await prisma.parteDiaria.count({
+    where: { tag: tagFinal, data: diaRef, deletado_em: null },
+  });
+  if (partesNoDia >= limiteDiario) {
+    if (!(await ehMasterAutenticado(req))) {
+      const dataFormatada = diaRef.toISOString().slice(0, 10).split('-').reverse().join('/');
+      return res.status(400).json({
+        error: 'Limite diario atingido',
+        code: 'LIMITE_DIARIO_PARTE',
+        message: onibus
+          ? `Este ônibus já possui ${partesNoDia} partes diárias em ${dataFormatada}. O limite é de 2 por dia.`
+          : `Este veículo já possui uma parte diária em ${dataFormatada}. O limite é de 1 por dia.`,
+        tag: tagFinal,
+        data: diaRef.toISOString().slice(0, 10),
+        modelo: veiculoFrota.modelo || null,
+        limite: limiteDiario,
+        existentes: partesNoDia,
+      });
+    }
+  }
 
   // Vinculo com o cadastro de Obras (dropdown da Parte Diaria).
   let obraIdFinal = null;
@@ -1424,7 +1488,10 @@ export const assinarEtapa = asyncHandler(async (req, res) => {
 
   const existe = await prisma.parteDiaria.findFirst({
     where: { id, deletado_em: null, veiculo: { deletado_em: null } },
-    include: { assinaturas: true },
+    include: {
+      assinaturas: true,
+      veiculo: { select: { modelo: true } },
+    },
   });
   if (!existe) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
@@ -1453,7 +1520,7 @@ export const assinarEtapa = asyncHandler(async (req, res) => {
   });
 
   const todasAssinaturas = await prisma.parteDiariaAssinatura.findMany({ where: { parte_id: id } });
-  const statusAprovacao = calcularStatusAprovacao(todasAssinaturas);
+  const statusAprovacao = calcularStatusAprovacao(todasAssinaturas, { veiculo: existe.veiculo });
   const fluxo = statusAprovacaoParaRelatorio(statusAprovacao);
 
   await prisma.parteDiaria.update({
@@ -1488,13 +1555,14 @@ export const removerAssinatura = asyncHandler(async (req, res) => {
   }
   const existe = await prisma.parteDiaria.findFirst({
     where: { id, deletado_em: null, veiculo: { deletado_em: null } },
+    include: { veiculo: { select: { modelo: true } } },
   });
   if (!existe) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
   }
   await prisma.parteDiariaAssinatura.deleteMany({ where: { parte_id: id, etapa: etapaNorm } });
   const restantes = await prisma.parteDiariaAssinatura.findMany({ where: { parte_id: id } });
-  const statusAprovacao = calcularStatusAprovacao(restantes);
+  const statusAprovacao = calcularStatusAprovacao(restantes, { veiculo: existe.veiculo });
   const fluxo = statusAprovacaoParaRelatorio(statusAprovacao);
 
   await prisma.parteDiaria.update({

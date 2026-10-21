@@ -28,11 +28,26 @@ const STATUS_RELATORIO = [
 ];
 
 // Mapeia status_relatorio → aprovacao key
-function resolverStatusAprovacao(statusRelatorio, assinaturas = []) {
+function normalizarModeloVeiculo(modelo) {
+  return String(modelo || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+}
+
+function resolverStatusAprovacao(statusRelatorio, assinaturas = [], ehOnibus = false) {
   const temOp = assinaturas.some((a) => String(a.etapa).toUpperCase() === 'OPERADOR');
   const temTr = assinaturas.some((a) => String(a.etapa).toUpperCase() === 'TRANSPORTE');
   const temPl = assinaturas.some((a) => String(a.etapa).toUpperCase() === 'PLANEJADOR');
-  if (temPl || statusRelatorio === 'APROVADO') return 'APROVADO';
+  if (statusRelatorio === 'APROVADO') return 'APROVADO';
+  // Ônibus: o Transporte é a etapa final e o Planejamento não participa.
+  if (ehOnibus) {
+    if (temTr) return 'APROVADO';
+    if (temOp) return 'FINALIZADO_OPERADOR';
+    return 'EM_PREENCHIMENTO';
+  }
+  if (temPl) return 'APROVADO';
   if (temTr) return 'REVISADO_TRANSPORTE';
   if (temOp) return 'FINALIZADO_OPERADOR';
   return 'EM_PREENCHIMENTO';
@@ -44,6 +59,7 @@ const ETAPAS = [
   { valor: 'TRANSPORTE', rotulo: 'Transporte' },
   { valor: 'PLANEJADOR', rotulo: 'Planejador' },
 ];
+const ETAPAS_ONIBUS = ETAPAS.filter((etapa) => etapa.valor !== 'PLANEJADOR');
 // Status Operacional do Dia (cabeçalho — campo obrigatório)
 const STATUS_OPERACIONAL_DIA = [
   'Operação',
@@ -352,6 +368,29 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const timerRef = useRef(null);
   const fileRef = useRef(null);
 
+  const tagPrincipal = useMemo(() => {
+    const lista = (form.equipamentos || [])
+      .map((e) => String(e.tag_patrimonio || '').trim().toUpperCase())
+      .filter(Boolean);
+    return lista[0] || '';
+  }, [form.equipamentos]);
+
+  const veiculoPrincipal = useMemo(() => {
+    const norm = (v) => String(v || '').trim().toUpperCase();
+    const equipamento = (form.equipamentos || []).find((e) => String(e.tag_patrimonio || '').trim());
+    const ficha = (veiculos || []).find((v) => norm(v?.tag) === norm(tagPrincipal));
+    return {
+      ...ficha,
+      modelo: ficha?.modelo || equipamento?.descricao || '',
+    };
+  }, [form.equipamentos, tagPrincipal, veiculos]);
+
+  const ehOnibus = useMemo(
+    () => normalizarModeloVeiculo(veiculoPrincipal?.modelo) === 'ONIBUS',
+    [veiculoPrincipal],
+  );
+  const etapasAssinatura = ehOnibus ? ETAPAS_ONIBUS : ETAPAS;
+
   const alternarSecao = (k) => setSecoes((s) => ({ ...s, [k]: !s[k] }));
 
   const limparErroCampo = useCallback((campo) => {
@@ -642,9 +681,11 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     const ocorrenciasPayload = modoPayload === 'parada' && motivoTrim
       ? [{ tipo: 'Operacional', descricao: motivoTrim }]
       : (f.ocorrencias || []).map((o) => ({ tipo: o.tipo, descricao: o.descricao }));
-    // Status de aprovação derivado das assinaturas presentes (espelha o backend)
+    // Status de aprovação derivado das assinaturas presentes (espelha o backend).
+    // Em ônibus o Transporte é a etapa final; nos demais, o Planejamento.
     const etapasAssin = new Set((listaAssin || []).map((a) => String(a.etapa || '').toUpperCase()));
-    const statusAprovacao = etapasAssin.has('PLANEJADOR')
+    const aprovado = ehOnibus ? etapasAssin.has('TRANSPORTE') : etapasAssin.has('PLANEJADOR');
+    const statusAprovacao = aprovado
       ? 'Aprovado'
       : etapasAssin.has('TRANSPORTE')
         ? 'Revisado pelo Transporte'
@@ -680,7 +721,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       ocorrencias: ocorrenciasPayload,
       fotos: f.fotos,
     };
-  }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada, statusTravado]);
+  }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada, statusTravado, ehOnibus]);
 
   const aplicarResposta = useCallback((p) => {
     if (!p) return;
@@ -799,7 +840,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     else setAutosave('salvando');
     try {
       const payload = montarPayload(f);
-      console.log("Payload enviado:", payload);
       const url = parteId ? `/api/partes-diarias/${parteId}` : '/api/partes-diarias';
       const resp = await fetch(url, {
         method: parteId ? 'PUT' : 'POST',
@@ -886,14 +926,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     if (ehDoLogado) return funcaoDoLogado;
     return '';
   };
-
-  // Veículo principal = 1º equipamento (TAG do relatório).
-  const tagPrincipal = useMemo(() => {
-    const lista = (form.equipamentos || [])
-      .map((e) => String(e.tag_patrimonio || '').trim().toUpperCase())
-      .filter(Boolean);
-    return lista[0] || '';
-  }, [form.equipamentos]);
 
   // Diagnóstico da preventiva (conveniência — nunca bloqueia o formulário).
   const consultarManutencao = useCallback(async (tag, kmFinal) => {
@@ -1106,12 +1138,20 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   // relatório salvo. Sem trava de papel e sem exigir salvamento prévio.
   // Quando ainda não há parteId, a assinatura fica em estado local e é
   // sincronizada com o backend no momento do salvamento (solicitarEnvio).
-  const statusRelatorioParaEtapa = (etapa) => (
-    String(etapa).toUpperCase() === 'PLANEJADOR' ? 'APROVADO' : 'REVISAO'
-  );
+  const statusRelatorioParaEtapa = (etapa, listaAtual = assinaturas) => {
+    const etapas = new Set((listaAtual || []).map((a) => String(a.etapa || '').toUpperCase()));
+    etapas.add(String(etapa || '').toUpperCase());
+    if (ehOnibus) return etapas.has('TRANSPORTE') ? 'APROVADO' : 'REVISAO';
+    return etapas.has('PLANEJADOR') ? 'APROVADO' : 'REVISAO';
+  };
 
   const statusRelatorioAposRemocao = (restantes) => {
     const etapas = new Set((restantes || []).map((a) => String(a.etapa || '').toUpperCase()));
+    if (ehOnibus) {
+      if (etapas.has('TRANSPORTE')) return 'APROVADO';
+      if (etapas.has('OPERADOR')) return 'REVISAO';
+      return 'PREENCHENDO';
+    }
     if (etapas.has('PLANEJADOR')) return 'APROVADO';
     if (etapas.has('TRANSPORTE') || etapas.has('OPERADOR')) return 'REVISAO';
     return 'PREENCHENDO';
@@ -1155,19 +1195,22 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     setAssinando(true);
     setErro(null);
     try {
-      // 1. Se modo canvas + salvar no perfil → salva assinatura no perfil primeiro
-      if (modo === 'canvas' && dataUrl && salvarNoPerfil) {
-        try {
-          await fetch('/api/login/assinatura', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessao?.token}` },
-            body: JSON.stringify({ assinatura_base64: dataUrl }),
-          });
-        } catch { /* não bloqueia */ }
+      // 1. Desenho ou foto + salvar no perfil → persiste a assinatura padrão primeiro
+      if ((modo === 'canvas' || modo === 'foto') && dataUrl && salvarNoPerfil) {
+        const respPerfil = await fetch('/api/usuarios/minha-assinatura', {
+          method: 'PUT',
+          headers: authHeaders(sessao),
+          body: JSON.stringify({ assinatura_base64: dataUrl }),
+        });
+        const corpoPerfil = await respPerfil.json().catch(() => ({}));
+        if (!respPerfil.ok) {
+          throw new Error(corpoPerfil.message || `Falha ao salvar a assinatura no perfil (${respPerfil.status}).`);
+        }
       }
       // 2. Imagem + responsável da assinatura
       // Compat: backend lê `assinatura_dado`; mantemos `assinatura_url` como alias
-      const imagemFinal = modo === 'cadastrada' ? (usuario?.assinatura_url || null) : (dataUrl || null);
+      const imagemFinal = dataUrl
+        || (modo === 'cadastrada' ? (usuario?.assinatura_padrao || usuario?.assinatura_url || null) : null);
       const nomeFinal = String(nomesAssinatura[etapaNorm] || nomesAssinatura[etapa] || usuario?.nome || '').trim() || usuario?.nome || 'Usuário';
       const matriculaFinal = usuario?.matricula || null;
 
@@ -1200,7 +1243,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         matricula: matriculaFinal || undefined,
         assinatura_dado: imagemFinal,
         assinatura_url: imagemFinal,
-        assinatura_base64: modo === 'canvas' ? (dataUrl || null) : undefined,
+        assinatura_base64: (modo === 'canvas' || modo === 'foto') ? (dataUrl || null) : undefined,
       };
       const resp = await fetch(`/api/partes-diarias/${parteId}/assinaturas`, {
         method: 'POST',
@@ -1258,8 +1301,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
 
   // Status de aprovação baseado nas assinaturas presentes
   const chaveAprovacao = useMemo(
-    () => resolverStatusAprovacao(form.status_relatorio, assinaturas),
-    [form.status_relatorio, assinaturas]
+    () => resolverStatusAprovacao(form.status_relatorio, assinaturas, ehOnibus),
+    [form.status_relatorio, assinaturas, ehOnibus]
   );
   const infoAprovacao = STATUS_APROVACAO[chaveAprovacao] || STATUS_APROVACAO.EM_PREENCHIMENTO;
 
@@ -1785,14 +1828,24 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 <div className="flex items-center gap-2">
                   <span className="p-1.5 rounded-lg bg-omega-900 text-white"><PenLine size={14} /></span>
                   <span className="text-sm font-bold text-omega-900">Assinaturas – Fluxo de Aprovação</span>
+                  {ehOnibus && (
+                    <span className="rounded-md bg-sky-100 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-sky-800 ring-1 ring-inset ring-sky-300">
+                      Ônibus • 2 etapas
+                    </span>
+                  )}
                 </div>
                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold ring-1 ring-inset ${infoAprovacao.cor.bg} ${infoAprovacao.cor.text} ${infoAprovacao.cor.ring}`}>
                   {infoAprovacao.rotulo}
                 </span>
               </div>
-              {/* Grid das 3 etapas */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {ETAPAS.map((et) => {
+              {ehOnibus && (
+                <p className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-semibold text-sky-800">
+                  Fluxo de ônibus: Operador + Transporte. A aprovação é automática após a assinatura do Transporte.
+                </p>
+              )}
+              {/* Grid das etapas: 2 para ônibus, 3 no fluxo padrão */}
+              <div className={`grid grid-cols-1 gap-3 ${etapasAssinatura.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
+                {etapasAssinatura.map((et) => {
                   const a = assinaturaDe(et.valor);
                   const COR_ETAPA_CARD = {
                     OPERADOR: { border: 'border-amber-200', bg: 'bg-amber-50/60', badge: 'bg-amber-50 text-amber-800 ring-amber-300', dot: 'bg-amber-400', btnCls: 'bg-amber-500 hover:bg-amber-600 text-white' },
@@ -1865,8 +1918,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               {assinaturas.length > 0 && (
                 <div className="border-t border-omega-100 pt-3">
                   <div className="text-[10px] font-extrabold uppercase tracking-wider text-omega-400 mb-2">Comprovante de Assinaturas</div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {ETAPAS.map((et) => {
+                  <div className={`grid gap-2 ${etapasAssinatura.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                    {etapasAssinatura.map((et) => {
                       const a = assinaturaDe(et.valor);
                       const COR_RODAPE = {
                         OPERADOR: 'border-amber-200 bg-amber-50/40',
@@ -2128,6 +2181,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         rotuloEtapa={modalAssin?.rotulo || ''}
         usuario={usuario}
         salvando={assinando}
+        erro={erro}
       />
 
       {/* Preview do relatório (exportação PDF/HTML) */}

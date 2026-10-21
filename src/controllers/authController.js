@@ -10,7 +10,8 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { verificarSenha, hashSenha } from '../utils/senha.js';
-import { assinarSessao, requerAdmin } from '../middleware/sessao.js';
+import { assinarSessao, requerAdmin, requerSessao } from '../middleware/sessao.js';
+import { respostaAssinatura, salvarAssinaturaPadrao } from '../services/assinaturaService.js';
 
 function semSenha(u) {
   if (!u) return u;
@@ -107,35 +108,13 @@ export const trocarSenha = [
 ];
 
 export const salvarMinhaAssinatura = [
-  requerAdmin,
+  requerSessao,
   asyncHandler(async (req, res) => {
-    const { assinatura_base64, assinatura_url, remover } = req.body || {};
-    let urlFinal = assinatura_url;
-
-    if (remover) {
-      urlFinal = null;
-    } else if (assinatura_base64) {
-      const { uploadAssinaturaBase64 } = await import('../config/cloudinary.js');
-      urlFinal = await uploadAssinaturaBase64(assinatura_base64, req.atuante.matricula);
-    } else if (assinatura_url) {
-      const { validarUrlMidia } = await import('../config/cloudinary.js');
-      validarUrlMidia(assinatura_url, 'assinatura_url');
-    } else {
-      return res.status(400).json({
-        error: 'Dado ausente',
-        message: 'Envie `assinatura_base64` ou `assinatura_url`.',
-      });
-    }
-
-    const atualizado = await prisma.usuario.update({
-      where: { id: req.atuante.id },
-      data: { assinatura_url: urlFinal },
-    });
-
+    const atualizado = await salvarAssinaturaPadrao(req.atuante, req.body || {});
     res.json({
       data: {
         usuario: semSenha(atualizado),
-        assinatura_url: urlFinal,
+        ...respostaAssinatura(atualizado),
       },
     });
   }),

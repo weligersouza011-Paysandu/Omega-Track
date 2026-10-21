@@ -54,6 +54,29 @@ export async function atuanteDaRequisicao(req) {
   });
 }
 
+// Sessão autenticada de qualquer perfil (admin ou operacional). O fallback
+// `x-acting-matricula` continua disponível para o modo demo administrativo.
+export async function requerSessao(req, res, next) {
+  const sessao = lerSessao(req);
+  let usuario = null;
+
+  if (sessao?.sub) {
+    usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+  }
+  if (!usuario) {
+    usuario = await atuanteDaRequisicao(req);
+  }
+  if (!usuario) {
+    return res.status(401).json({
+      error: 'Nao autenticado',
+      message: 'Sessao ausente ou invalida. Faca login.',
+    });
+  }
+
+  req.atuante = usuario;
+  next();
+}
+
 export async function requerAdmin(req, res, next) {
   const atuante = await atuanteDaRequisicao(req);
   if (!atuante) {

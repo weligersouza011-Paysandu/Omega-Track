@@ -10,6 +10,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { hashSenha } from '../utils/senha.js';
 import { atuanteDaRequisicao } from '../middleware/sessao.js';
 import { registrarLogAtividade } from '../services/auditService.js';
+import { respostaAssinatura, salvarAssinaturaPadrao } from '../services/assinaturaService.js';
 
 const SETORES = ['MEIO_AMBIENTE', 'TRANSPORTE', 'GESTAO'];
 const NIVEIS = ['MASTER', 'NORMAL'];
@@ -179,16 +180,19 @@ export const atualizarUsuario = asyncHandler(async (req, res) => {
   }
   if (remover_assinatura) {
     data.assinatura_url = null;
+    data.assinatura_padrao = null;
   } else if (assinatura_base64) {
     const { uploadAssinaturaBase64 } = await import('../config/cloudinary.js');
     const u = await prisma.usuario.findUnique({ where: { id }, select: { matricula: true } });
     data.assinatura_url = await uploadAssinaturaBase64(assinatura_base64, u?.matricula || id);
+    data.assinatura_padrao = data.assinatura_url;
   } else if (assinatura_url !== undefined) {
     if (assinatura_url) {
       const { validarUrlMidia } = await import('../config/cloudinary.js');
       validarUrlMidia(assinatura_url, 'assinatura_url');
     }
     data.assinatura_url = assinatura_url || null;
+    data.assinatura_padrao = data.assinatura_url;
   }
   const atualizado = await prisma.usuario.update({ where: { id }, data });
   await registrarLogAtividade(req, {
@@ -203,6 +207,33 @@ export const atualizarUsuario = asyncHandler(async (req, res) => {
     },
   });
   res.json({ data: semSenha(atualizado) });
+});
+
+export const obterMinhaAssinatura = asyncHandler(async (req, res) => {
+  const usuario = await prisma.usuario.findUnique({
+    where: { id: req.atuante.id },
+    select: {
+      id: true,
+      nome: true,
+      matricula: true,
+      assinatura_padrao: true,
+      assinatura_url: true,
+    },
+  });
+  if (!usuario) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Usuario nao encontrado.' });
+  }
+  res.json({ data: { ...respostaAssinatura(usuario), usuario } });
+});
+
+export const salvarMinhaAssinatura = asyncHandler(async (req, res) => {
+  const atualizado = await salvarAssinaturaPadrao(req.atuante, req.body || {});
+  res.json({
+    data: {
+      usuario: semSenha(atualizado),
+      ...respostaAssinatura(atualizado),
+    },
+  });
 });
 
 export const salvarAssinaturaUsuario = asyncHandler(async (req, res) => {
@@ -232,7 +263,10 @@ export const salvarAssinaturaUsuario = asyncHandler(async (req, res) => {
 
   const atualizado = await prisma.usuario.update({
     where: { id },
-    data: { assinatura_url: urlFinal },
+    data: {
+      assinatura_url: urlFinal,
+      assinatura_padrao: urlFinal,
+    },
   });
   res.json({ data: semSenha(atualizado) });
 });
