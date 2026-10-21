@@ -9,9 +9,16 @@ import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { hashSenha } from '../utils/senha.js';
 import { atuanteDaRequisicao } from '../middleware/sessao.js';
+import { registrarLogAtividade } from '../services/auditService.js';
 
 const SETORES = ['MEIO_AMBIENTE', 'TRANSPORTE', 'GESTAO'];
 const NIVEIS = ['MASTER', 'NORMAL'];
+const DIAS_RECUPERACAO = 5;
+const JANELA_RECUPERACAO_MS = DIAS_RECUPERACAO * 24 * 60 * 60 * 1000;
+
+function foraDaJanelaDeRecuperacao(data) {
+  return !data || (Date.now() - new Date(data).getTime()) > JANELA_RECUPERACAO_MS;
+}
 
 function semSenha(u) {
   if (!u) return u;
@@ -96,6 +103,11 @@ export const criarAdmin = asyncHandler(async (req, res) => {
       senha_hash: hashSenha(senha),
     },
   });
+  await registrarLogAtividade(req, {
+    acao: 'CRIAR_USUARIO',
+    modulo: 'Usuarios',
+    detalhes: { id: criado.id, nome: criado.nome, matricula: criado.matricula, setor: criado.setor, nivel: criado.nivel },
+  });
   res.status(201).json({ data: semSenha(criado) });
 });
 
@@ -133,6 +145,11 @@ export const criarLoteOperacionais = asyncHandler(async (req, res) => {
     const r = await prisma.usuario.createMany({ data: paraCriar, skipDuplicates: true });
     criados = r.count;
   }
+  await registrarLogAtividade(req, {
+    acao: 'CRIAR_USUARIOS_LOTE',
+    modulo: 'Usuarios',
+    detalhes: { criados, ignorados: ignorados.length, total_recebido: lista.length },
+  });
   res.status(201).json({ data: { criados, ignorados } });
 });
 
@@ -174,6 +191,17 @@ export const atualizarUsuario = asyncHandler(async (req, res) => {
     data.assinatura_url = assinatura_url || null;
   }
   const atualizado = await prisma.usuario.update({ where: { id }, data });
+  await registrarLogAtividade(req, {
+    acao: 'EDITAR_USUARIO',
+    modulo: 'Usuarios',
+    detalhes: {
+      id: atualizado.id,
+      nome: atualizado.nome,
+      matricula: atualizado.matricula,
+      campos: Object.keys(data).filter((k) => k !== 'senha_hash'),
+      senha_alterada: Boolean(data.senha_hash),
+    },
+  });
   res.json({ data: semSenha(atualizado) });
 });
 
@@ -222,6 +250,11 @@ export const alterarNivel = asyncHandler(async (req, res) => {
     where: { id: req.params.id },
     data: { nivel: nivelNorm },
   });
+  await registrarLogAtividade(req, {
+    acao: 'ALTERAR_NIVEL_USUARIO',
+    modulo: 'Usuarios',
+    detalhes: { id: atualizado.id, nome: atualizado.nome, matricula: atualizado.matricula, nivel: atualizado.nivel },
+  });
   res.json({ data: semSenha(atualizado) });
 });
 
@@ -237,6 +270,177 @@ export const excluirUsuario = asyncHandler(async (req, res) => {
   if (alvo.tipo === 'ADMINISTRADOR' && alvo.nivel === 'MASTER' && atuante.nivel !== 'MASTER') {
     return res.status(403).json({ error: 'Sem permissao', message: 'Apenas ADM Master pode excluir uma conta Master.' });
   }
+  await registrarLogAtividade(req, {
+    acao: 'EXCLUIR_USUARIO',
+    modulo: 'Usuarios',
+    detalhes: { id: alvo.id, nome: alvo.nome, matricula: alvo.matricula, tipo: alvo.tipo, nivel: alvo.nivel },
+  });
   await prisma.usuario.delete({ where: { id: alvo.id } });
   res.status(204).send();
+});
+
+export const listarLogsAtividade = asyncHandler(async (req, res) => {
+  const {
+    usuario_id,
+    usuario,
+    q,
+    modulo,
+    acao,
+    data_inicio,
+    data_fim,
+    page = 1,
+    limit = 50,
+  } = req.query;
+  const pagina = Math.max(1, Number(page) || 1);
+  const tamanho = Math.min(200, Math.max(1, Number(limit) || 50));
+  const where = {};
+
+  if (usuario_id) where.usuario_id = String(usuario_id);
+  if (modulo) where.modulo = String(modulo);
+  if (acao) where.acao = String(acao).toUpperCase();
+  if (data_inicio || data_fim) {
+    where.created_at = {};
+    if (data_inicio) {
+      const inicio = new Date(data_inicio);
+      if (Number.isNaN(inicio.getTime())) {
+        return res.status(400).json({ error: 'Data invalida', message: '`data_inicio` invalida.' });
+      }
+      where.created_at.gte = inicio;
+    }
+    if (data_fim) {
+      const fim = new Date(data_fim);
+      if (Number.isNaN(fim.getTime())) {
+        return res.status(400).json({ error: 'Data invalida', message: '`data_fim` invalida.' });
+      }
+      fim.setUTCHours(23, 59, 59, 999);
+      where.created_at.lte = fim;
+    }
+  }
+  const termo = strOuNull(q) || strOuNull(usuario);
+  if (termo) {
+    where.OR = [
+      { nome_usuario: { contains: termo, mode: 'insensitive' } },
+      { funcao_usuario: { contains: termo, mode: 'insensitive' } },
+      { acao: { contains: termo, mode: 'insensitive' } },
+      { modulo: { contains: termo, mode: 'insensitive' } },
+    ];
+  }
+
+  const [logs, total] = await Promise.all([
+    prisma.logAtividade.findMany({
+      where,
+      skip: (pagina - 1) * tamanho,
+      take: tamanho,
+      orderBy: { created_at: 'desc' },
+    }),
+    prisma.logAtividade.count({ where }),
+  ]);
+
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.json({
+    data: logs,
+    pagination: {
+      page: pagina,
+      limit: tamanho,
+      total,
+      pages: Math.ceil(total / tamanho),
+    },
+  });
+});
+
+export const listarLixeira = asyncHandler(async (req, res) => {
+  const desde = new Date(Date.now() - JANELA_RECUPERACAO_MS);
+  const [veiculos, partes] = await Promise.all([
+    prisma.mobDesmob.findMany({
+      where: { deletado_em: { gte: desde } },
+      orderBy: { deletado_em: 'desc' },
+      select: {
+        tag: true,
+        placa: true,
+        modelo: true,
+        contrato: true,
+        status: true,
+        deletado_em: true,
+        deletado_por: true,
+      },
+    }),
+    prisma.parteDiaria.findMany({
+      where: { deletado_em: { gte: desde } },
+      orderBy: { deletado_em: 'desc' },
+      select: {
+        id: true,
+        tag: true,
+        data: true,
+        numero_relatorio: true,
+        status_operacional: true,
+        deletado_em: true,
+        deletado_por: true,
+        veiculo: { select: { placa: true, modelo: true, deletado_em: true } },
+      },
+    }),
+  ]);
+
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.json({
+    data: { veiculos, partes },
+    retention_days: DIAS_RECUPERACAO,
+    expira_em: new Date(Date.now() + JANELA_RECUPERACAO_MS).toISOString(),
+  });
+});
+
+export const restaurarVeiculo = asyncHandler(async (req, res) => {
+  const { tag } = req.params;
+  const veiculo = await prisma.mobDesmob.findUnique({ where: { tag } });
+  if (!veiculo || !veiculo.deletado_em) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao esta na lixeira.' });
+  }
+  if (foraDaJanelaDeRecuperacao(veiculo.deletado_em)) {
+    return res.status(410).json({
+      error: 'Prazo expirado',
+      message: `O prazo de ${DIAS_RECUPERACAO} dias para restauracao expirou.`,
+    });
+  }
+
+  const restaurado = await prisma.mobDesmob.update({
+    where: { tag },
+    data: { deletado_em: null, deletado_por: null },
+  });
+  await registrarLogAtividade(req, {
+    acao: 'RESTAURAR_VEICULO',
+    modulo: 'Frota',
+    detalhes: { tag: restaurado.tag, placa: restaurado.placa, deletado_em: veiculo.deletado_em },
+  });
+  res.json({ data: restaurado });
+});
+
+export const restaurarParteDiaria = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const parte = await prisma.parteDiaria.findUnique({ where: { id } });
+  if (!parte || !parte.deletado_em) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao esta na lixeira.' });
+  }
+  if (foraDaJanelaDeRecuperacao(parte.deletado_em)) {
+    return res.status(410).json({
+      error: 'Prazo expirado',
+      message: `O prazo de ${DIAS_RECUPERACAO} dias para restauracao expirou.`,
+    });
+  }
+  const veiculo = await prisma.mobDesmob.findUnique({ where: { tag: parte.tag } });
+  if (!veiculo || veiculo.deletado_em) {
+    return res.status(409).json({
+      error: 'Veiculo excluido',
+      message: 'Restaure o veiculo antes de recuperar esta parte diaria.',
+    });
+  }
+
+  const restaurada = await prisma.parteDiaria.update({
+    where: { id },
+    data: { deletado_em: null, deletado_por: null },
+  });
+  await registrarLogAtividade(req, {
+    acao: 'RESTAURAR_PARTE_DIARIA',
+    modulo: 'ParteDiaria',
+    detalhes: { id: restaurada.id, tag: restaurada.tag, data: restaurada.data, deletado_em: parte.deletado_em },
+  });
+  res.json({ data: restaurada });
 });

@@ -24,11 +24,16 @@ model MobDesmob {
   km_limite_preventiva Int  @default(10000)
   km_ultima_preventiva Int?
 
+  // === Soft delete (recuperação por 5 dias) ===
+  deletado_em  DateTime? @db.Timestamp(6)
+  deletado_por String?   @db.VarChar(255)
+
   documentacoes  DocumentacaoVeiculo[]
   partes_diarias ParteDiaria[]
 
   @@index([placa])
   @@index([status])
+  @@index([deletado_em])
   @@map("mob_desmob")
 }
 
@@ -68,43 +73,46 @@ model ParteDiaria {
   created_at        DateTime @default(now()) @db.Timestamp(6)
 
   // === Parte Diaria (Veiculos Leves) — modelo Omega Service ===
-  numero_relatorio  String?  @db.VarChar(50)
-  dia_semana        String?  @db.VarChar(20)
-  numero_contrato   String?  @db.VarChar(50)
-  endereco_obra     String?  @db.Text
-  contratante       String?  @db.VarChar(255)
-  responsavel       String?  @db.VarChar(255)
-  prazo_contratual  Int?
-  prazo_decorrido   Int?
-  prazo_a_vencer    Int?
-  horario_entrada   String?  @db.VarChar(5)
-  horario_saida     String?  @db.VarChar(5)
-  intervalo_entrada String?  @db.VarChar(5)
-  intervalo_saida   String?  @db.VarChar(5)
+  numero_relatorio   String?   @db.VarChar(50)
+  dia_semana         String?   @db.VarChar(20)
+  numero_contrato    String?   @db.VarChar(50)
+  endereco_obra      String?   @db.Text
+  contratante        String?   @db.VarChar(255)
+  responsavel        String?   @db.VarChar(255)
+  prazo_contratual   Int?
+  prazo_decorrido    Int?
+  prazo_a_vencer     Int?
+  horario_entrada    String?   @db.VarChar(5)
+  horario_saida      String?   @db.VarChar(5)
+  intervalo_entrada  String?   @db.VarChar(5)
+  intervalo_saida    String?   @db.VarChar(5)
   // Fluxo: PREENCHENDO | REVISAO | APROVADO (legado)
-  status_relatorio    String   @default("PREENCHENDO") @db.VarChar(20)
+  status_relatorio   String    @default("PREENCHENDO") @db.VarChar(20)
   // Status Operacional: Operação | Manutenção Corretiva | Manutenção Preventiva | Indisponibilidade | Interdição
-  status_operacional  String   @default("Operação") @db.VarChar(50)
+  status_operacional String    @default("Operação") @db.VarChar(50)
   // Fluxo de Aprovação: Em Preenchimento | Finalizado pelo Operador | Revisado pelo Transporte | Aprovado
-  status_aprovacao    String   @default("Em Preenchimento") @db.VarChar(50)
+  status_aprovacao   String    @default("Em Preenchimento") @db.VarChar(50)
   // Pendência geral: checklist sem foto ou atividade com status Pendente
-  possui_pendencia    Boolean  @default(false)
-  turno               String?  @db.VarChar(20)
-  km_inicial          String?  @db.VarChar(50)
-  km_final            String?  @db.VarChar(50)
-  criado_por          String?  @db.VarChar(255)
-  atualizado_por      String?  @db.VarChar(255)
+  possui_pendencia   Boolean   @default(false)
+  turno              String?   @db.VarChar(20)
+  km_inicial         String?   @db.VarChar(50)
+  km_final           String?   @db.VarChar(50)
+  criado_por         String?   @db.VarChar(255)
+  atualizado_por     String?   @db.VarChar(255)
   // Observacao curta do apontamento rapido (Matriz Calendario).
-  observacao_rapida   String?  @db.Text
-  visualizacoes       Int      @default(0)
-  updated_at          DateTime @default(now()) @updatedAt @db.Timestamp(6)
+  observacao_rapida  String?   @db.Text
+  visualizacoes      Int       @default(0)
+  updated_at         DateTime  @default(now()) @updatedAt @db.Timestamp(6)
+  // Soft delete (recuperacao por 5 dias).
+  deletado_em        DateTime? @db.Timestamp(6)
+  deletado_por       String?   @db.VarChar(255)
 
   // === Vinculacao com o cadastro de Obras ===
-  obra_id             String?  @db.Uuid
-  planejador          String?  @db.VarChar(255)
+  obra_id    String? @db.Uuid
+  planejador String? @db.VarChar(255)
 
-  veiculo MobDesmob @relation(fields: [tag], references: [tag], onDelete: Restrict)
-  obra_ref Obra?   @relation(fields: [obra_id], references: [id], onDelete: SetNull)
+  veiculo  MobDesmob @relation(fields: [tag], references: [tag], onDelete: Restrict)
+  obra_ref Obra?     @relation(fields: [obra_id], references: [id], onDelete: SetNull)
 
   mao_obra     ParteDiariaMaoObra[]
   equipamentos ParteDiariaEquipamento[]
@@ -126,6 +134,7 @@ model ParteDiaria {
   @@index([status_relatorio])
   @@index([status_operacional])
   @@index([status_aprovacao])
+  @@index([deletado_em])
   @@map("partes_diarias")
 }
 
@@ -337,7 +346,7 @@ model ParametroPreventiva {
   @@map("parametros_preventiva")
 }
 
-enum SetorUsuario {  MEIO_AMBIENTE
+enum SetorUsuario {
   TRANSPORTE
   GESTAO
 }
@@ -353,18 +362,44 @@ enum TipoUsuario {
 }
 
 model Usuario {
-  id         String        @id @default(uuid()) @db.Uuid
-  nome       String        @db.VarChar(255)
-  matricula  String        @unique @db.VarChar(50)
-  contrato   String?       @db.VarChar(100)
-  funcao     String?       @db.VarChar(100)
-  tipo       TipoUsuario   @default(OPERACIONAL)
-  setor      SetorUsuario?
-  nivel      NivelUsuario?
+  id             String        @id @default(uuid()) @db.Uuid
+  nome           String        @db.VarChar(255)
+  matricula      String        @unique @db.VarChar(50)
+  contrato       String?       @db.VarChar(100)
+  funcao         String?       @db.VarChar(100)
+  tipo           TipoUsuario   @default(OPERACIONAL)
+  setor          SetorUsuario?
+  nivel          NivelUsuario?
   senha_hash     String?       @db.Text
   assinatura_url String?       @db.Text
   created_at     DateTime      @default(now()) @db.Timestamp(6)
 
+  logs_atividade LogAtividade[]
+
   @@index([tipo])
   @@map("usuarios")
+}
+
+// Trilha de auditoria global: quem fez o que, em qual modulo e quando.
+// nome_usuario/funcao_usuario sao snapshots para preservar o historico mesmo
+// se o usuario for excluido (usuario_id vira NULL via onDelete: SetNull).
+model LogAtividade {
+  id             String   @id @default(uuid()) @db.Uuid
+  usuario_id     String?  @db.Uuid
+  nome_usuario   String   @db.VarChar(255)
+  funcao_usuario String?  @db.VarChar(100)
+  acao           String   @db.VarChar(100)
+  modulo         String   @db.VarChar(100)
+  detalhes       Json?
+  ip_address     String?  @db.VarChar(100)
+  created_at     DateTime @default(now()) @db.Timestamp(6)
+
+  usuario Usuario? @relation(fields: [usuario_id], references: [id], onDelete: SetNull)
+
+  @@index([created_at])
+  @@index([usuario_id])
+  @@index([modulo])
+  @@index([acao])
+  @@index([modulo, acao])
+  @@map("logs_atividade")
 }

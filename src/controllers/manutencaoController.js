@@ -18,7 +18,7 @@ import {
 // ============================================================================
 export const projecaoFrota = asyncHandler(async (req, res) => {
   const veiculos = await prisma.mobDesmob.findMany({
-    where: { status: { not: 'Desmobilizado' } },
+    where: { status: { not: 'Desmobilizado' }, deletado_em: null },
     orderBy: { tag: 'asc' },
     select: { tag: true, placa: true, modelo: true, status: true, km_limite_preventiva: true, km_ultima_preventiva: true },
   });
@@ -55,7 +55,7 @@ export const projecaoFrota = asyncHandler(async (req, res) => {
     return { km_limite: 10000, origem_limite: 'padrao' };
   };
   const partes = await prisma.parteDiaria.findMany({
-    where: { tag: { in: [...tags, ...tagsUpper] }, data: { gte: desdeLeitura }, km_final: { not: null } },
+    where: { tag: { in: [...tags, ...tagsUpper] }, deletado_em: null, veiculo: { deletado_em: null }, data: { gte: desdeLeitura }, km_final: { not: null } },
     orderBy: [{ data: 'asc' }, { created_at: 'asc' }],
     select: { tag: true, data: true, km_final: true },
   });

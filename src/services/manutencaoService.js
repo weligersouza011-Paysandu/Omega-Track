@@ -24,6 +24,8 @@ export async function obterUltimaKmFinal(tagNormalizada, ignorarId = null) {
   const ultima = await prisma.parteDiaria.findFirst({
     where: {
       tag: tagNormalizada,
+      deletado_em: null,
+      veiculo: { deletado_em: null },
       ...(ignorarId ? { id: { not: String(ignorarId) } } : {}),
     },
     orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
@@ -71,7 +73,7 @@ export async function leiturasRecentes(tagNormalizada, dias = JANELA_MEDIA_DIAS)
   desde.setHours(0, 0, 0, 0);
   desde.setDate(desde.getDate() - (dias - 1));
   const partes = await prisma.parteDiaria.findMany({
-    where: { tag: tagNormalizada, data: { gte: desde }, km_final: { not: null } },
+    where: { tag: tagNormalizada, deletado_em: null, veiculo: { deletado_em: null }, data: { gte: desde }, km_final: { not: null } },
     orderBy: [{ data: 'asc' }, { created_at: 'asc' }],
     select: { data: true, km_final: true, created_at: true },
   });
@@ -131,7 +133,7 @@ export const STATUS_PREVENTIVA = 'Manutenção Preventiva';
 // Última Parte Diária de preventiva do veículo com km_final numérica.
 export async function obterUltimaPartePreventiva(tagNormalizada) {
   const partes = await prisma.parteDiaria.findMany({
-    where: { tag: tagNormalizada, status_operacional: STATUS_PREVENTIVA },
+    where: { tag: tagNormalizada, deletado_em: null, veiculo: { deletado_em: null }, status_operacional: STATUS_PREVENTIVA },
     orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
     take: 10,
     select: { id: true, data: true, km_final: true, numero_relatorio: true, created_at: true },
@@ -162,7 +164,7 @@ export async function resolverAncorasPreventiva(tagNormalizada, kmManualVeiculo 
 export async function mapaUltimasPreventivas(tagsNormalizadas) {
   if (!tagsNormalizadas.length) return new Map();
   const partes = await prisma.parteDiaria.findMany({
-    where: { tag: { in: tagsNormalizadas }, status_operacional: STATUS_PREVENTIVA },
+    where: { tag: { in: tagsNormalizadas }, deletado_em: null, veiculo: { deletado_em: null }, status_operacional: STATUS_PREVENTIVA },
     orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
     select: { tag: true, id: true, data: true, km_final: true, numero_relatorio: true },
   });

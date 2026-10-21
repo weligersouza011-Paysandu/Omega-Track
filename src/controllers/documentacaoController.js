@@ -27,8 +27,8 @@ export const listarDocumentacoes = asyncHandler(async (req, res) => {
   const where = {};
   if (tag) where.tag = tag;
   if (documento) where.documento = documento;
-  // Controle de vencimentos considera SOMENTE veiculos mobilizados.
-  where.veiculo = { status: 'Mobilizado' };
+  // Controle de vencimentos considera SOMENTE veiculos mobilizados e ativos.
+  where.veiculo = { status: 'Mobilizado', deletado_em: null };
 
   const docs = await prisma.documentacaoVeiculo.findMany({
     where,
@@ -67,8 +67,8 @@ export const farolVencimentos = asyncHandler(async (req, res) => {
 
   const where = {};
   if (tag) where.tag = tag;
-  // Farol considera SOMENTE veiculos mobilizados.
-  where.veiculo = { status: 'Mobilizado' };
+  // Farol considera SOMENTE veiculos mobilizados e ativos.
+  where.veiculo = { status: 'Mobilizado', deletado_em: null };
 
   const docs = await prisma.documentacaoVeiculo.findMany({
     where,
@@ -112,7 +112,7 @@ export const buscarDocumentacao = asyncHandler(async (req, res) => {
     include: { veiculo: true },
   });
 
-  if (!doc) {
+  if (!doc || doc.veiculo?.deletado_em) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Documentacao nao encontrada.' });
   }
 
@@ -131,6 +131,11 @@ export const criarDocumentacao = asyncHandler(async (req, res) => {
 
   // Regra de ouro: anexo_url aceita SOMENTE URL do Cloudinary (sem binario).
   validarUrlMidia(anexo_url, 'anexo_url');
+
+  const veiculoAtivo = await prisma.mobDesmob.findFirst({ where: { tag, deletado_em: null } });
+  if (!veiculoAtivo) {
+    return res.status(400).json({ error: 'Veiculo invalido', message: 'TAG nao encontrada na frota ativa.' });
+  }
 
   const doc = await prisma.documentacaoVeiculo.create({
     data: {

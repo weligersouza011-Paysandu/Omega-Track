@@ -272,6 +272,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   // Passo A: universo de veiculos + opcoes dos filtros (tabela completa).
   // ---------------------------------------------------------------------------
   const veiculosTodos = await comRetryConexao(() => prisma.mobDesmob.findMany({
+    where: { deletado_em: null },
     select: { tag: true, placa: true, modelo: true, contrato: true, status: true, data_mob: true, data_desmob: true },
     orderBy: { tag: 'asc' },
   }), 3, 700, 'eficiencia');
@@ -298,7 +299,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   const [partes, ignoradas] = await Promise.all([
     tags.length
       ? comRetryConexao(() => prisma.parteDiaria.findMany({
-        where: { tag: { in: tags }, data: { gte: inicioData, lte: fimData } },
+        where: { tag: { in: tags }, deletado_em: null, veiculo: { deletado_em: null }, data: { gte: inicioData, lte: fimData } },
         select: {
           tag: true,
           data: true,
@@ -584,6 +585,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
   const fimData = isoParaData(fim);
 
   const veiculosTodos = await comRetryConexao(() => prisma.mobDesmob.findMany({
+    where: { deletado_em: null },
     select: { tag: true, placa: true, modelo: true, contrato: true, status: true, data_mob: true, data_desmob: true },
     orderBy: { tag: 'asc' },
   }), 3, 700, 'eficiencia');
@@ -607,6 +609,8 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
     comRetryConexao(() => prisma.parteDiaria.findMany({
       where: {
         data: { gte: inicioData, lte: fimData },
+        deletado_em: null,
+        veiculo: { deletado_em: null },
         ...(filtroTag ? { tag: filtroTag } : {}),
       },
       select: { tag: true, data: true, status_operacional: true, observacao_rapida: true, updated_at: true },
@@ -801,7 +805,11 @@ function excelSerialParaDateBI(valor) {
 async function garantirTagBI(tag, tagsCriadas) {
   if (tagsCriadas.has(tag)) return;
   const existe = await prisma.mobDesmob.findUnique({ where: { tag } });
-  if (!existe) {
+  if (existe) {
+    tagsCriadas.add(tag);
+    return;
+  }
+  {
     const placaBase = `HIST-${tag}`.slice(0, 20);
     try {
       await prisma.mobDesmob.upsert({
@@ -911,7 +919,7 @@ export const importarHistorico = asyncHandler(async (req, res) => {
       const dataUTC = new Date(`${dataISO}T00:00:00.000Z`);
 
       const existente = await prisma.parteDiaria.findFirst({
-        where: { tag: tagRaw, data: dataUTC },
+        where: { tag: tagRaw, data: dataUTC, deletado_em: null },
         select: { id: true },
       });
 

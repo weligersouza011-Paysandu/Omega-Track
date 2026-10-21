@@ -188,7 +188,7 @@ export const listarPendencias = asyncHandler(async (req, res) => {
 
   // Passo A: frota ativa/mobilizada.
   const veiculos = await comRetryConexao(() => prisma.mobDesmob.findMany({
-    where: { status: { not: 'Desmobilizado' } },
+    where: { status: { not: 'Desmobilizado' }, deletado_em: null },
     select: { tag: true, placa: true, data_mob: true, data_desmob: true },
   }));
   const tagsFrota = veiculos.map((v) => v.tag);
@@ -198,7 +198,7 @@ export const listarPendencias = asyncHandler(async (req, res) => {
   const [partesJanela, ignoradas, overrides] = await Promise.all([
     comRetryConexao(() => (tagsFrota.length
       ? prisma.parteDiaria.findMany({
-        where: { tag: { in: tagsFrota }, data: { gte: inicioData, lte: fimData } },
+        where: { tag: { in: tagsFrota }, deletado_em: null, veiculo: { deletado_em: null }, data: { gte: inicioData, lte: fimData } },
         select: { tag: true, data: true, funcionario: true, operador: true, criado_por: true },
         orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
       })
@@ -251,6 +251,8 @@ export const listarPendencias = asyncHandler(async (req, res) => {
     const historico = await comRetryConexao(() => prisma.parteDiaria.findMany({
       where: {
         tag: { in: tagsOriginais },
+        deletado_em: null,
+        veiculo: { deletado_em: null },
         data: { gte: isoParaData(somarDiasISO(inicioISO, -HISTORICO_DIAS)), lt: inicioData },
       },
       select: { tag: true, data: true, funcionario: true, operador: true, criado_por: true },

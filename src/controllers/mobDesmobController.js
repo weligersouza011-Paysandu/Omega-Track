@@ -9,12 +9,15 @@ import {
   KM_LIMITE_PREVENTIVA_PADRAO,
 } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
+import { registrarLogAtividade } from '../services/auditService.js';
+
+const CINCO_DIAS_MS = 5 * 24 * 60 * 60 * 1000;
 
 export const listarVeiculos = asyncHandler(async (req, res) => {
   const { status, contrato, page = 1, limit = 50 } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
 
-  const where = {};
+  const where = { deletado_em: null };
   if (status) where.status = status;
   if (contrato) where.contrato = contrato;
 
@@ -46,11 +49,11 @@ export const listarVeiculos = asyncHandler(async (req, res) => {
 
 export const buscarVeiculoPorTag = asyncHandler(async (req, res) => {
   const { tag } = req.params;
-  const veiculo = await prisma.mobDesmob.findUnique({
-    where: { tag },
+  const veiculo = await prisma.mobDesmob.findFirst({
+    where: { tag, deletado_em: null },
     include: {
       documentacoes: { orderBy: { validade: 'asc' } },
-      partes_diarias: { take: 10, orderBy: { data: 'desc' } },
+      partes_diarias: { where: { deletado_em: null }, take: 10, orderBy: { data: 'desc' } },
     },
   });
 
@@ -63,11 +66,11 @@ export const buscarVeiculoPorTag = asyncHandler(async (req, res) => {
 
 export const buscarVeiculoPorPlaca = asyncHandler(async (req, res) => {
   const { placa } = req.params;
-  const veiculo = await prisma.mobDesmob.findUnique({
-    where: { placa: placa.toUpperCase() },
+  const veiculo = await prisma.mobDesmob.findFirst({
+    where: { placa: placa.toUpperCase(), deletado_em: null },
     include: {
       documentacoes: { orderBy: { validade: 'asc' } },
-      partes_diarias: { take: 10, orderBy: { data: 'desc' } },
+      partes_diarias: { where: { deletado_em: null }, take: 10, orderBy: { data: 'desc' } },
     },
   });
 
@@ -83,9 +86,9 @@ export const buscarStatusManutencao = asyncHandler(async (req, res) => {
   // Diagnóstico da preventiva. `km_atual` projeta a leitura (ex: KM Final
   // digitada no formulário); sem ele, usa a última KM Final registrada.
   const tagParam = String(req.params.tag || '').trim();
-  let veiculo = await prisma.mobDesmob.findUnique({ where: { tag: tagParam } });
+  let veiculo = await prisma.mobDesmob.findFirst({ where: { tag: tagParam, deletado_em: null } });
   if (!veiculo && tagParam) {
-    veiculo = await prisma.mobDesmob.findUnique({ where: { tag: tagParam.toUpperCase() } });
+    veiculo = await prisma.mobDesmob.findFirst({ where: { tag: tagParam.toUpperCase(), deletado_em: null } });
   }
   if (!veiculo) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
@@ -136,9 +139,9 @@ export const registrarPreventiva = asyncHandler(async (req, res) => {
   // Registra a preventiva realizada (zera o acumulado). Sem `km`, usa a
   // última KM Final do veículo.
   const tagParam = String(req.params.tag || '').trim();
-  let veiculo = await prisma.mobDesmob.findUnique({ where: { tag: tagParam } });
+  let veiculo = await prisma.mobDesmob.findFirst({ where: { tag: tagParam, deletado_em: null } });
   if (!veiculo && tagParam) {
-    veiculo = await prisma.mobDesmob.findUnique({ where: { tag: tagParam.toUpperCase() } });
+    veiculo = await prisma.mobDesmob.findFirst({ where: { tag: tagParam.toUpperCase(), deletado_em: null } });
   }
   if (!veiculo) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
@@ -157,6 +160,11 @@ export const registrarPreventiva = asyncHandler(async (req, res) => {
   const atualizado = await prisma.mobDesmob.update({
     where: { tag: veiculo.tag },
     data: { km_ultima_preventiva: Math.trunc(km) },
+  });
+  await registrarLogAtividade(req, {
+    acao: 'REGISTRAR_PREVENTIVA',
+    modulo: 'Frota',
+    detalhes: { tag: veiculo.tag, km: Math.trunc(km), km_anterior: veiculo.km_ultima_preventiva ?? null },
   });
   res.json({ data: atualizado });
 });
@@ -219,6 +227,12 @@ export const criarVeiculo = asyncHandler(async (req, res) => {
     },
   });
 
+  await registrarLogAtividade(req, {
+    acao: 'CRIAR_VEICULO',
+    modulo: 'Frota',
+    detalhes: { tag: veiculo.tag, placa: veiculo.placa, modelo: veiculo.modelo, contrato: veiculo.contrato, status: veiculo.status },
+  });
+
   res.status(201).json({ data: veiculo });
 });
 
@@ -228,6 +242,11 @@ export const atualizarVeiculo = asyncHandler(async (req, res) => {
 
   // Regra de ouro: foto_veiculo aceita SOMENTE URL do Cloudinary (sem binario).
   validarUrlMidia(foto_veiculo, 'foto_veiculo');
+
+  const anterior = await prisma.mobDesmob.findFirst({ where: { tag, deletado_em: null } });
+  if (!anterior) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
+  }
 
   const veiculo = await prisma.mobDesmob.update({
     where: { tag },
@@ -243,12 +262,58 @@ export const atualizarVeiculo = asyncHandler(async (req, res) => {
     },
   });
 
+  await registrarLogAtividade(req, {
+    acao: 'EDITAR_VEICULO',
+    modulo: 'Frota',
+    detalhes: {
+      tag: veiculo.tag,
+      antes: {
+        placa: anterior.placa,
+        status: anterior.status,
+        modelo: anterior.modelo,
+        contrato: anterior.contrato,
+        data_desmob: anterior.data_desmob,
+      },
+      depois: {
+        placa: veiculo.placa,
+        status: veiculo.status,
+        modelo: veiculo.modelo,
+        contrato: veiculo.contrato,
+        data_desmob: veiculo.data_desmob,
+      },
+    },
+  });
+
   res.json({ data: veiculo });
 });
 
 export const deletarVeiculo = asyncHandler(async (req, res) => {
   const { tag } = req.params;
-  await prisma.mobDesmob.delete({ where: { tag } });
+  const veiculo = await prisma.mobDesmob.findFirst({ where: { tag, deletado_em: null } });
+  if (!veiculo) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado ou ja excluido.' });
+  }
+
+  const deletadoPor = req.atuante?.nome || req.headers['x-acting-nome'] || 'Sistema';
+  const agora = new Date();
+  await prisma.mobDesmob.update({
+    where: { tag },
+    data: { deletado_em: agora, deletado_por: deletadoPor },
+  });
+
+  await registrarLogAtividade(req, {
+    acao: 'EXCLUIR_VEICULO',
+    modulo: 'Frota',
+    detalhes: {
+      tag: veiculo.tag,
+      placa: veiculo.placa,
+      modelo: veiculo.modelo,
+      contrato: veiculo.contrato,
+      deletado_em: agora.toISOString(),
+      recuperavel_ate: new Date(agora.getTime() + CINCO_DIAS_MS).toISOString(),
+    },
+  });
+
   res.status(204).send();
 });
 
@@ -267,7 +332,7 @@ export const desmobilizarVeiculo = asyncHandler(async (req, res) => {
   const { tag } = req.params;
   const { data_desmob, responsavel, observacao } = req.body || {};
 
-  const veiculo = await prisma.mobDesmob.findUnique({ where: { tag } });
+  const veiculo = await prisma.mobDesmob.findFirst({ where: { tag, deletado_em: null } });
   if (!veiculo) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
   }
@@ -296,6 +361,19 @@ export const desmobilizarVeiculo = asyncHandler(async (req, res) => {
       },
     }),
   ]);
+
+  await registrarLogAtividade(req, {
+    acao: 'DESMOBILIZAR_VEICULO',
+    modulo: 'Frota',
+    detalhes: {
+      tag: atualizado.tag,
+      data_desmob: atualizado.data_desmob,
+      responsavel: atualizado.responsavel_desmob,
+      observacao: atualizado.observacao_desmob,
+      documentos_apagados: purga.count,
+      anexos_apagados: anexosApagados,
+    },
+  });
 
   res.json({
     data: {
@@ -331,9 +409,18 @@ export const atualizarFotoVeiculo = (req, res, next) => {
           message: 'Envie a foto no campo `arquivo` (multipart/form-data).',
         });
       }
+      const ativo = await prisma.mobDesmob.findFirst({ where: { tag: req.params.tag, deletado_em: null } });
+      if (!ativo) {
+        return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
+      }
       const veiculo = await prisma.mobDesmob.update({
         where: { tag: req.params.tag },
         data: { foto_veiculo: req.file.path },
+      });
+      await registrarLogAtividade(req, {
+        acao: 'ATUALIZAR_FOTO_VEICULO',
+        modulo: 'Frota',
+        detalhes: { tag: veiculo.tag, foto_veiculo: veiculo.foto_veiculo },
       });
       return res.json({
         data: { tag: veiculo.tag, foto_veiculo: veiculo.foto_veiculo, public_id: req.file.filename },
@@ -348,8 +435,8 @@ export const vincularTelemetriaPorPlaca = asyncHandler(async (req, res) => {
   const { placa } = req.params;
   const telemetria = req.body;
 
-  const veiculo = await prisma.mobDesmob.findUnique({
-    where: { placa: placa.toUpperCase() },
+  const veiculo = await prisma.mobDesmob.findFirst({
+    where: { placa: placa.toUpperCase(), deletado_em: null },
     select: { tag: true, placa: true, status: true, modelo: true },
   });
 

@@ -47,7 +47,7 @@ export default function App() {
         <Route path="obras" element={<RestritoAdmin operacional={operacional}><ObrasView sessao={sessao} /></RestritoAdmin>} />
         <Route path="visao-geral" element={<RestritoAdmin operacional={operacional}><DashboardView /></RestritoAdmin>} />
         <Route path="executivo" element={<RestritoAdmin operacional={operacional}><DashboardExecutivoView /></RestritoAdmin>} />
-        <Route path="frota" element={<RestritoAdmin operacional={operacional}><MobDesmobView /></RestritoAdmin>} />
+        <Route path="frota" element={<RestritoAdmin operacional={operacional}><MobDesmobView sessao={sessao} /></RestritoAdmin>} />
         <Route path="preditiva" element={<RestritoAdmin operacional={operacional}><GestaoPreditivaView /></RestritoAdmin>} />
         <Route path="farol-documentos" element={<RestritoAdmin operacional={operacional}><FarolDocumentosView /></RestritoAdmin>} />
         <Route path="gestao-eficiencia" element={<RestritoAdmin operacional={operacional}><GestaoEficienciaView sessao={sessao} /></RestritoAdmin>} />

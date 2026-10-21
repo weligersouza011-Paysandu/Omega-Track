@@ -12,6 +12,7 @@ import {
   atualizarFotoVeiculo,
   vincularTelemetriaPorPlaca,
 } from '../controllers/mobDesmobController.js';
+import { requerAdmin, requerMaster } from '../middleware/sessao.js';
 
 const router = Router();
 
@@ -26,6 +27,6 @@ router.post('/', criarVeiculo);
 router.put('/:tag/desmobilizar', desmobilizarVeiculo);
 router.put('/:tag', atualizarVeiculo);
 router.post('/:tag/foto', atualizarFotoVeiculo);
-router.delete('/:tag', deletarVeiculo);
+router.delete('/:tag', requerAdmin, requerMaster, deletarVeiculo);
 
 export default router;

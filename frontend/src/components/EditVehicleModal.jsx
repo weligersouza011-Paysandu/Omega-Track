@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ImagePlus, Loader2 } from 'lucide-react';
 import Modal from './Modal.jsx';
 import CampoListaComCriador from './CampoListaComCriador.jsx';
+import { authHeaders } from '../utils/sessao.js';
 
 function paraInputDate(valor) {
   if (!valor) return '';
@@ -10,7 +11,7 @@ function paraInputDate(valor) {
   return d.toISOString().slice(0, 10);
 }
 
-export default function EditVehicleModal({ open, veiculo, contratos = [], modelos = [], onClose, onSaved }) {
+export default function EditVehicleModal({ open, veiculo, contratos = [], modelos = [], sessao, onClose, onSaved }) {
   const [form, setForm] = useState({ placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: '', data_desmob: '', km_limite_preventiva: '', km_ultima_preventiva: '' });
   const [arquivo, setArquivo] = useState(null);
   const [previewNova, setPreviewNova] = useState(null);
@@ -73,7 +74,7 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
         }
         const respDesmob = await fetch(`/api/mob-desmob/${encodeURIComponent(veiculo.tag)}/desmobilizar`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders(sessao),
           body: JSON.stringify({ data_desmob: form.data_desmob || null, observacao: null }),
         });
         if (!respDesmob.ok) {
@@ -97,7 +98,7 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
       };
       const resp = await fetch(`/api/mob-desmob/${encodeURIComponent(veiculo.tag)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(sessao),
         body: JSON.stringify(payload),
       });
       if (!resp.ok) {
@@ -110,8 +111,11 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
       if (arquivo) {
         const fd = new FormData();
         fd.append('arquivo', arquivo);
+        const headersFoto = authHeaders(sessao);
+        delete headersFoto['Content-Type'];
         const respFoto = await fetch(`/api/mob-desmob/${encodeURIComponent(veiculo.tag)}/foto`, {
           method: 'POST',
+          headers: headersFoto,
           body: fd,
         });
         if (!respFoto.ok) {

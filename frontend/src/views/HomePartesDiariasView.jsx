@@ -242,7 +242,7 @@ export default function HomePartesDiariasView({ sessao }) {
       }
       setPartes((anteriores) => anteriores.filter((p) => p.id !== excluir.id));
       setExcluir(null);
-      setToast('Parte Diária excluída com sucesso!');
+      setToast('Parte Diária movida para a lixeira. Recuperável por 5 dias em Usuários → Lixeira.');
       await fetchPartesDiarias();
     } catch (e) {
       setToast(`Falha ao excluir: ${e.message}`);
@@ -708,7 +708,8 @@ export default function HomePartesDiariasView({ sessao }) {
         }
       >
         <p className="text-sm text-omega-700">
-          Remover esta Parte Diária do sistema? Esta ação não pode ser desfeita.
+          Remover esta Parte Diária das telas operacionais? Ela ficará na <b>Lixeira</b> por até
+          5 dias e poderá ser restaurada por um administrador Master.
         </p>
       </Modal>
 

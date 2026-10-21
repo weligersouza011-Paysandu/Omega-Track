@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Filter, Download, X, LayoutGrid, BarChart3, FileText, CheckCircle2, RefreshCw, AlertTriangle, Briefcase, Loader2, SlidersHorizontal } from 'lucide-react';
+import { Plus, Search, Filter, Download, X, LayoutGrid, BarChart3, FileText, CheckCircle2, RefreshCw, AlertTriangle, Briefcase, Loader2, SlidersHorizontal, Trash2 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
 import VehicleDetailPanel from '../components/VehicleDetailPanel.jsx';
@@ -9,6 +9,8 @@ import CampoListaComCriador from '../components/CampoListaComCriador.jsx';
 import DashboardExecutivoView from './DashboardExecutivoView.jsx';
 import DocumentManagementView from './DocumentManagementView.jsx';
 import { veiculos as initialVeiculos } from '../data/mockData.js';
+import { ehMaster } from '../utils/permissoes.js';
+import { authHeaders } from '../utils/sessao.js';
 
 const FILTROS_RAPIDOS = [
   { key: 'todos', label: 'Todos', icon: null, cor: null },
@@ -48,7 +50,7 @@ function BarraAbas({ abaAtiva, onTrocar }) {
   );
 }
 
-export default function MobDesmobView() {
+export default function MobDesmobView({ sessao }) {
   const [veiculos, setVeiculos] = useState(initialVeiculos);
   const [busca, setBusca] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('Mobilizado');
@@ -60,12 +62,15 @@ export default function MobDesmobView() {
   const [toast, setToast] = useState(null);
   const [exportando, setExportando] = useState(false);
   const [modalDesmob, setModalDesmob] = useState(null);
+  const [modalExclusao, setModalExclusao] = useState(null);
+  const [excluindo, setExcluindo] = useState(false);
   const [form, setForm] = useState({ tag: '', placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: new Date().toISOString().slice(0, 10) });
   const [dataDesmob, setDataDesmob] = useState(new Date().toISOString().slice(0, 10));
   const [motivoDesmob, setMotivoDesmob] = useState('');
   const [desmobilizando, setDesmobilizando] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [erroApi, setErroApi] = useState(null);
+  const souMaster = ehMaster(sessao?.usuario);
 
   // Galeria alimentada pelo backend (Neon) — fotos reais via Cloudinary.
   const carregarVeiculos = async () => {
@@ -191,7 +196,7 @@ export default function MobDesmobView() {
     try {
       const resp = await fetch('/api/mob-desmob', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(sessao),
         body: JSON.stringify(payload),
       });
       if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
@@ -213,7 +218,7 @@ export default function MobDesmobView() {
       // purga documentos e anexos do controle de vencimentos (transacao).
       const resp = await fetch(`/api/mob-desmob/${encodeURIComponent(modalDesmob.tag)}/desmobilizar`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(sessao),
         body: JSON.stringify({ data_desmob: dataDesmob, observacao: motivoDesmob.trim() || null }),
       });
       if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
@@ -231,6 +236,29 @@ export default function MobDesmobView() {
       setDesmobilizando(false);
       setModalDesmob(null);
       setMotivoDesmob('');
+    }
+  };
+
+  const confirmarExclusao = async () => {
+    if (!modalExclusao || excluindo) return;
+    setExcluindo(true);
+    try {
+      const resp = await fetch(`/api/mob-desmob/${encodeURIComponent(modalExclusao.tag)}`, {
+        method: 'DELETE',
+        headers: authHeaders(sessao),
+      });
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}));
+        throw new Error(corpo.message || `Falha ao excluir (API ${resp.status})`);
+      }
+      setVeiculos((lista) => lista.filter((v) => v.tag !== modalExclusao.tag));
+      setVeiculoSelecionado(null);
+      setToast(`${modalExclusao.tag} movido para a lixeira. Recuperável por 5 dias em Usuários → Lixeira.`);
+      setModalExclusao(null);
+    } catch (e) {
+      setToast(`Falha ao excluir: ${e.message}`);
+    } finally {
+      setExcluindo(false);
     }
   };
 
@@ -589,6 +617,8 @@ export default function MobDesmobView() {
                   setModalDesmob(v || veiculoSelecionado);
                   setDataDesmob(new Date().toISOString().slice(0, 10));
                 }}
+                podeExcluir={souMaster}
+                onExcluir={(v) => setModalExclusao(v || veiculoSelecionado)}
               />
             </div>
           )}
@@ -701,11 +731,42 @@ export default function MobDesmobView() {
         </div>
       </Modal>
 
+      <Modal
+        open={!!modalExclusao}
+        onClose={() => { if (!excluindo) setModalExclusao(null); }}
+        title="Excluir Veículo"
+        subtitle={modalExclusao ? `${modalExclusao.tag} • ${modalExclusao.placa} • ${modalExclusao.modelo || ''}` : ''}
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setModalExclusao(null)} disabled={excluindo} className="btn-secondary disabled:opacity-50">Cancelar</button>
+            <button onClick={confirmarExclusao} disabled={excluindo} className="btn-danger disabled:opacity-50 inline-flex items-center gap-2">
+              {excluindo ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+              {excluindo ? 'Excluindo...' : 'Mover para a lixeira'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="p-4 rounded-xl bg-red-50 border border-red-200/60 text-sm text-red-800">
+            <span className="font-bold">
+              Excluir o veículo {modalExclusao?.tag}?
+            </span>{' '}
+            Ele sairá da frota e das telas operacionais, mas poderá ser restaurado em até 5 dias
+            na Lixeira da Gestão de Usuários. Documentos, partes diárias e histórico são preservados.
+          </div>
+          <div className="text-[11px] text-omega-500">
+            Apenas administradores Master podem excluir veículos.
+          </div>
+        </div>
+      </Modal>
+
       <EditVehicleModal
         open={!!modalEdicao}
         veiculo={modalEdicao}
         contratos={contratos}
         modelos={modelos}
+        sessao={sessao}
         onClose={() => setModalEdicao(null)}
         onSaved={aoSalvarEdicao}
       />

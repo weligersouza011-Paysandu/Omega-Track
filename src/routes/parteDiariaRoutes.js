@@ -49,6 +49,6 @@ router.delete('/:id/assinaturas/:etapa', removerAssinatura);
 router.post('/:id/fotos', anexarFoto);
 router.post('/:id/evidencia', anexarEvidencia);
 router.put('/:id', atualizarParteDiaria);
-router.delete('/:id', deletarParteDiaria);
+router.delete('/:id', requerAdmin, requerMaster, deletarParteDiaria);
 
 export default router;

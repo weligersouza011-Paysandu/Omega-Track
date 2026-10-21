@@ -1,4 +1,4 @@
-import { X, Edit3, Calendar, FileText, ClipboardList, ChevronRight, Expand, Plus, Power } from 'lucide-react';
+import { X, Edit3, Calendar, FileText, ClipboardList, ChevronRight, Expand, Plus, Power, Trash2 } from 'lucide-react';
 import BadgeStatus from './BadgeStatus.jsx';
 import { documentos, partesDiarias } from '../data/mockData.js';
 
@@ -17,7 +17,7 @@ const FAROL_DOT = {
   VERMELHO: 'bg-status-vermelho',
 };
 
-export default function VehicleDetailPanel({ veiculo, onClose, onEdit, onDesmob }) {
+export default function VehicleDetailPanel({ veiculo, onClose, onEdit, onDesmob, podeExcluir = false, onExcluir }) {
   if (!veiculo) return null;
 
   const docsVeiculo = documentos.filter(d => d.tag === veiculo.tag);
@@ -48,6 +48,15 @@ export default function VehicleDetailPanel({ veiculo, onClose, onEdit, onDesmob 
               title="Desmobilizar veículo (apaga documentos e anexos)"
             >
               <Power size={16} />
+            </button>
+          )}
+          {podeExcluir && (
+            <button
+              onClick={() => onExcluir?.(veiculo)}
+              className="p-1.5 rounded-md hover:bg-red-50 text-omega-400 hover:text-red-700 transition-colors"
+              title="Excluir veículo (lixeira por 5 dias — somente Master)"
+            >
+              <Trash2 size={16} />
             </button>
           )}
           <button

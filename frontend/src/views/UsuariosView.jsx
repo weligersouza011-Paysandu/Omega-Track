@@ -3,6 +3,7 @@ import {
   Users, ShieldCheck, Pencil, Trash2, ArrowUpCircle, ArrowDownCircle,
   Plus, ListChecks, ClipboardPaste, Eye, Save, X, RefreshCw,
   AlertTriangle, CheckCircle2, UserCog, HardHat, PenTool,
+  History, ArchiveRestore, RotateCcw, Search,
 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import SignatureCanvasModal from '../components/SignatureCanvasModal.jsx';
@@ -21,6 +22,28 @@ function formatarData(valor) {
   if (!valor) return '—';
   const d = new Date(valor);
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR');
+}
+
+function formatarDataHora(valor) {
+  if (!valor) return '—';
+  const d = new Date(valor);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function diasRestantes(deletadoEm) {
+  if (!deletadoEm) return 0;
+  const passados = Math.floor((Date.now() - new Date(deletadoEm).getTime()) / 86400000);
+  return Math.max(0, 5 - passados);
+}
+
+function detalhesResumidos(detalhes) {
+  if (!detalhes) return '—';
+  try {
+    const texto = JSON.stringify(detalhes);
+    return texto.length > 120 ? `${texto.slice(0, 120)}…` : texto;
+  } catch {
+    return '—';
+  }
 }
 
 function NivelBadge({ nivel }) {
@@ -79,7 +102,7 @@ function parseLote(texto, matriculasExistentes) {
 }
 
 export default function UsuariosView({ sessao }) {
-  const [aba, setAba] = useState('lista'); // lista | adicionar
+  const [aba, setAba] = useState('lista'); // lista | adicionar | historico | lixeira
   const [modoCadastro, setModoCadastro] = useState('operacional'); // operacional | admin
   const [usuarios, setUsuarios] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -88,6 +111,15 @@ export default function UsuariosView({ sessao }) {
   const [textoLote, setTextoLote] = useState('');
   const [preview, setPreview] = useState(null);
   const [salvando, setSalvando] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [totalLogs, setTotalLogs] = useState(0);
+  const [carregandoLogs, setCarregandoLogs] = useState(false);
+  const [filtrosLog, setFiltrosLog] = useState({
+    q: '', usuario_id: '', modulo: '', acao: '', data_inicio: '', data_fim: '',
+  });
+  const [lixeira, setLixeira] = useState({ veiculos: [], partes: [] });
+  const [carregandoLixeira, setCarregandoLixeira] = useState(false);
+  const [restaurando, setRestaurando] = useState(null);
   const [formAdmin, setFormAdmin] = useState({
     nome: '', matricula: '', funcao: '', contrato: '', setor: 'TRANSPORTE', nivel: 'NORMAL', senha: '',
   });
@@ -246,6 +278,69 @@ export default function UsuariosView({ sessao }) {
     }
   };
 
+  const carregarLogs = async (filtros = filtrosLog) => {
+    setCarregandoLogs(true);
+    try {
+      const params = new URLSearchParams({ limit: '100' });
+      Object.entries(filtros).forEach(([chave, valor]) => {
+        if (String(valor || '').trim()) params.set(chave, String(valor).trim());
+      });
+      const resp = await fetch(`/api/usuarios/logs?${params.toString()}`, { headers: headers() });
+      if (!resp.ok) await tratarErroApi(resp, 'Falha ao carregar histórico');
+      const corpo = await resp.json();
+      setLogs(Array.isArray(corpo.data) ? corpo.data : []);
+      setTotalLogs(Number(corpo.pagination?.total) || 0);
+    } catch (e) {
+      setToast(e.message);
+    } finally {
+      setCarregandoLogs(false);
+    }
+  };
+
+  const carregarLixeira = async () => {
+    setCarregandoLixeira(true);
+    try {
+      const resp = await fetch('/api/usuarios/lixeira', { headers: headers() });
+      if (!resp.ok) await tratarErroApi(resp, 'Falha ao carregar lixeira');
+      const { data } = await resp.json();
+      setLixeira({
+        veiculos: Array.isArray(data?.veiculos) ? data.veiculos : [],
+        partes: Array.isArray(data?.partes) ? data.partes : [],
+      });
+    } catch (e) {
+      setToast(e.message);
+    } finally {
+      setCarregandoLixeira(false);
+    }
+  };
+
+  useEffect(() => {
+    if (aba === 'historico') carregarLogs();
+    if (aba === 'lixeira' && souMaster) carregarLixeira();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aba]);
+
+  const restaurar = async (tipo, registro) => {
+    const chave = tipo === 'veiculo' ? `veiculo:${registro.tag}` : `parte:${registro.id}`;
+    const rotulo = tipo === 'veiculo' ? `o veículo ${registro.tag}` : `a parte diária ${registro.tag} de ${formatarData(registro.data)}`;
+    if (!window.confirm(`Restaurar ${rotulo}?`)) return;
+    setRestaurando(chave);
+    try {
+      const url = tipo === 'veiculo'
+        ? `/api/usuarios/lixeira/veiculos/${encodeURIComponent(registro.tag)}/restaurar`
+        : `/api/usuarios/lixeira/partes/${encodeURIComponent(registro.id)}/restaurar`;
+      const resp = await fetch(url, { method: 'POST', headers: headers() });
+      if (!resp.ok) await tratarErroApi(resp, 'Falha ao restaurar');
+      setToast(tipo === 'veiculo' ? 'Veículo restaurado com sucesso.' : 'Parte diária restaurada com sucesso.');
+      await carregarLixeira();
+      carregar();
+    } catch (e) {
+      setToast(e.message);
+    } finally {
+      setRestaurando(null);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
@@ -284,6 +379,8 @@ export default function UsuariosView({ sessao }) {
         {[
           { k: 'lista', label: 'Lista de Usuários', icon: ListChecks },
           { k: 'adicionar', label: 'Adicionar Novos Usuários', icon: Plus },
+          { k: 'historico', label: 'Histórico de Atividades', icon: History },
+          ...(souMaster ? [{ k: 'lixeira', label: 'Lixeira', icon: ArchiveRestore }] : []),
         ].map((t) => (
           <button
             key={t.k}
@@ -625,6 +722,312 @@ export default function UsuariosView({ sessao }) {
                 <Plus size={14} /> {salvando ? 'Salvando...' : 'Cadastrar Administrador'}
               </button>
             </div>
+          )}
+        </div>
+      )}
+
+      {aba === 'historico' && (
+        <div className="space-y-4">
+          <form
+            onSubmit={(e) => { e.preventDefault(); carregarLogs(); }}
+            className="card p-3"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-2">
+              <div className="xl:col-span-3">
+                <label className="label">Usuário</label>
+                <select
+                  value={filtrosLog.usuario_id}
+                  onChange={(e) => setFiltrosLog({ ...filtrosLog, usuario_id: e.target.value })}
+                  className="input"
+                >
+                  <option value="">Todos os usuários</option>
+                  {usuarios.map((u) => (
+                    <option key={u.id} value={u.id}>{u.nome} • {u.matricula}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="xl:col-span-2">
+                <label className="label">Módulo</label>
+                <select
+                  value={filtrosLog.modulo}
+                  onChange={(e) => setFiltrosLog({ ...filtrosLog, modulo: e.target.value })}
+                  className="input"
+                >
+                  <option value="">Todos</option>
+                  <option value="Frota">Frota</option>
+                  <option value="ParteDiaria">Parte Diária</option>
+                  <option value="Eficiencia">Eficiência</option>
+                  <option value="Usuarios">Usuários</option>
+                </select>
+              </div>
+              <div className="xl:col-span-2">
+                <label className="label">Ação</label>
+                <input
+                  value={filtrosLog.acao}
+                  onChange={(e) => setFiltrosLog({ ...filtrosLog, acao: e.target.value })}
+                  className="input"
+                  placeholder="Ex: EXCLUIR"
+                />
+              </div>
+              <div className="xl:col-span-2">
+                <label className="label">De</label>
+                <input
+                  type="date"
+                  value={filtrosLog.data_inicio}
+                  onChange={(e) => setFiltrosLog({ ...filtrosLog, data_inicio: e.target.value })}
+                  className="input"
+                />
+              </div>
+              <div className="xl:col-span-2">
+                <label className="label">Até</label>
+                <input
+                  type="date"
+                  value={filtrosLog.data_fim}
+                  onChange={(e) => setFiltrosLog({ ...filtrosLog, data_fim: e.target.value })}
+                  className="input"
+                />
+              </div>
+              <div className="xl:col-span-1 flex items-end">
+                <button type="submit" className="btn-primary w-full !px-2 text-xs inline-flex items-center justify-center gap-1.5" disabled={carregandoLogs}>
+                  <Search size={14} /> Filtrar
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <input
+                value={filtrosLog.q}
+                onChange={(e) => setFiltrosLog({ ...filtrosLog, q: e.target.value })}
+                className="input max-w-sm"
+                placeholder="Buscar por usuário, função, ação ou módulo..."
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const vazio = { q: '', usuario_id: '', modulo: '', acao: '', data_inicio: '', data_fim: '' };
+                  setFiltrosLog(vazio);
+                  carregarLogs(vazio);
+                }}
+                className="btn-secondary !py-2 text-xs"
+              >
+                Limpar filtros
+              </button>
+              <span className="text-[11px] text-omega-500 ml-auto">{totalLogs} registro(s) encontrado(s)</span>
+            </div>
+          </form>
+
+          <div className="card overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-omega-100 bg-omega-50/50">
+              <div className="w-7 h-7 rounded-lg bg-violet-500/15 flex items-center justify-center text-violet-600">
+                <History size={14} />
+              </div>
+              <div className="text-sm font-bold text-omega-900">Trilha de Auditoria</div>
+              <div className="text-[11px] text-omega-500 ml-auto">Últimos 100 registros do filtro atual</div>
+            </div>
+            {carregandoLogs ? (
+              <div className="flex items-center justify-center p-8 text-omega-500 text-sm font-semibold">
+                <RefreshCw size={20} className="animate-spin mr-2" /> Carregando...
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="p-8 text-center text-sm text-omega-500">Nenhuma atividade encontrada para os filtros informados.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[980px]">
+                  <thead className="bg-omega-50/70">
+                    <tr className="text-left text-[11px] uppercase tracking-wider text-omega-500 font-bold border-b border-omega-100">
+                      <th className="px-4 py-3">Data / Hora</th>
+                      <th className="px-4 py-3">Usuário</th>
+                      <th className="px-4 py-3">Função</th>
+                      <th className="px-4 py-3">Módulo</th>
+                      <th className="px-4 py-3">Ação</th>
+                      <th className="px-4 py-3">Detalhes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-omega-100">
+                    {logs.map((log) => (
+                      <tr key={log.id} className="hover:bg-omega-50/60 align-top">
+                        <td className="px-4 py-2.5 tabular-nums text-xs text-omega-600 whitespace-nowrap">
+                          {formatarDataHora(log.created_at)}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="font-bold text-omega-900">{log.nome_usuario || 'Sistema'}</div>
+                          <div className="text-[10px] text-omega-400 font-mono">{log.ip_address || '—'}</div>
+                        </td>
+                        <td className="px-4 py-2.5 text-omega-600 text-xs">{log.funcao_usuario || '—'}</td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold bg-omega-100 text-omega-700 whitespace-nowrap">
+                            {log.modulo}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-flex px-2 py-0.5 rounded-md text-[11px] font-black bg-violet-500/10 text-violet-700 whitespace-nowrap">
+                            {log.acao}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-omega-600 max-w-[320px]">
+                          {log.detalhes ? (
+                            <details>
+                              <summary className="cursor-pointer text-omega-accent font-semibold">Ver detalhes</summary>
+                              <pre className="mt-1 p-2 rounded-lg bg-omega-50 border border-omega-100 text-[10px] leading-relaxed whitespace-pre-wrap break-all max-h-40 overflow-auto">
+                                {JSON.stringify(log.detalhes, null, 2)}
+                              </pre>
+                            </details>
+                          ) : '—'}
+                          <div className="text-[10px] text-omega-400 mt-0.5">{detalhesResumidos(log.detalhes)}</div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {aba === 'lixeira' && souMaster && (
+        <div className="space-y-4">
+          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200/70 text-sm text-amber-900 flex items-start gap-2">
+            <AlertTriangle size={17} className="text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <b>Recuperação por 5 dias.</b> Veículos e partes diárias excluídos ficam disponíveis nesta lixeira.
+              Após esse prazo, não podem mais ser restaurados por esta tela.
+            </div>
+          </div>
+
+          {carregandoLixeira ? (
+            <div className="card flex items-center justify-center p-8 text-omega-500 text-sm font-semibold">
+              <RefreshCw size={20} className="animate-spin mr-2" /> Carregando lixeira...
+            </div>
+          ) : lixeira.veiculos.length === 0 && lixeira.partes.length === 0 ? (
+            <div className="card p-8 text-center text-sm text-omega-500">
+              <ArchiveRestore size={22} className="mx-auto text-omega-400 mb-2" /> Nenhum registro na lixeira.
+            </div>
+          ) : (
+            <>
+              <div className="card overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-omega-100 bg-omega-50/50">
+                  <div className="w-7 h-7 rounded-lg bg-red-500/10 flex items-center justify-center text-red-600">
+                    <Trash2 size={14} />
+                  </div>
+                  <div className="text-sm font-bold text-omega-900">Veículos excluídos</div>
+                  <div className="text-[11px] text-omega-500 ml-auto">{lixeira.veiculos.length} registro(s)</div>
+                </div>
+                {lixeira.veiculos.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-omega-500">Nenhum veículo na lixeira.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[860px]">
+                      <thead className="bg-omega-50/70">
+                        <tr className="text-left text-[11px] uppercase tracking-wider text-omega-500 font-bold border-b border-omega-100">
+                          <th className="px-4 py-3">TAG</th>
+                          <th className="px-4 py-3">Placa</th>
+                          <th className="px-4 py-3">Modelo</th>
+                          <th className="px-4 py-3">Contrato</th>
+                          <th className="px-4 py-3">Excluído em</th>
+                          <th className="px-4 py-3">Por</th>
+                          <th className="px-4 py-3">Prazo</th>
+                          <th className="px-4 py-3 text-right">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-omega-100">
+                        {lixeira.veiculos.map((v) => (
+                          <tr key={v.tag} className="hover:bg-omega-50/60">
+                            <td className="px-4 py-2.5 font-black text-omega-900">{v.tag}</td>
+                            <td className="px-4 py-2.5 font-mono text-xs text-omega-600">{v.placa}</td>
+                            <td className="px-4 py-2.5 text-omega-700">{v.modelo || '—'}</td>
+                            <td className="px-4 py-2.5 text-omega-600">{v.contrato || '—'}</td>
+                            <td className="px-4 py-2.5 text-xs text-omega-600">{formatarDataHora(v.deletado_em)}</td>
+                            <td className="px-4 py-2.5 text-xs text-omega-600">{v.deletado_por || '—'}</td>
+                            <td className="px-4 py-2.5">
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${diasRestantes(v.deletado_em) <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                                {diasRestantes(v.deletado_em)} dia(s)
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right">
+                              <button
+                                onClick={() => restaurar('veiculo', v)}
+                                disabled={restaurando === `veiculo:${v.tag}`}
+                                className="btn-secondary !py-1.5 !px-2.5 text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+                              >
+                                {restaurando === `veiculo:${v.tag}` ? <RefreshCw size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                                Restaurar
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="card overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-omega-100 bg-omega-50/50">
+                  <div className="w-7 h-7 rounded-lg bg-red-500/10 flex items-center justify-center text-red-600">
+                    <Trash2 size={14} />
+                  </div>
+                  <div className="text-sm font-bold text-omega-900">Partes diárias excluídas</div>
+                  <div className="text-[11px] text-omega-500 ml-auto">{lixeira.partes.length} registro(s)</div>
+                </div>
+                {lixeira.partes.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-omega-500">Nenhuma parte diária na lixeira.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[940px]">
+                      <thead className="bg-omega-50/70">
+                        <tr className="text-left text-[11px] uppercase tracking-wider text-omega-500 font-bold border-b border-omega-100">
+                          <th className="px-4 py-3">TAG</th>
+                          <th className="px-4 py-3">Data</th>
+                          <th className="px-4 py-3">Nº Relatório</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3">Excluído em</th>
+                          <th className="px-4 py-3">Por</th>
+                          <th className="px-4 py-3">Prazo</th>
+                          <th className="px-4 py-3 text-right">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-omega-100">
+                        {lixeira.partes.map((p) => {
+                          const veiculoExcluido = Boolean(p.veiculo?.deletado_em);
+                          return (
+                            <tr key={p.id} className="hover:bg-omega-50/60">
+                              <td className="px-4 py-2.5 font-black text-omega-900">
+                                {p.tag}
+                                <div className="text-[10px] font-mono text-omega-500">{p.veiculo?.placa || '—'}</div>
+                              </td>
+                              <td className="px-4 py-2.5 tabular-nums text-xs text-omega-600">{formatarData(p.data)}</td>
+                              <td className="px-4 py-2.5 text-xs text-omega-600">{p.numero_relatorio || '—'}</td>
+                              <td className="px-4 py-2.5 text-xs text-omega-600">{p.status_operacional || '—'}</td>
+                              <td className="px-4 py-2.5 text-xs text-omega-600">{formatarDataHora(p.deletado_em)}</td>
+                              <td className="px-4 py-2.5 text-xs text-omega-600">{p.deletado_por || '—'}</td>
+                              <td className="px-4 py-2.5">
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${diasRestantes(p.deletado_em) <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                                  {diasRestantes(p.deletado_em)} dia(s)
+                                </span>
+                                {veiculoExcluido && (
+                                  <div className="text-[10px] font-bold text-red-600 mt-0.5">Restaure o veículo primeiro</div>
+                                )}
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                <button
+                                  onClick={() => restaurar('parte', p)}
+                                  disabled={veiculoExcluido || restaurando === `parte:${p.id}`}
+                                  title={veiculoExcluido ? 'Restaure o veículo antes de recuperar esta parte' : 'Restaurar parte diária'}
+                                  className="btn-secondary !py-1.5 !px-2.5 text-xs inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  {restaurando === `parte:${p.id}` ? <RefreshCw size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                                  Restaurar
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}

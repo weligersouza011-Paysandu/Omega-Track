@@ -4,6 +4,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { sessaoOperacional } from '../middleware/sessao.js';
 import { parseKm, obterUltimaKmFinal } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
+import { registrarLogAtividade } from '../services/auditService.js';
 
 // ============================================================================
 // Parte Diaria (Veiculos Leves) — modelo Omega Service
@@ -332,7 +333,7 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
   } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
 
-  const where = {};
+  const where = { deletado_em: null, veiculo: { deletado_em: null } };
   if (tag) where.tag = tag;
   if (status_operacional) {
     where.status_operacional = status_operacional;
@@ -458,8 +459,8 @@ export const buscarUltimaKm = asyncHandler(async (req, res) => {
 
 export const buscarParteDiaria = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const parte = await prisma.parteDiaria.findUnique({
-    where: { id },
+  const parte = await prisma.parteDiaria.findFirst({
+    where: { id, deletado_em: null, veiculo: { deletado_em: null } },
     include: INCLUDE_COMPLETO,
   });
 
@@ -577,7 +578,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   }
   // O TAG referencia a frota (mob_desmob): falha aqui indica veículo fora do cadastro
   try {
-    const veiculoExiste = await prisma.mobDesmob.findUnique({ where: { tag: tagFinal } });
+    const veiculoExiste = await prisma.mobDesmob.findFirst({ where: { tag: tagFinal, deletado_em: null } });
     if (!veiculoExiste) {
       return res.status(400).json({
         error: 'Veiculo invalido',
@@ -735,6 +736,17 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   }
 
   const parte = await prisma.parteDiaria.findUnique({ where: { id: criado.id }, include: INCLUDE_COMPLETO });
+  await registrarLogAtividade(req, {
+    acao: 'CRIAR_PARTE_DIARIA',
+    modulo: 'ParteDiaria',
+    detalhes: {
+      id: criado.id,
+      tag: criado.tag,
+      data: criado.data,
+      numero_relatorio: criado.numero_relatorio,
+      status_operacional: criado.status_operacional,
+    },
+  });
   res.status(201).json({ data: enriquecerAssinaturas(parte) });
 });
 
@@ -746,7 +758,9 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   const corpo = req.body || {};
   validarTamanhoPayload(corpo);
 
-  const atual = await prisma.parteDiaria.findUnique({ where: { id } });
+  const atual = await prisma.parteDiaria.findFirst({
+    where: { id, deletado_em: null, veiculo: { deletado_em: null } },
+  });
   if (!atual) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
   }
@@ -981,12 +995,49 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   }
 
   const completo = await prisma.parteDiaria.findUnique({ where: { id }, include: INCLUDE_COMPLETO });
+  await registrarLogAtividade(req, {
+    acao: 'EDITAR_PARTE_DIARIA',
+    modulo: 'ParteDiaria',
+    detalhes: {
+      id,
+      tag: dados.tag || atual.tag,
+      data: dados.data || atual.data,
+      campos: Object.keys(dados),
+      colecoes: colecoes.filter((c) => temLista(c)),
+    },
+  });
   res.json({ data: enriquecerAssinaturas(completo) });
 });
 
 export const deletarParteDiaria = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  await prisma.parteDiaria.delete({ where: { id } });
+  const parte = await prisma.parteDiaria.findFirst({
+    where: { id, deletado_em: null, veiculo: { deletado_em: null } },
+  });
+  if (!parte) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada ou ja excluida.' });
+  }
+
+  const deletadoPor = req.atuante?.nome || req.headers['x-acting-nome'] || 'Sistema';
+  const agora = new Date();
+  await prisma.parteDiaria.update({
+    where: { id },
+    data: { deletado_em: agora, deletado_por: deletadoPor },
+  });
+
+  await registrarLogAtividade(req, {
+    acao: 'EXCLUIR_PARTE_DIARIA',
+    modulo: 'ParteDiaria',
+    detalhes: {
+      id: parte.id,
+      tag: parte.tag,
+      data: parte.data,
+      numero_relatorio: parte.numero_relatorio,
+      deletado_em: agora.toISOString(),
+      recuperavel_ate: new Date(agora.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+  });
+
   res.status(204).send();
 });
 
@@ -1031,7 +1082,7 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
   }
 
   const veiculo = await prisma.mobDesmob.findFirst({
-    where: { tag: { equals: tagBruta, mode: 'insensitive' } },
+    where: { tag: { equals: tagBruta, mode: 'insensitive' }, deletado_em: null },
   });
   if (!veiculo) {
     return res.status(400).json({
@@ -1046,7 +1097,7 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
     || null;
 
   const existentes = await prisma.parteDiaria.findMany({
-    where: { tag: { equals: veiculo.tag, mode: 'insensitive' }, data: diaData },
+    where: { tag: { equals: veiculo.tag, mode: 'insensitive' }, data: diaData, deletado_em: null },
     select: { id: true, status_operacional: true },
     orderBy: { created_at: 'asc' },
   });
@@ -1081,6 +1132,17 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
         ...(config.nodeEnv === 'development' && { details: e.message, stack: e.stack }),
       });
     }
+    await registrarLogAtividade(req, {
+      acao: 'APONTAMENTO_RAPIDO',
+      modulo: 'ParteDiaria',
+      detalhes: {
+        tag: veiculo.tag,
+        data: dataISO,
+        de: existentes.map((p) => ({ id: p.id, status: p.status_operacional })),
+        para: novoStatus,
+        atualizados: existentes.length,
+      },
+    });
     return res.json({
       data: {
         tag: veiculo.tag,
@@ -1125,6 +1187,11 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
     ...(observacaoRapida !== undefined ? { observacao: observacaoRapida } : {}),
     origem: 'matriz-calendario',
     criado: true,
+  });
+  await registrarLogAtividade(req, {
+    acao: 'APONTAMENTO_RAPIDO',
+    modulo: 'ParteDiaria',
+    detalhes: { tag: veiculo.tag, data: dataISO, para: novoStatus, criado: true, parte_id: criado.id },
   });
 
   // Baixa automatica na auditoria de pendencias de lancamento (mesma regra do
@@ -1178,9 +1245,20 @@ export const anexarEvidencia = (req, res, next) => {
           message: 'Envie a evidencia no campo `arquivo` (multipart/form-data).',
         });
       }
+      const ativa = await prisma.parteDiaria.findFirst({
+        where: { id: req.params.id, deletado_em: null, veiculo: { deletado_em: null } },
+      });
+      if (!ativa) {
+        return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
+      }
       const parte = await prisma.parteDiaria.update({
         where: { id: req.params.id },
         data: { evidencia_url: req.file.path },
+      });
+      await registrarLogAtividade(req, {
+        acao: 'ANEXAR_EVIDENCIA',
+        modulo: 'ParteDiaria',
+        detalhes: { id: parte.id, evidencia_url: parte.evidencia_url },
       });
       return res.json({
         data: { id: parte.id, evidencia_url: parte.evidencia_url, public_id: req.file.filename },
@@ -1215,7 +1293,9 @@ export const anexarFoto = (req, res, next) => {
           message: 'Envie a foto no campo `arquivo` (multipart/form-data).',
         });
       }
-      const existe = await prisma.parteDiaria.findUnique({ where: { id: req.params.id } });
+      const existe = await prisma.parteDiaria.findFirst({
+        where: { id: req.params.id, deletado_em: null, veiculo: { deletado_em: null } },
+      });
       if (!existe) {
         return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
       }
@@ -1234,6 +1314,11 @@ export const anexarFoto = (req, res, next) => {
         autorDaRequisicao(req, req.body || {}),
         { foto_id: foto.id }
       );
+      await registrarLogAtividade(req, {
+        acao: 'ADICIONAR_FOTO',
+        modulo: 'ParteDiaria',
+        detalhes: { id: req.params.id, foto_id: foto.id, legenda: foto.legenda },
+      });
       return res.status(201).json({ data: foto });
     } catch (e) {
       return next(e);
@@ -1247,6 +1332,8 @@ export const listarPendentesAssinatura = asyncHandler(async (req, res) => {
 
   const where = {
     status_assinatura: 'PENDENTE',
+    deletado_em: null,
+    veiculo: { deletado_em: null },
   };
   if (tag) where.tag = tag;
   if (data_inicio || data_fim) {
@@ -1290,7 +1377,9 @@ export const assinarParteDiaria = asyncHandler(async (req, res) => {
     });
   }
 
-  const atual = await prisma.parteDiaria.findUnique({ where: { id } });
+  const atual = await prisma.parteDiaria.findFirst({
+    where: { id, deletado_em: null, veiculo: { deletado_em: null } },
+  });
   if (!atual) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
   }
@@ -1315,6 +1404,12 @@ export const assinarParteDiaria = asyncHandler(async (req, res) => {
       status_assinatura: 'ASSINADO',
       assinatura_dados,
     },
+  });
+
+  await registrarLogAtividade(req, {
+    acao: 'ASSINAR_PARTE_DIARIA',
+    modulo: 'ParteDiaria',
+    detalhes: { id, assinado_por, status_assinatura: 'ASSINADO' },
   });
 
   res.json({ data: parte });
@@ -1347,8 +1442,8 @@ export const assinarEtapa = asyncHandler(async (req, res) => {
     });
   }
 
-  const existe = await prisma.parteDiaria.findUnique({
-    where: { id },
+  const existe = await prisma.parteDiaria.findFirst({
+    where: { id, deletado_em: null, veiculo: { deletado_em: null } },
     include: { assinaturas: true },
   });
   if (!existe) {
@@ -1391,6 +1486,11 @@ export const assinarEtapa = asyncHandler(async (req, res) => {
     },
   });
   await registrarLog(prisma, id, `ASSINATURA_${etapaNorm}`, autor, { etapa: etapaNorm, status_aprovacao: statusAprovacao });
+  await registrarLogAtividade(req, {
+    acao: `ASSINAR_${etapaNorm}`,
+    modulo: 'ParteDiaria',
+    detalhes: { id, etapa: etapaNorm, nome, status_aprovacao: statusAprovacao },
+  });
 
   const completo = await prisma.parteDiaria.findUnique({ where: { id }, include: INCLUDE_COMPLETO });
   res.json({ data: enriquecerAssinaturas(completo) });
@@ -1406,7 +1506,9 @@ export const removerAssinatura = asyncHandler(async (req, res) => {
       message: `etapa deve ser uma de: ${ETAPAS_ASSINATURA.join(', ')}.`,
     });
   }
-  const existe = await prisma.parteDiaria.findUnique({ where: { id } });
+  const existe = await prisma.parteDiaria.findFirst({
+    where: { id, deletado_em: null, veiculo: { deletado_em: null } },
+  });
   if (!existe) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
   }
@@ -1425,6 +1527,11 @@ export const removerAssinatura = asyncHandler(async (req, res) => {
   });
   const autor = autorDaRequisicao(req, {});
   await registrarLog(prisma, id, `ASSINATURA_REMOVIDA_${etapaNorm}`, autor, { etapa: etapaNorm, status_aprovacao: statusAprovacao });
+  await registrarLogAtividade(req, {
+    acao: `REMOVER_ASSINATURA_${etapaNorm}`,
+    modulo: 'ParteDiaria',
+    detalhes: { id, etapa: etapaNorm, status_aprovacao: statusAprovacao },
+  });
   const completo = await prisma.parteDiaria.findUnique({ where: { id }, include: INCLUDE_COMPLETO });
   res.json({ data: enriquecerAssinaturas(completo) });
 });
@@ -1432,7 +1539,9 @@ export const removerAssinatura = asyncHandler(async (req, res) => {
 // GET /api/partes-diarias/:id/logs — auditoria (log de edicoes).
 export const listarLogs = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const existe = await prisma.parteDiaria.findUnique({ where: { id } });
+  const existe = await prisma.parteDiaria.findFirst({
+    where: { id, deletado_em: null, veiculo: { deletado_em: null } },
+  });
   if (!existe) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
   }
