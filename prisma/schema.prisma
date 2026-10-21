@@ -28,8 +28,9 @@ model MobDesmob {
   deletado_em  DateTime? @db.Timestamp(6)
   deletado_por String?   @db.VarChar(255)
 
-  documentacoes  DocumentacaoVeiculo[]
-  partes_diarias ParteDiaria[]
+  documentacoes        DocumentacaoVeiculo[]
+  partes_diarias       ParteDiaria[]
+  monitoramento_fumaca MonitoramentoFumacaPreta?
 
   @@index([placa])
   @@index([status])
@@ -51,6 +52,21 @@ model DocumentacaoVeiculo {
   @@index([validade])
   @@index([tag, validade])
   @@map("documentacao_veiculos")
+}
+
+model MonitoramentoFumacaPreta {
+  id           String   @id @default(uuid()) @db.Uuid
+  tag          String   @unique @db.VarChar(50)
+  data_medicao DateTime @db.Date
+  validade     DateTime @db.Date
+  observacao   String?  @db.Text
+  created_at   DateTime @default(now()) @db.Timestamp(6)
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  veiculo MobDesmob @relation(fields: [tag], references: [tag], onDelete: Cascade)
+
+  @@index([validade])
+  @@map("monitoramentos_fumaca_preta")
 }
 
 model ParteDiaria {

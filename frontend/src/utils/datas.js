@@ -48,6 +48,20 @@ export function hojeISO() {
   return `${d.getFullYear()}-${mes}-${dia}`;
 }
 
+// Soma meses a uma data ISO 'YYYY-MM-DD', ajustando para o ultimo dia do mes
+// quando o dia original nao existe no destino (ex.: 31/08 + 6 meses = 28/02).
+export function somarMesesISO(valor, meses) {
+  const p = extrairPartesData(valor);
+  if (!p) return '';
+  const anoBase = Number(p.ano);
+  const indiceMes = (Number(p.mes) - 1) + Number(meses);
+  const ano = anoBase + Math.floor(indiceMes / 12);
+  const mes = ((indiceMes % 12) + 12) % 12;
+  const ultimoDia = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+  const dia = Math.min(Number(p.dia), ultimoDia);
+  return `${ano}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+}
+
 // Soma (ou subtrai) dias a uma data ISO 'YYYY-MM-DD', sem fuso horario.
 export function somarDiasISO(iso, delta) {
   const [ano, mes, dia] = String(iso).split('-').map(Number);

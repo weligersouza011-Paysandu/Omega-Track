@@ -9,6 +9,7 @@ import uploadRoutes from './uploadRoutes.js';
 import usuariosRoutes from './usuariosRoutes.js';
 import loginRoutes from './loginRoutes.js';
 import eficienciaRoutes from './eficienciaRoutes.js';
+import controleAmbientalRoutes from './controleAmbientalRoutes.js';
 
 const router = Router();
 
@@ -49,6 +50,8 @@ router.get('/', (req, res) => {
       eficiencia: 'GET /api/eficiencia?dataInicio=&dataFim=&tag=&modelo=&contrato=&situacao=MOB|DESMOB|TODOS (dashboard: eficiencia por TAG/modelo/mes, KPIs e calendario de paradas; preventiva isenta do denominador)',
       eficiencia_matriz: 'GET /api/eficiencia/matriz?mes=YYYY-MM&tag=&modelo=&contrato=&situacao=TODOS|MOB|DESMOB (Matriz Calendario: status dia a dia por veiculo + observacoes rapidas; sabado/domingo e feriados fora da contagem de pendencias; pior caso quando ha mais de um lancamento no dia; TODA TAG com apontamento no mes aparece, inclusive desmobilizada — historico preservado; padrao TODOS; dias fora da janela mob/desmob expostos via data_mob/data_desmob para bloqueio no front)',
       apontamento_rapido: 'POST /api/partes-diarias/apontamento-rapido { tag, data, status_operacional, observacao? } (somente MASTER; upsert leve da Matriz Calendario — atualiza a classificacao do dia ou cria registro minimo aprovado)',
+      fumaca_preta: 'GET /api/controle-ambiental/fumaca-preta (dashboard de conformidade: KPIs, cobertura e veiculos mobilizados)',
+      fumaca_preta_medicao: 'POST /api/controle-ambiental/fumaca-preta { tag, data_medicao, observacao? } (Gestao/Meio Ambiente/Master; validade calculada em 6 meses)',
     },
   });
 });
@@ -80,5 +83,6 @@ router.use('/upload', uploadRoutes);
 router.use('/usuarios', usuariosRoutes);
 router.use('/login', loginRoutes);
 router.use('/eficiencia', eficienciaRoutes);
+router.use('/controle-ambiental', controleAmbientalRoutes);
 
 export default router;
