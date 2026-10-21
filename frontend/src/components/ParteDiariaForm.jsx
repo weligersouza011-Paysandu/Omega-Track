@@ -56,15 +56,14 @@ const STATUS_OPERACIONAL_DIA = [
 const ROTULOS_STATUS_OPERACIONAL = {
   'Não Operado': 'Não Operado / Folga',
 };
-// Cores idênticas às da Matriz Calendário.
 const CORES_STATUS_OPERACIONAL = {
-  'Operação': 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50',
-  'Manutenção Preventiva': 'bg-amber-500/20 text-amber-300 border-amber-500/50',
-  'Manutenção Corretiva': 'bg-red-500/20 text-red-300 border-red-500/50',
-  'Interdição': 'bg-orange-500/20 text-orange-300 border-orange-500/50',
-  'Indisponibilidade': 'bg-purple-500/20 text-purple-300 border-purple-500/50',
-  'Não Operado': 'bg-slate-500/20 text-slate-300 border-slate-500/50',
-  'Folga': 'bg-slate-500/20 text-slate-300 border-slate-500/50',
+  'Operação': 'bg-emerald-600 border-emerald-700 text-white',
+  'Manutenção Preventiva': 'bg-amber-600 border-amber-700 text-white',
+  'Manutenção Corretiva': 'bg-red-600 border-red-700 text-white',
+  'Interdição': 'bg-orange-600 border-orange-700 text-white',
+  'Indisponibilidade': 'bg-purple-600 border-purple-700 text-white',
+  'Não Operado': 'bg-slate-600 border-slate-700 text-white',
+  'Folga': 'bg-slate-600 border-slate-700 text-white',
 };
 const HORARIOS_PADRAO_JORNADA = {
   horario_entrada: '07:00',
@@ -1275,6 +1274,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   // Modo de segregação do formulário (recalculado a cada render).
   const modo = modoDoStatus(form.status_operacional);
   const corStatusOperacional = CORES_STATUS_OPERACIONAL[form.status_operacional] || '';
+  const statusInvalido = errosValidacao.status_operacional || !STATUS_OPERACIONAL_DIA.includes(form.status_operacional);
+  const corSetaStatus = statusInvalido ? 'text-red-500' : corStatusOperacional ? 'text-white' : 'text-omega-500';
 
   return (
     <>
@@ -1367,24 +1368,31 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 </div>
                 <div>
                   <label className="label">Status Operacional do Dia <span className="text-status-vermelho">*</span></label>
-                  <select
-                    id="campo-status-operacional"
-                    value={form.status_operacional || ''}
-                    onChange={(e) => definirStatusOperacional(e.target.value)}
-                    className={`${inputCls} font-bold transition-colors ${corStatusOperacional} ${
-                      errosValidacao.status_operacional || !STATUS_OPERACIONAL_DIA.includes(form.status_operacional)
-                        ? '!border-red-500 ring-2 ring-red-500/50 !bg-red-50/60 !text-red-700 animate-pulse'
-                        : ''
-                    } ${statusTravado ? 'opacity-100 cursor-not-allowed' : ''}`}
-                    required
-                    disabled={statusTravado}
-                    title={statusTravado ? 'Fixado em Operação para o seu perfil' : 'Situação operacional da frente de serviço no dia'}
-                  >
-                    {!statusTravado && <option value="">Selecionar status...</option>}
-                    {(statusTravado ? ['Operação'] : STATUS_OPERACIONAL_DIA).map((s) => (
-                      <option key={s} value={s}>{ROTULOS_STATUS_OPERACIONAL[s] || s}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      id="campo-status-operacional"
+                      value={form.status_operacional || ''}
+                      onChange={(e) => definirStatusOperacional(e.target.value)}
+                      className={`${inputCls} appearance-none pr-9 font-bold transition-colors ${corStatusOperacional} ${
+                        statusInvalido
+                          ? '!border-red-500 ring-2 ring-red-500/50 !bg-red-50/60 !text-red-700 animate-pulse'
+                          : ''
+                      } ${statusTravado ? 'opacity-100 cursor-not-allowed' : ''}`}
+                      required
+                      disabled={statusTravado}
+                      title={statusTravado ? 'Fixado em Operação para o seu perfil' : 'Situação operacional da frente de serviço no dia'}
+                    >
+                      {!statusTravado && <option value="" className="bg-white font-semibold text-omega-900">Selecionar status...</option>}
+                      {(statusTravado ? ['Operação'] : STATUS_OPERACIONAL_DIA).map((s) => (
+                        <option key={s} value={s} className="bg-white font-semibold text-omega-900">{ROTULOS_STATUS_OPERACIONAL[s] || s}</option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={16}
+                      aria-hidden="true"
+                      className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 ${corSetaStatus}`}
+                    />
+                  </div>
                   {statusTravado && (
                     <p className="mt-1 text-[11px] text-omega-400">Fixado em Operação para o seu perfil.</p>
                   )}
