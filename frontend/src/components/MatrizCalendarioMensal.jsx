@@ -471,8 +471,8 @@ function GradeMatriz({ dados, veiculos = [], podeEditar, onClicarCelula, ordemTa
                       <button
                         type="button"
                         disabled={desabilitado}
-                        onClick={() => {
-                          if (semPermissao || d.futuro || bloqueado) return;
+                        onClick={semPermissao ? undefined : () => {
+                          if (d.futuro || bloqueado) return;
                           onClicarCelula({ tag: v.tag, placa: v.placa, modelo: v.modelo, dia: d.dia, iso: d.iso, secao, observacao });
                         }}
                         className={
@@ -485,7 +485,7 @@ function GradeMatriz({ dados, veiculos = [], podeEditar, onClicarCelula, ordemTa
                         }
                         style={estilo}
                         title={semPermissao
-                          ? `${descricao} — somente perfil MASTER pode editar`
+                          ? `${descricao} — modo de visualização: alterações restritas ao Usuário Master`
                           : bloqueado
                             ? `${descricao} — bloqueado (${motivoBloqueio})`
                             : descricao}
@@ -1145,7 +1145,7 @@ export default function MatrizCalendarioMensal({ sessao, onAtualizado }) {
                 <span className="ml-auto text-[10px] italic text-slate-500">
                   {podeEditar
                     ? 'Clique na célula para lançar ou editar o apontamento do dia'
-                    : 'Somente perfil MASTER pode lançar ou editar apontamentos'}
+                    : 'Modo de visualização — alterações restritas ao Usuário Master'}
                 </span>
               </div>
             </div>

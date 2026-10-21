@@ -1028,6 +1028,13 @@ export const deletarParteDiaria = asyncHandler(async (req, res) => {
 // Body: { tag, data: 'YYYY-MM-DD', status_operacional, observacao? }
 // ============================================================================
 export const apontamentoRapido = asyncHandler(async (req, res) => {
+  if (!req.atuante || req.atuante.tipo !== 'ADMINISTRADOR' || req.atuante.nivel !== 'MASTER') {
+    return res.status(403).json({
+      error: 'Sem permissao',
+      message: 'Permissão negada. Apenas usuários MASTER podem alterar a matriz calendário.',
+    });
+  }
+
   const tagBruta = strOuNull(req.body?.tag);
   const dataISO = strOuNull(req.body?.data);
   const novoStatus = strOuNull(req.body?.status_operacional) || strOuNull(req.body?.status);

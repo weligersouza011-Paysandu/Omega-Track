@@ -75,3 +75,24 @@ export function requerMaster(req, res, next) {
   }
   next();
 }
+
+// Autorizacao estrita da Matriz Calendario: usa exclusivamente a identidade
+// do JWT (sem fallback de x-acting-matricula) e revalida o nivel no banco.
+export async function requerMasterMatriz(req, res, next) {
+  const sessao = lerSessao(req);
+  if (!sessao?.sub) {
+    return res.status(401).json({
+      error: 'Nao autenticado',
+      message: 'Sessao ausente ou invalida. Faca login.',
+    });
+  }
+  const usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+  if (!usuario || usuario.tipo !== 'ADMINISTRADOR' || usuario.nivel !== 'MASTER') {
+    return res.status(403).json({
+      error: 'Sem permissao',
+      message: 'Permissão negada. Apenas usuários MASTER podem alterar a matriz calendário.',
+    });
+  }
+  req.atuante = usuario;
+  next();
+}
