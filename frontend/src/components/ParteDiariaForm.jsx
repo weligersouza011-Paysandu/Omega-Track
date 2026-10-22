@@ -346,6 +346,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const [autosave, setAutosave] = useState(null); // null | 'salvando' | 'salvo HH:MM' | 'erro'
   const [erro, setErro] = useState(null);
   const [errosValidacao, setErrosValidacao] = useState({});
+  // Registro já existente para o par (veículo, dia): o formulário deixa de
+  // criar um novo e passa a editar esse lançamento (inclusive o retroativo).
+  const [parteExistente, setParteExistente] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [nomesAssinatura, setNomesAssinatura] = useState({});
   const [secoes, setSecoes] = useState({ cabecalho: true, horario: true, mao: true, equip: false, ativ: true, ocor: false, fotos: false, assin: true });
@@ -367,6 +370,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const pularAutosaveRef = useRef(true);
   const timerRef = useRef(null);
   const fileRef = useRef(null);
+  // Descarta respostas atrasadas de carregamento (troca rápida de registro).
+  const carregamentoParteRef = useRef(0);
 
   const tagPrincipal = useMemo(() => {
     const lista = (form.equipamentos || [])
@@ -518,6 +523,135 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   }, [open]);
 
   // ------- carregar relatório existente (edição) -------
+  // Usado pela listagem e pela regra de reaproveitamento: se o veículo já
+  // possui parte diária no dia, este registro é aberto para edição em vez de
+  // criar um duplicado (lançamento retroativo incluso).
+  const carregarParteParaEdicao = useCallback(async (id, opcoes = {}) => {
+    if (!id) return false;
+    const { existente = false, manterSelecao = null } = opcoes;
+    const idCarregamento = ++carregamentoParteRef.current;
+    setCarregando(true);
+    setErro(null);
+    try {
+      const resp = await fetch(`/api/partes-diarias/${id}`, { headers: authHeaders(sessao) });
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}));
+        throw new Error(corpo.message || `Falha ao carregar (API ${resp.status})`);
+      }
+      const { data: p } = await resp.json();
+      if (idCarregamento !== carregamentoParteRef.current) return false;
+      // O operador trocou data/veículo enquanto o registro carregava: não
+      // sobrescreve a seleção atual com um lançamento de outro dia/frota.
+      if (manterSelecao) {
+        const dataAtual = String(formRef.current?.data || '').trim();
+        const tagAtual = String(
+          (formRef.current?.equipamentos || []).find((e) => String(e.tag_patrimonio || '').trim())?.tag_patrimonio || '',
+        ).trim().toUpperCase();
+        if (dataAtual !== manterSelecao.data || tagAtual !== manterSelecao.tag) return false;
+      }
+      pularAutosaveRef.current = true;
+      sujoRef.current = false;
+      setParteId(p.id);
+      // Migração suave: registros antigos sem módulos ganham o logado na mão de obra
+      // e o TAG legado vira o primeiro equipamento.
+      const maoBase = (p.mao_obra || []).map((i) => ({
+        nome: i.nome || '',
+        matricula: i.matricula || '',
+        funcao: i.funcao || '',
+        horario: i.horario || '',
+        observacao: i.observacao || '',
+      }));
+      // Trava de autoria: o 1º registro é sempre o usuário logado.
+      const logado = {
+        nome: usuario?.nome || '',
+        matricula: usuario?.matricula || '',
+        funcao: usuario?.funcao || '',
+      };
+      const norm = (v) => String(v || '').trim().toUpperCase();
+      const primeiroEhLogado = maoBase.length > 0 && (
+        (logado.matricula && norm(maoBase[0].matricula) === norm(logado.matricula)) ||
+        (logado.nome && norm(maoBase[0].nome) === norm(logado.nome))
+      );
+      if (!primeiroEhLogado && (logado.nome || logado.matricula)) {
+        maoBase.unshift({ ...logado });
+      }
+      const equipBase = (p.equipamentos || []).map((i) => ({
+        tag_patrimonio: i.tag_patrimonio || '',
+        descricao: i.descricao || '',
+        horimetro_inicial: i.horimetro_inicial || '',
+        horimetro_final: i.horimetro_final || '',
+        status: i.status || 'Operacional',
+      }));
+      if (equipBase.length === 0 && p.tag) {
+        equipBase.push({
+          tag_patrimonio: p.tag,
+          descricao: p.veiculo?.modelo || '',
+          horimetro_inicial: '',
+          horimetro_final: '',
+          status: 'Operacional',
+        });
+      }
+      setForm(aplicarHorariosPadraoJornada({
+        data: paraInputData(p.data),
+        numero_contrato: p.numero_contrato || '',
+        obra: p.obra || '',
+        obra_id: p.obra_id || p.obra_ref?.id || '',
+        contratante: p.contratante || '',
+        responsavel: p.responsavel || '',
+        planejador: p.planejador || '',
+        horario_entrada: p.horario_entrada || '',
+        horario_saida: p.horario_saida || '',
+        intervalo_entrada: p.intervalo_entrada || '',
+        intervalo_saida: p.intervalo_saida || '',
+        status_relatorio: p.status_relatorio || 'PREENCHENDO',
+        status_operacional: statusTravado ? 'Operação' : (p.status_operacional || p.status || 'Operação'),
+        km_inicial: p.km_inicial ?? '',
+        km_final: p.km_final ?? '',
+        mao_obra: maoBase,
+        equipamentos: equipBase,
+        atividades: (p.atividades || []).map((i) => ({
+          descricao: i.descricao || '',
+          // Normaliza rótulos legados para o padrão atual
+          status: i.status === 'Em andamento' ? 'Em Andamento' : i.status === 'Concluída' ? 'Concluído' : (i.status || 'Pendente'),
+        })),
+        ocorrencias: (p.ocorrencias || []).map((i) => ({
+          // Normaliza rótulo legado para o padrão atual
+          tipo: i.tipo === 'Ambiental' ? 'Meio Ambiente' : (TIPOS_OCORRENCIA.includes(i.tipo) ? i.tipo : 'Operacional'),
+          descricao: i.descricao || '',
+        })),
+        fotos: (p.fotos || []).map((i) => ({ url: i.url, legenda: i.legenda || '', public_id: i.public_id || '' })),
+      }));
+      // Registro carregado traz a própria KM (não é herança).
+      setKmHerdada(false);
+      setKmOrigem(null);
+      // Motivo da parada (reeditável no modo frota parada).
+      setMotivoParada((p.ocorrencias || [])[0]?.descricao || '');
+      setAssinaturas(p.assinaturas || []);
+      setAuditoria({
+        criado_por: p.criado_por || null,
+        atualizado_por: p.atualizado_por || null,
+        updated_at: p.updated_at || null,
+        visualizacoes: p.visualizacoes || 0,
+        logs: p.logs || [],
+      });
+      setNomesAssinatura({});
+      setParteExistente(existente ? {
+        id: p.id,
+        tag: p.tag,
+        data: p.data,
+        numero_relatorio: p.numero_relatorio || null,
+      } : null);
+      return true;
+    } catch (e) {
+      if (idCarregamento === carregamentoParteRef.current) {
+        setErro(e.message || 'Falha ao carregar relatório.');
+      }
+      return false;
+    } finally {
+      if (idCarregamento === carregamentoParteRef.current) setCarregando(false);
+    }
+  }, [sessao, usuario, statusTravado]);
+
   useEffect(() => {
     if (!open) return;
     setErro(null);
@@ -525,7 +659,11 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     setErrosValidacao({});
     setAutosave(null);
     setVerLogs(false);
+    setParteExistente(null);
     if (!inicial?.id) {
+      // Invalida carregamentos pendentes e volta ao modo "novo relatório".
+      carregamentoParteRef.current += 1;
+      setCarregando(false);
       pularAutosaveRef.current = true;
       sujoRef.current = false;
       setParteId(null);
@@ -553,109 +691,69 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       setNomesAssinatura({});
       return;
     }
-    let vivo = true;
-    (async () => {
-      setCarregando(true);
-      try {
-        const resp = await fetch(`/api/partes-diarias/${inicial.id}`, { headers: authHeaders(sessao) });
-        if (!resp.ok) throw new Error(`Falha ao carregar (API ${resp.status})`);
-        const { data: p } = await resp.json();
-        if (!vivo) return;
-        pularAutosaveRef.current = true;
-        sujoRef.current = false;
-        setParteId(p.id);
-        // Migração suave: registros antigos sem módulos ganham o logado na mão de obra
-        // e o TAG legado vira o primeiro equipamento.
-        const maoBase = (p.mao_obra || []).map((i) => ({
-          nome: i.nome || '',
-          matricula: i.matricula || '',
-          funcao: i.funcao || '',
-          horario: i.horario || '',
-          observacao: i.observacao || '',
-        }));
-        // Trava de autoria: o 1º registro é sempre o usuário logado.
-        const logado = {
-          nome: usuario?.nome || '',
-          matricula: usuario?.matricula || '',
-          funcao: usuario?.funcao || '',
-        };
-        const norm = (v) => String(v || '').trim().toUpperCase();
-        const primeiroEhLogado = maoBase.length > 0 && (
-          (logado.matricula && norm(maoBase[0].matricula) === norm(logado.matricula)) ||
-          (logado.nome && norm(maoBase[0].nome) === norm(logado.nome))
-        );
-        if (!primeiroEhLogado && (logado.nome || logado.matricula)) {
-          maoBase.unshift({ ...logado });
-        }
-        const equipBase = (p.equipamentos || []).map((i) => ({
-          tag_patrimonio: i.tag_patrimonio || '',
-          descricao: i.descricao || '',
-          horimetro_inicial: i.horimetro_inicial || '',
-          horimetro_final: i.horimetro_final || '',
-          status: i.status || 'Operacional',
-        }));
-        if (equipBase.length === 0 && p.tag) {
-          equipBase.push({
-            tag_patrimonio: p.tag,
-            descricao: p.veiculo?.modelo || '',
-            horimetro_inicial: '',
-            horimetro_final: '',
-            status: 'Operacional',
-          });
-        }
-        setForm(aplicarHorariosPadraoJornada({
-          data: paraInputData(p.data),
-          numero_contrato: p.numero_contrato || '',
-          obra: p.obra || '',
-          obra_id: p.obra_id || p.obra_ref?.id || '',
-          contratante: p.contratante || '',
-          responsavel: p.responsavel || '',
-          planejador: p.planejador || '',
-          horario_entrada: p.horario_entrada || '',
-          horario_saida: p.horario_saida || '',
-          intervalo_entrada: p.intervalo_entrada || '',
-          intervalo_saida: p.intervalo_saida || '',
-          status_relatorio: p.status_relatorio || 'PREENCHENDO',
-          status_operacional: statusTravado ? 'Operação' : (p.status_operacional || p.status || 'Operação'),
-          km_inicial: p.km_inicial ?? '',
-          km_final: p.km_final ?? '',
-          mao_obra: maoBase,
-          equipamentos: equipBase,
-          atividades: (p.atividades || []).map((i) => ({
-            descricao: i.descricao || '',
-            // Normaliza rótulos legados para o padrão atual
-            status: i.status === 'Em andamento' ? 'Em Andamento' : i.status === 'Concluída' ? 'Concluído' : (i.status || 'Pendente'),
-          })),
-          ocorrencias: (p.ocorrencias || []).map((i) => ({
-            // Normaliza rótulo legado para o padrão atual
-            tipo: i.tipo === 'Ambiental' ? 'Meio Ambiente' : (TIPOS_OCORRENCIA.includes(i.tipo) ? i.tipo : 'Operacional'),
-            descricao: i.descricao || '',
-          })),
-          fotos: (p.fotos || []).map((i) => ({ url: i.url, legenda: i.legenda || '', public_id: i.public_id || '' })),
-        }));
-        // Registro carregado traz a própria KM (não é herança).
-        setKmHerdada(false);
-        setKmOrigem(null);
-        // Motivo da parada (reeditável no modo frota parada).
-        setMotivoParada((p.ocorrencias || [])[0]?.descricao || '');
-        setAssinaturas(p.assinaturas || []);
-        setAuditoria({
-          criado_por: p.criado_por || null,
-          atualizado_por: p.atualizado_por || null,
-          updated_at: p.updated_at || null,
-          visualizacoes: p.visualizacoes || 0,
-          logs: p.logs || [],
-        });
-        setNomesAssinatura({});
-      } catch (e) {
-        if (vivo) setErro(e.message || 'Falha ao carregar relatório.');
-      } finally {
-        if (vivo) setCarregando(false);
-      }
-    })();
-    return () => { vivo = false; };
+    carregarParteParaEdicao(inicial.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, inicial?.id]);
+
+  // ------- reutilização do lançamento do dia (data + veículo) -------
+  // Busca a parte diária já existente para TAG + data (respeitando o escopo
+  // de visibilidade da API). Retorna o registro mais recente + total do dia.
+  const buscarParteDoDia = useCallback(async (tag, dataISO) => {
+    const t = String(tag || '').trim().toUpperCase();
+    const d = String(dataISO || '').trim();
+    if (!t || !d) return null;
+    try {
+      const params = new URLSearchParams({
+        tag: t,
+        data_inicio: d,
+        data_fim: d,
+        limit: '10',
+        _t: String(Date.now()),
+      });
+      const resp = await fetch(`/api/partes-diarias?${params.toString()}`, { headers: authHeaders(sessao) });
+      if (!resp.ok) return null;
+      const corpo = await resp.json().catch(() => ({}));
+      const existentes = Array.isArray(corpo?.data) ? corpo.data : [];
+      const parte = existentes.find((p) => String(p?.tag || '').toUpperCase() === t) || existentes[0] || null;
+      const total = Number(corpo?.pagination?.total);
+      return { parte, total: Number.isFinite(total) ? total : existentes.length };
+    } catch {
+      return null;
+    }
+  }, [sessao]);
+
+  // Antes de criar um novo relatório, consulta se o veículo principal já tem
+  // parte diária na data. Se existir (e o limite do dia estiver esgotado),
+  // carrega esse registro no próprio formulário (edição retroativa) — nunca
+  // cria duplicado silencioso. No fluxo retroativo travado, qualquer registro
+  // existente é reaberto para edição.
+  useEffect(() => {
+    if (!open || carregando) return;
+    if (inicial?.id || parteId) return;
+    const dataISO = String(form.data || '').trim();
+    const tag = tagPrincipal;
+    if (!dataISO || !tag) return;
+    let cancelado = false;
+    const timer = setTimeout(async () => {
+      const encontrado = await buscarParteDoDia(tag, dataISO);
+      const alvo = encontrado?.parte;
+      if (!alvo?.id || cancelado) return;
+      // Fora do retroativo travado, respeita o limite diário do veículo
+      // (ônibus aceita 2 registros; os demais, 1).
+      const retroativoTravado = prefill?.travar === true;
+      const limite = ehOnibus ? 2 : 1;
+      if (!retroativoTravado && Number(encontrado.total) < limite) return;
+      // Evita carregar registro antigo se o operador trocou data/veículo
+      // enquanto a consulta estava em andamento.
+      if (String(formRef.current?.data || '').trim() !== dataISO) return;
+      const tagAtual = String(
+        (formRef.current?.equipamentos || []).find((e) => String(e.tag_patrimonio || '').trim())?.tag_patrimonio || '',
+      ).trim().toUpperCase();
+      if (tagAtual !== tag) return;
+      await carregarParteParaEdicao(alvo.id, { existente: true, manterSelecao: { data: dataISO, tag } });
+    }, 450);
+    return () => { cancelado = true; clearTimeout(timer); };
+  }, [open, carregando, inicial?.id, parteId, form.data, tagPrincipal, prefill?.travar, ehOnibus, buscarParteDoDia, carregarParteParaEdicao]);
 
   // ------- persistência -------
   // TAG deriva do 1º equipamento; autoria (funcionário/operador/função),
@@ -847,6 +945,15 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         body: JSON.stringify(payload),
       });
       const corpo = await resp.json().catch(() => ({}));
+      // Regra de reaproveitamento: o backend recusou o duplicado (data+veículo
+      // já lançados). Abre o registro existente para edição retroativa em vez
+      // de apenas exibir o erro.
+      if (!resp.ok && !parteId && corpo?.code === 'LIMITE_DIARIO_PARTE') {
+        const encontrado = await buscarParteDoDia(payload.tag, payload.data);
+        if (encontrado?.parte?.id && await carregarParteParaEdicao(encontrado.parte.id, { existente: true })) {
+          return null;
+        }
+      }
       // Exibe o detalhe exato do banco/Prisma (campo `details` em dev) em vez do genérico
       if (!resp.ok) throw new Error(corpo.details || corpo.message || `Falha ao salvar (API ${resp.status})`);
       sujoRef.current = false;
@@ -864,7 +971,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     } finally {
       if (!silencioso) setSalvando(false);
     }
-  }, [form, parteId, montarPayload, aplicarResposta, sessao, validarFormulario, executarScrollParaElemento]);
+  }, [form, parteId, montarPayload, aplicarResposta, sessao, validarFormulario, executarScrollParaElemento, buscarParteDoDia, carregarParteParaEdicao]);
 
   // Salvamento em tempo real: 1,5 s após a última edição (somente com id).
   useEffect(() => {
@@ -1325,7 +1432,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       <Modal
         open={open}
         onClose={fechar}
-        title="Parte Diária"
+        title={parteExistente ? 'Editar Parte Diária' : 'Parte Diária'}
         subtitle={parteId ? `${(form.equipamentos || []).find((e) => String(e.tag_patrimonio || '').trim())?.tag_patrimonio || 'Relatório'} • ${form.obra || ''} • ${rotuloStatus}` : 'Novo relatório • preencha e salve'}
         size="full"
         footer={
@@ -1357,6 +1464,22 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               <div className="p-3 rounded-xl bg-red-50 border border-red-200/60 text-sm text-red-800 flex items-start gap-2">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                 <span>{erro}</span>
+              </div>
+            )}
+
+            {parteExistente && (
+              <div className="p-3 rounded-xl bg-sky-50 border border-sky-200/70 text-sm text-sky-900 flex items-start gap-2">
+                <History size={16} className="mt-0.5 shrink-0 text-sky-700" />
+                <div>
+                  <p className="font-bold">
+                    {parteExistente.tag || 'Este veículo'} já possui uma Parte Diária em {formatarDataSemTimezone(parteExistente.data)}.
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-sky-800">
+                    Você está editando o lançamento existente
+                    {parteExistente.numero_relatorio ? ` (Nº ${parteExistente.numero_relatorio})` : ''}.
+                    Salve para atualizar o registro retroativo — nenhuma duplicidade será criada.
+                  </p>
+                </div>
               </div>
             )}
 
