@@ -30,6 +30,12 @@ function fmtData(iso) {
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('pt-BR');
 }
+function isoDaquiADias(dias) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + Math.max(dias || 0, 0));
+  return d.toISOString().slice(0, 10);
+}
 
 function BarraGantt({ linha }) {
   const faixa = faixaDe(linha);
@@ -76,7 +82,7 @@ export default function GestaoPreditivaView() {
     setCarregando(true);
     setErro(null);
     try {
-      const resp = await fetch('/api/manutencao/projecao-frota');
+      const resp = await fetch(`/api/manutencao/projecao-frota?_t=${Date.now()}`, { cache: 'no-store' });
       if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
       const corpo = await resp.json();
       setLinhas(Array.isArray(corpo?.data) ? corpo.data : []);
@@ -104,6 +110,25 @@ export default function GestaoPreditivaView() {
       });
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo.message || `API respondeu ${resp.status}`);
+      // Atualização imediata da linha: o KM da preventiva vira o novo marco
+      // zero e o ciclo recomeça com o plano total (barra verde cheia).
+      setLinhas((prev) => prev.map((l) => {
+        if (l.tag !== linha.tag) return l;
+        const limite = Number(l.km_limite_preventiva) || 10000;
+        const media = Number(l.media_km_dia);
+        const dias = media > 0 ? Math.ceil(limite / media) : null;
+        return {
+          ...l,
+          km_ultima_preventiva: linha.km_atual,
+          origem_preventiva: 'registro_manual',
+          km_rodados_desde_preventiva: 0,
+          km_restantes: limite,
+          dias_restantes_estimados: dias,
+          data_prevista_preventiva: dias === null ? null : isoDaquiADias(dias),
+          status_alerta: 'NORMAL',
+          sem_registro_preventiva: false,
+        };
+      }));
       await carregar();
     } catch (e) {
       alert(e.message || 'Falha ao registrar preventiva.');
@@ -145,7 +170,7 @@ export default function GestaoPreditivaView() {
         <span className="p-2 rounded-xl bg-omega-900 text-white"><Gauge size={18} /></span>
         <div className="min-w-0">
           <h2 className="text-lg font-extrabold text-omega-900 leading-tight">Gestão Preditiva de Preventivas</h2>
-          <p className="text-xs text-omega-500">Média diária (30 dias úteis) • projeção em dias corridos • janela do Gantt: {JANELA_DIAS} dias</p>
+          <p className="text-xs text-omega-500">Média diária (30 dias úteis; estimada quando não há histórico) • projeção em dias corridos • janela do Gantt: {JANELA_DIAS} dias</p>
         </div>
         <button onClick={carregar} disabled={carregando} className="btn-secondary ml-auto !py-2 text-xs disabled:opacity-50">
           <RefreshCw size={14} className={carregando ? 'animate-spin' : ''} /> Atualizar
@@ -212,8 +237,14 @@ export default function GestaoPreditivaView() {
                     <span className={`chip ring-1 ring-inset text-[10px] ${FAIXAS[faixa].chip}`}>{FAIXAS[faixa].rotulo}</span>
                   </div>
                   <div className="text-[11px] text-omega-500 truncate">{l.modelo || 'Modelo não informado'}{l.placa ? ` • ${l.placa}` : ''}</div>
-                  <div className="text-[11px] text-omega-500 tabular-nums">
+                  <div
+                    className="text-[11px] text-omega-500 tabular-nums"
+                    title={l.media_estimada
+                      ? `Sem histórico suficiente: média estimada pela ${l.origem_media === 'frota_modelo' ? 'frota do mesmo modelo' : 'categoria do veículo'}`
+                      : 'Média calculada com as leituras dos últimos 30 dias'}
+                  >
                     Média: <strong className="text-omega-800">{fmtMedia(l.media_km_dia)}</strong>
+                    {l.media_estimada ? <span className="text-omega-400"> (estimada)</span> : null}
                     {' • '}Restam: <strong className="text-omega-800">{fmtKm(l.km_restantes)} km</strong>
                   </div>
                 </div>

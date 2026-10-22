@@ -529,6 +529,19 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   });
 });
 
+function celulaDualDoDia(lancamentos = []) {
+  const secoes = [];
+  for (const item of lancamentos) {
+    if (!secoes.includes(item.secao)) secoes.push(item.secao);
+    if (secoes.length > 2) return null;
+  }
+  if (secoes.length !== 2) return null;
+  const [primeira, segunda] = secoes;
+  const statusEsq = secoes.includes('operacao') ? 'operacao' : primeira;
+  const statusDir = statusEsq === primeira ? segunda : primeira;
+  return { status_esq: statusEsq, status_dir: statusDir, status_1: primeira, status_2: segunda };
+}
+
 // ============================================================================
 // GET /api/eficiencia/matriz?mes=YYYY-MM&tag=&modelo=&contrato=&situacao=
 // Matriz Calendario — analise mensal detalhada por veiculo (secao inferior da
@@ -538,7 +551,10 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
 // 'preventiva', 'interdicao', 'indisponibilidade', 'nao_operado'), 'pendentes'
 // (dia util seg-sex, sem feriado, dentro da janela de mobilizacao, sem
 // lancamento e sem descarte manual) ou null (fim de semana, feriado, dia futuro
-// ou fora da janela). Aderencia do veiculo/mes = Operacao / (Operacao + Desvios).
+// ou fora da janela). Quando o dia possui dois status distintos, a celula vira
+// { status_esq, status_dir, status_1, status_2 } (Operacao sempre a esquerda;
+// status_1/status_2 preservam a ordem cronologica para o tooltip). Aderencia do
+// veiculo/mes = Operacao / (Operacao + Desvios), mantendo o pior caso por dia.
 //
 // Escopo: SOMENTE TAG com ao menos um apontamento no mes. Frota ativa sem
 // registro nao entra na tabela. O filtro `situacao` restringe as TAGs que
@@ -613,7 +629,15 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
         veiculo: { deletado_em: null },
         ...(filtroTag ? { tag: filtroTag } : {}),
       },
-      select: { tag: true, data: true, status_operacional: true, observacao_rapida: true, updated_at: true },
+      select: {
+        id: true,
+        tag: true,
+        data: true,
+        status_operacional: true,
+        observacao_rapida: true,
+        created_at: true,
+        updated_at: true,
+      },
     }), 3, 700, 'eficiencia'),
     comRetryConexao(() => prisma.pendenciaParteDiariaIgnorada.findMany({
       where: { data: { gte: inicioData, lte: fimData } },
@@ -668,6 +692,8 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
   // Pior caso por (TAG, dia); status fora do dominio / pendente explicito
   // equivale a "sem lancamento" (a celula cai na regra de pendencia).
   const lancamentos = new Map();
+  // Lista cronologica por (TAG, dia) para detectar dois status distintos.
+  const lancamentosPorDia = new Map();
   // Observacao rapida mais recente por (TAG, dia) — exibida ao reabrir o modal.
   const observacoes = new Map();
   for (const p of partes) {
@@ -683,6 +709,16 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
     const prioridade = PRIORIDADE_MATRIZ[secao] ?? -1;
     const atual = lancamentos.get(chave);
     if (!atual || prioridade >= atual.prioridade) lancamentos.set(chave, { secao, prioridade });
+    const lista = lancamentosPorDia.get(chave) || [];
+    lista.push({
+      secao,
+      criadoEm: p.created_at ? new Date(p.created_at).getTime() : 0,
+      id: p.id || '',
+    });
+    lancamentosPorDia.set(chave, lista);
+  }
+  for (const lista of lancamentosPorDia.values()) {
+    lista.sort((a, b) => (a.criadoEm - b.criadoEm) || String(a.id).localeCompare(String(b.id)));
   }
 
   const global = zerado();
@@ -697,7 +733,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
       const chave = `${tagKey}|${d.iso}`;
       const lancamento = lancamentos.get(chave);
       if (lancamento) {
-        celulas[d.dia] = lancamento.secao;
+        celulas[d.dia] = celulaDualDoDia(lancamentosPorDia.get(chave)) || lancamento.secao;
         stats[lancamento.secao] += 1;
         global[lancamento.secao] += 1;
       } else {

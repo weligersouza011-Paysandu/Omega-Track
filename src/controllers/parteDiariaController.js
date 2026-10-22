@@ -803,12 +803,21 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
 
   const atual = await prisma.parteDiaria.findFirst({
     where: { id, deletado_em: null, veiculo: { deletado_em: null } },
+    include: {
+      mao_obra: { orderBy: { created_at: 'asc' }, take: 1 },
+    },
   });
   if (!atual) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
   }
 
   const tem = (k) => Object.prototype.hasOwnProperty.call(corpo, k);
+  const maoOriginal = atual.mao_obra?.[0] || null;
+  const autorOriginal = {
+    nome: strOuNull(maoOriginal?.nome) || strOuNull(atual.funcionario) || strOuNull(atual.criado_por),
+    matricula: strOuNull(maoOriginal?.matricula) || strOuNull(atual.operador),
+    funcao: strOuNull(maoOriginal?.funcao) || strOuNull(atual.funcao),
+  };
 
   // Regra de ouro: evidencia_url aceita SOMENTE URL do Cloudinary (sem binario).
   if (tem('evidencia_url')) validarUrlMidia(corpo.evidencia_url, 'evidencia_url');
@@ -878,6 +887,8 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   simplesTexto.forEach((k) => {
     if (tem(k)) dados[k] = corpo[k] === '' ? null : corpo[k];
   });
+  if (autorOriginal.nome) dados.funcionario = autorOriginal.nome;
+  if (autorOriginal.matricula) dados.operador = autorOriginal.matricula;
   if (tem('status_operacional') && dados.status_operacional) {
     dados.status = dados.status_operacional;
   } else if (tem('status') && dados.status) {
@@ -940,6 +951,23 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   // Só sincroniza coleções que chegaram como array válido: valores nulos ou
   // mal formatados nunca apagam dados nem quebram o createMany (anti-500)
   const temLista = (k) => Array.isArray(corpo[k]);
+  if (temLista('mao_obra') && autorOriginal.nome) {
+    const lista = filhos.mao_obra || [];
+    const primeiro = lista[0];
+    if (primeiro) {
+      primeiro.nome = autorOriginal.nome;
+      primeiro.matricula = autorOriginal.matricula || primeiro.matricula;
+      filhos.mao_obra = [primeiro, ...lista.slice(1)];
+    } else {
+      filhos.mao_obra = [{
+        nome: autorOriginal.nome,
+        matricula: autorOriginal.matricula || null,
+        funcao: autorOriginal.funcao || null,
+        horario: null,
+        observacao: null,
+      }];
+    }
+  }
 
   try {
     await prisma.$transaction(async (tx) => {

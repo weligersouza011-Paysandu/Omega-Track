@@ -47,6 +47,74 @@ export async function obterUltimaKmFinal(tagNormalizada, ignorarId = null) {
 export const JANELA_MEDIA_DIAS = 30;
 export const JANELA_LEITURA_DIAS = 60;
 
+// Sem histórico suficiente, a projeção usa uma média estimada. O piso evita
+// médias próximas de zero (veículo parado na janela) e o padrão de 50 km/dia
+// atende leves/caminhonetes; categorias mais pesadas têm estimativas próprias.
+export const MEDIA_KM_DIA_MINIMA = 1;
+export const MEDIA_KM_DIA_PADRAO = 50;
+
+function normalizarTexto(v) {
+  return String(v || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim();
+}
+
+const MEDIAS_ESTIMADAS_POR_CATEGORIA = [
+  { termos: ['ONIBUS'], media: 120 },
+  { termos: ['CAMINHAO', 'CAMINHOES', 'MUNCK', 'CARRETA', 'CAVALO', 'BASCULANTE', 'GUINDASTE'], media: 80 },
+  { termos: ['CAMINHONETE', 'PICKUP', 'LEVE', 'UTILITARIO', 'SUV'], media: 50 },
+  { termos: ['MOTO'], media: 40 },
+  { termos: ['EMPILHADEIRA', 'TRATOR', 'MAQUINA', 'RETROESCAVADEIRA', 'PA CARREGADEIRA'], media: 20 },
+];
+
+export function mediaValida(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= MEDIA_KM_DIA_MINIMA;
+}
+
+export function mediaPadraoPorCategoria(modelo) {
+  const categoria = normalizarTexto(modelo);
+  if (categoria) {
+    const faixa = MEDIAS_ESTIMADAS_POR_CATEGORIA.find((f) => f.termos.some((termo) => categoria.includes(termo)));
+    if (faixa) return faixa.media;
+  }
+  return MEDIA_KM_DIA_PADRAO;
+}
+
+// Média das médias válidas da frota, agrupada por modelo (mesma categoria).
+export function agruparMediaPorModelo(linhas = []) {
+  const acumulado = new Map();
+  for (const linha of linhas) {
+    if (!mediaValida(linha?.media_km_dia)) continue;
+    const chave = normalizarTexto(linha?.modelo);
+    if (!chave) continue;
+    const atual = acumulado.get(chave) || { soma: 0, total: 0 };
+    atual.soma += Number(linha.media_km_dia);
+    atual.total += 1;
+    acumulado.set(chave, atual);
+  }
+  const medias = new Map();
+  for (const [chave, { soma, total }] of acumulado) {
+    if (total > 0) medias.set(chave, Math.round((soma / total) * 10) / 10);
+  }
+  return medias;
+}
+
+// Média efetiva: histórico > média da frota do mesmo modelo > padrão da categoria.
+export function resolverMediaKmDia({ mediaCalculada = null, modelo = null, mediasModelo = new Map() } = {}) {
+  if (mediaValida(mediaCalculada)) {
+    return { media: Math.round(Number(mediaCalculada) * 10) / 10, estimada: false, origem: 'historico' };
+  }
+  const chave = normalizarTexto(modelo);
+  const daFrota = chave && mediasModelo instanceof Map ? mediasModelo.get(chave) : null;
+  if (mediaValida(daFrota)) {
+    return { media: Math.round(Number(daFrota) * 10) / 10, estimada: true, origem: 'frota_modelo' };
+  }
+  return { media: mediaPadraoPorCategoria(modelo), estimada: true, origem: 'categoria' };
+}
+
 function somenteData(d) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -147,17 +215,31 @@ export async function obterUltimaPartePreventiva(tagNormalizada) {
   return null;
 }
 
-// Âncora do ciclo: parte preventiva > coluna manual > 0.
-export async function resolverAncorasPreventiva(tagNormalizada, kmManualVeiculo = null) {
-  const parte = await obterUltimaPartePreventiva(tagNormalizada);
-  if (parte) {
-    return { ...parte, origem_preventiva: 'parte_preventiva' };
-  }
+// Âncora do ciclo: o maior KM entre a última parte preventiva e o registro
+// manual. O maior KM representa o evento mais recente do odômetro e garante
+// que um "Registrar preventiva" manual tenha efeito imediato mesmo existindo
+// uma parte preventiva anterior.
+export function escolherAncoraPreventiva(parte = null, kmManualVeiculo = null) {
   const manual = parseKm(kmManualVeiculo);
+  if (parte && (manual === null || Number(parte.km_ultima_preventiva) >= manual)) {
+    return {
+      km_ultima_preventiva: Number(parte.km_ultima_preventiva),
+      parte_id: parte.parte_id ?? null,
+      data: parte.data ?? null,
+      numero_relatorio: parte.numero_relatorio ?? null,
+      origem_preventiva: 'parte_preventiva',
+    };
+  }
   if (manual !== null) {
     return { km_ultima_preventiva: manual, parte_id: null, data: null, numero_relatorio: null, origem_preventiva: 'registro_manual' };
   }
   return { km_ultima_preventiva: 0, parte_id: null, data: null, numero_relatorio: null, origem_preventiva: 'zero' };
+}
+
+// Âncora do ciclo: parte preventiva ou manual, o que tiver o maior KM (ver acima).
+export async function resolverAncorasPreventiva(tagNormalizada, kmManualVeiculo = null) {
+  const parte = await obterUltimaPartePreventiva(tagNormalizada);
+  return escolherAncoraPreventiva(parte, kmManualVeiculo);
 }
 
 // Lote para a projeção da frota: última preventiva com KM por TAG (1 consulta).

@@ -552,8 +552,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       pularAutosaveRef.current = true;
       sujoRef.current = false;
       setParteId(p.id);
-      // Migração suave: registros antigos sem módulos ganham o logado na mão de obra
-      // e o TAG legado vira o primeiro equipamento.
+      // Migração suave: registros antigos sem módulos ganham o autor original
+      // na mão de obra e o TAG legado vira o primeiro equipamento.
       const maoBase = (p.mao_obra || []).map((i) => ({
         nome: i.nome || '',
         matricula: i.matricula || '',
@@ -561,19 +561,23 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         horario: i.horario || '',
         observacao: i.observacao || '',
       }));
-      // Trava de autoria: o 1º registro é sempre o usuário logado.
-      const logado = {
-        nome: usuario?.nome || '',
-        matricula: usuario?.matricula || '',
-        funcao: usuario?.funcao || '',
-      };
-      const norm = (v) => String(v || '').trim().toUpperCase();
-      const primeiroEhLogado = maoBase.length > 0 && (
-        (logado.matricula && norm(maoBase[0].matricula) === norm(logado.matricula)) ||
-        (logado.nome && norm(maoBase[0].nome) === norm(logado.nome))
-      );
-      if (!primeiroEhLogado && (logado.nome || logado.matricula)) {
-        maoBase.unshift({ ...logado });
+      if (maoBase.length === 0) {
+        const autorOriginal = {
+          nome: p.funcionario || p.criado_por || '',
+          matricula: p.operador || '',
+          funcao: p.funcao || '',
+        };
+        if (autorOriginal.nome || autorOriginal.matricula) {
+          maoBase.push({ ...autorOriginal, horario: '', observacao: '' });
+        } else if (usuario?.nome || usuario?.matricula) {
+          maoBase.push({
+            nome: usuario?.nome || '',
+            matricula: usuario?.matricula || '',
+            funcao: usuario?.funcao || '',
+            horario: '',
+            observacao: '',
+          });
+        }
       }
       const equipBase = (p.equipamentos || []).map((i) => ({
         tag_patrimonio: i.tag_patrimonio || '',
@@ -756,15 +760,15 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   }, [open, carregando, inicial?.id, parteId, form.data, tagPrincipal, prefill?.travar, ehOnibus, buscarParteDoDia, carregarParteParaEdicao]);
 
   // ------- persistência -------
-  // TAG deriva do 1º equipamento; autoria (funcionário/operador/função),
-  // usada na listagem e no filtro por perfil, é sempre o usuário logado (1º registro, travado).
+  // TAG deriva do 1º equipamento; autoria (funcionário/operador/função), usada
+  // na listagem e no filtro por perfil, vem da 1ª linha de mão de obra travada.
   const montarPayload = useCallback((f = form, listaAssin = assinaturas) => {
     const veiculoPrincipal = (f.equipamentos || []).find((e) => String(e.tag_patrimonio || '').trim());
     const maoTravada = (f.mao_obra || []).map((r, idx) => (idx === 0 ? {
       ...r,
-      nome: usuario?.nome || r.nome || '',
-      matricula: usuario?.matricula || r.matricula || '',
-      funcao: r.funcao || funcaoDoLogado || '',
+      nome: String(r.nome || '').trim(),
+      matricula: String(r.matricula || '').trim(),
+      funcao: r.funcao || '',
     } : {
       ...r,
       // Auxiliares sem função resolvida assumem o cargo default "Sinaleiro"
@@ -809,7 +813,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       status: statusOperacionalEfetivo,
       funcionario: String(responsavelJornada.nome || '').trim() || usuario?.nome || null,
       operador: String(responsavelJornada.matricula || '').trim() || usuario?.matricula || null,
-      funcao: String(responsavelJornada.funcao || '').trim() || funcaoDoLogado || null,
+      funcao: String(responsavelJornada.funcao || '').trim() || null,
       km_inicial: String(f.km_inicial ?? '').trim() || null,
       km_final: String(f.km_final ?? '').trim() || null,
       mao_obra: maoTravada,
@@ -1035,7 +1039,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   };
 
   // Diagnóstico da preventiva (conveniência — nunca bloqueia o formulário).
-  const consultarManutencao = useCallback(async (tag, kmFinal) => {
+  // Em relatório preventivo a própria parte passa a ser a âncora do ciclo,
+  // então ela não é ignorada na consulta (o marco zero atualiza na hora).
+  const consultarManutencao = useCallback(async (tag, kmFinal, { ignorarParte = true } = {}) => {
     const t = String(tag || '').trim().toUpperCase();
     if (!t) { setManutencao(null); return; }
     const idReq = ++manutencaoReqRef.current;
@@ -1044,7 +1050,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       if (String(kmFinal ?? '').trim() !== '' && Number.isFinite(Number(kmFinal))) {
         qs.set('km_atual', String(kmFinal));
       }
-      if (parteId) qs.set('ignorar_parte_id', parteId);
+      if (parteId && ignorarParte) qs.set('ignorar_parte_id', parteId);
       const resp = await fetch(`/api/mob-desmob/${encodeURIComponent(t)}/status-manutencao?${qs}`, { headers: authHeaders(sessao) });
       if (!resp.ok) return;
       const corpo = await resp.json();
@@ -1058,12 +1064,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   // Troca de veículo limpa o diagnóstico anterior.
   useEffect(() => { setManutencao(null); }, [tagPrincipal]);
 
-  // Reconsulta ao trocar de veículo ou digitar KM Final (debounce 600ms).
+  // Reconsulta ao trocar de veículo, de status ou digitar KM Final (debounce 600ms).
   useEffect(() => {
     if (!open || !tagPrincipal) return;
-    const timer = setTimeout(() => { consultarManutencao(tagPrincipal, form.km_final); }, 600);
+    const ignorarParte = modoDoStatus(form.status_operacional) !== 'preventiva';
+    const timer = setTimeout(() => { consultarManutencao(tagPrincipal, form.km_final, { ignorarParte }); }, 600);
     return () => clearTimeout(timer);
-  }, [open, tagPrincipal, form.km_final, parteId, consultarManutencao]);
+  }, [open, tagPrincipal, form.km_final, form.status_operacional, parteId, consultarManutencao]);
 
   const fmtKm = (v) => (v === null || v === undefined || !Number.isFinite(Number(v))
     ? '—'
@@ -1670,7 +1677,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             <Secao icone={Users} titulo="Mão de Obra" count={form.mao_obra.length} aberto={secoes.mao} onToggle={() => alternarSecao('mao')} onAdicionar={() => adicionar('mao_obra', { nome: '', matricula: '', funcao: 'Sinaleiro' })}>
               {form.mao_obra.length === 0 && <LinhaVazia texto="Nenhum colaborador lançado. Use + Adicionar." />}
               {form.mao_obra.length > 0 && (
-                <p className="text-[11px] text-omega-400 -mb-1">O primeiro registro é o usuário logado (autoria do lançamento). Use + Adicionar para auxiliares. A função é preenchida pelo cadastro.</p>
+                <p className="text-[11px] text-omega-400 -mb-1">O primeiro registro é o operador autor do lançamento (travado). Use + Adicionar para auxiliares. A função é preenchida pelo cadastro.</p>
               )}
               <datalist id="mao-matriculas">
                 {usuarios.map((u) => (
@@ -1688,27 +1695,27 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 return (
                   <div key={i} className={`grid grid-cols-1 md:grid-cols-12 gap-2 p-2.5 rounded-xl border ${travado ? 'border-omega-900/20 bg-omega-900/[0.03]' : 'border-omega-100 bg-omega-50/40'}`}>
                     <input
-                      value={val(it.matricula, usuario?.matricula)}
+                      value={val(it.matricula, '')}
                       onChange={(e) => atualizarColaborador(i, 'matricula', e.target.value)}
                       readOnly={travado}
-                      title={travado ? 'Usuário logado (travado)' : undefined}
+                      title={travado ? 'Operador autor (travado)' : undefined}
                       className={`${inputCls} w-full md:col-span-3 font-mono ${travado ? 'bg-omega-50 text-omega-500' : ''}`}
                       placeholder="Matrícula *"
                       list={travado ? undefined : 'mao-matriculas'}
                     />
                     <input
-                      value={val(it.nome, usuario?.nome)}
+                      value={val(it.nome, '')}
                       onChange={(e) => atualizarColaborador(i, 'nome', e.target.value)}
                       readOnly={travado}
-                      title={travado ? 'Usuário logado (travado)' : undefined}
+                      title={travado ? 'Operador autor (travado)' : undefined}
                       className={`${inputCls} w-full font-medium md:col-span-4 ${travado ? 'bg-omega-50 text-omega-500' : 'text-omega-900'}`}
                       placeholder="Nome *"
                       list={travado ? undefined : 'mao-nomes'}
                     />
                     <input
-                      value={val(it.funcao, funcaoDoLogado)}
+                      value={val(it.funcao, '')}
                       readOnly
-                      title={travado ? 'Função do usuário logado' : 'Preenchida automaticamente pelo cadastro do colaborador'}
+                      title={travado ? 'Função do operador autor' : 'Preenchida automaticamente pelo cadastro do colaborador'}
                       className={`${inputCls} w-full md:col-span-4 bg-omega-50 text-omega-500`}
                       placeholder="Função (automática)"
                     />

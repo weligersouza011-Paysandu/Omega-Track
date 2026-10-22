@@ -140,6 +140,32 @@ function corStatusOpcao(opcao) {
   return Object.values(STATUS_MATRIZ).find((s) => s.rotulo === opcao)?.cor || '#6B7280';
 }
 
+function ehCelulaDividida(valor) {
+  return Boolean(valor && typeof valor === 'object' && valor.status_esq && valor.status_dir);
+}
+
+function secoesDaCelula(valor) {
+  if (ehCelulaDividida(valor)) return [valor.status_esq, valor.status_dir];
+  return valor ? [valor] : [];
+}
+
+function secaoPrincipalDaCelula(valor) {
+  if (ehCelulaDividida(valor)) return valor.status_esq;
+  return typeof valor === 'string' ? valor : null;
+}
+
+function descricaoCelula(tag, iso, valor, observacao) {
+  if (ehCelulaDividida(valor)) {
+    const primeira = valor.status_1 || valor.status_esq;
+    const segunda = valor.status_2 || valor.status_dir;
+    const rotulo1 = STATUS_MATRIZ[primeira]?.rotulo || '—';
+    const rotulo2 = STATUS_MATRIZ[segunda]?.rotulo || '—';
+    return `${tag} · ${dataBR(iso)} — 1ª: ${rotulo1} | 2ª: ${rotulo2}${observacao ? ` · ${observacao}` : ''}`;
+  }
+  const rotulo = valor ? STATUS_MATRIZ[valor]?.rotulo || '—' : 'Sem lançamento';
+  return `${tag} · ${dataBR(iso)} — ${rotulo}${observacao ? ` · ${observacao}` : ''}`;
+}
+
 function badgeDoMes(eficiencia) {
   if (eficiencia === null || eficiencia === undefined) {
     return { rotulo: 'Sem base no mês', classe: 'border-slate-600 bg-slate-800/60 text-slate-300' };
@@ -246,9 +272,16 @@ function BarrasPorVeiculo({ veiculos }) {
 // Modal de apontamento rapido de uma celula (TAG x dia).
 // ---------------------------------------------------------------------------
 function ModalApontamento({ celula, salvando, erro, onFechar, onSalvar }) {
-  const [status, setStatus] = useState(() => secaoParaStatusOpcao(celula.secao));
+  const dividida = ehCelulaDividida(celula.secao);
+  const secaoInicial = dividida ? (celula.secao.status_dir || celula.secao.status_esq) : secaoPrincipalDaCelula(celula.secao);
+  const [status, setStatus] = useState(() => secaoParaStatusOpcao(secaoInicial));
   const [observacao, setObservacao] = useState(() => celula.observacao || '');
-  const statusAtual = celula.secao ? STATUS_MATRIZ[celula.secao] : null;
+  const secoesAtuais = dividida
+    ? [celula.secao.status_1 || celula.secao.status_esq, celula.secao.status_2 || celula.secao.status_dir]
+    : secoesDaCelula(celula.secao);
+  const statusesAtuais = secoesAtuais
+    .map((secao, idx) => ({ secao, cfg: STATUS_MATRIZ[secao], ordem: idx + 1 }))
+    .filter((item) => item.cfg);
   const titulo = `Apontamento Rápido — ${celula.tag} — ${dataBR(celula.iso)}`;
 
   useEffect(() => {
@@ -292,13 +325,28 @@ function ModalApontamento({ celula, salvando, erro, onFechar, onSalvar }) {
           </button>
         </div>
 
-        {statusAtual && (
-          <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: statusAtual.cor }} />
+        {statusesAtuais.length > 0 && (
+          <div className="mt-3 flex flex-col gap-1.5 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
             <span className="text-[11px] text-slate-400">
-              Status atual: <span className="font-semibold text-slate-200">{statusAtual.rotulo}</span>
+              {dividida ? 'Status atuais (dois lançamentos no dia):' : 'Status atual:'}
             </span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {statusesAtuais.map((item) => (
+                <span key={item.secao} className="flex items-center gap-2 text-[11px] text-slate-400">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: item.cfg.cor }} />
+                  <span className="font-semibold text-slate-200">
+                    {dividida ? `${item.ordem}ª: ` : ''}{item.cfg.rotulo}
+                  </span>
+                </span>
+              ))}
+            </div>
           </div>
+        )}
+
+        {dividida && (
+          <p className="mt-2 text-[11px] text-amber-300/90">
+            Este dia possui dois lançamentos. O novo status será aplicado a ambos.
+          </p>
         )}
 
         <div className="mt-4">
@@ -452,9 +500,11 @@ function GradeMatriz({ dados, veiculos = [], podeEditar, onClicarCelula, ordemTa
                 <td data-sticky="1" className="sticky left-[84px] z-10 w-[132px] min-w-[132px] truncate border-b border-r border-slate-800/70 bg-slate-950 px-2 py-1 text-slate-400">{v.modelo}</td>
                 <td data-sticky="1" className="sticky left-[216px] z-10 w-[92px] min-w-[92px] border-b border-r border-slate-800/70 bg-slate-950 px-2 py-1 tabular-nums text-slate-400">{v.placa || '—'}</td>
                 {(dados?.dias || []).map((d) => {
-                  const secao = v.dias?.[d.dia] ?? null;
+                  const valor = v.dias?.[d.dia] ?? null;
+                  const dividida = ehCelulaDividida(valor);
+                  const secao = secaoPrincipalDaCelula(valor);
                   const observacao = v.observacoes?.[d.dia] ?? null;
-                  const cfg = secao ? STATUS_MATRIZ[secao] : null;
+                  const cfg = !dividida && secao ? STATUS_MATRIZ[secao] : null;
                   const aposDesmob = Boolean(desmobISO && d.iso > desmobISO);
                   const antesMob = Boolean(mobISO && d.iso < mobISO);
                   const bloqueado = aposDesmob || antesMob;
@@ -465,10 +515,16 @@ function GradeMatriz({ dados, veiculos = [], podeEditar, onClicarCelula, ordemTa
                   const desabilitado = semPermissao || d.futuro || bloqueado;
                   const estilo = bloqueado
                     ? { backgroundColor: '#1e293b', backgroundImage: HACHURA_BLOQUEIO, opacity: 0.9, borderColor: 'transparent' }
-                    : cfg
-                      ? { backgroundColor: cfg.cor, opacity: secao === 'pendentes' ? 0.55 : 0.9, borderColor: 'transparent' }
-                      : { backgroundColor: 'rgba(51,65,85,0.28)', borderColor: 'transparent' };
-                  const descricao = `${v.tag} · ${dataBR(d.iso)} — ${cfg ? cfg.rotulo : 'Sem lançamento'}${observacao ? ` · ${observacao}` : ''}`;
+                    : dividida
+                      ? {
+                        backgroundImage: `linear-gradient(90deg, ${STATUS_MATRIZ[valor.status_esq]?.cor || '#475569'} 50%, ${STATUS_MATRIZ[valor.status_dir]?.cor || '#475569'} 50%)`,
+                        borderColor: 'transparent',
+                        opacity: 0.9,
+                      }
+                      : cfg
+                        ? { backgroundColor: cfg.cor, opacity: secao === 'pendentes' ? 0.55 : 0.9, borderColor: 'transparent' }
+                        : { backgroundColor: 'rgba(51,65,85,0.28)', borderColor: 'transparent' };
+                  const descricao = descricaoCelula(v.tag, d.iso, valor, observacao);
                   return (
                     <td key={d.iso} className={'border-b border-slate-800/40 p-[3px] ' + (d.fim_semana ? 'bg-slate-900/70' : '')}>
                       <button
@@ -476,7 +532,7 @@ function GradeMatriz({ dados, veiculos = [], podeEditar, onClicarCelula, ordemTa
                         disabled={desabilitado}
                         onClick={semPermissao ? undefined : () => {
                           if (d.futuro || bloqueado) return;
-                          onClicarCelula({ tag: v.tag, placa: v.placa, modelo: v.modelo, dia: d.dia, iso: d.iso, secao, observacao });
+                          onClicarCelula({ tag: v.tag, placa: v.placa, modelo: v.modelo, dia: d.dia, iso: d.iso, secao: valor, observacao });
                         }}
                         className={
                           'flex h-5 w-full items-center justify-center rounded-[4px] border border-transparent transition-transform ' +
@@ -492,9 +548,9 @@ function GradeMatriz({ dados, veiculos = [], podeEditar, onClicarCelula, ordemTa
                           : bloqueado
                             ? `${descricao} — bloqueado (${motivoBloqueio})`
                             : descricao}
-                        aria-label={`${v.tag} ${dataBR(d.iso)}: ${cfg ? cfg.rotulo : 'sem lançamento'}${bloqueado ? ' (bloqueado)' : ''}${semPermissao ? ' (somente leitura)' : ''}`}
+                        aria-label={`${descricao}${bloqueado ? ' (bloqueado)' : ''}${semPermissao ? ' (somente leitura)' : ''}`}
                       >
-                        {!bloqueado && cfg?.sigla && (
+                        {!bloqueado && !dividida && cfg?.sigla && (
                           <span
                             aria-hidden="true"
                             className="pointer-events-none text-[9px] font-extrabold leading-none"
@@ -690,21 +746,28 @@ function RelatorioPdf({ dados, veiculos = [], mes, contrato, situacao }) {
                     {v.status === 'Desmobilizado' ? 'DESMOB' : v.status ? 'MOB' : '—'}
                   </td>
                   {dias.map((d) => {
-                    const secao = v.dias?.[d.dia] ?? null;
-                    const cfg = secao ? STATUS_MATRIZ[secao] : null;
+                    const valor = v.dias?.[d.dia] ?? null;
+                    const dividida = ehCelulaDividida(valor);
+                    const secao = secaoPrincipalDaCelula(valor);
+                    const cfg = !dividida && secao ? STATUS_MATRIZ[secao] : null;
                     const aposDesmob = Boolean(desmobISO && d.iso > desmobISO);
                     const antesMob = Boolean(mobISO && d.iso < mobISO);
                     const bloqueado = aposDesmob || antesMob;
                     const fundo = bloqueado
                       ? '#cbd5e1'
-                      : cfg
-                        ? cfg.cor
-                        : d.feriado
-                          ? '#fee2e2'
-                          : d.fim_semana
-                            ? '#e2e8f0'
-                            : '#ffffff';
-                    const descricao = `${v.tag} · ${dataBR(d.iso)} — ${cfg ? cfg.rotulo : 'Sem lançamento'}${bloqueado ? ' (bloqueado)' : ''}`;
+                      : dividida
+                        ? '#ffffff'
+                        : cfg
+                          ? cfg.cor
+                          : d.feriado
+                            ? '#fee2e2'
+                            : d.fim_semana
+                              ? '#e2e8f0'
+                              : '#ffffff';
+                    const gradiente = dividida
+                      ? `linear-gradient(90deg, ${STATUS_MATRIZ[valor.status_esq]?.cor || '#475569'} 50%, ${STATUS_MATRIZ[valor.status_dir]?.cor || '#475569'} 50%)`
+                      : undefined;
+                    const descricao = `${descricaoCelula(v.tag, d.iso, valor)}${bloqueado ? ' (bloqueado)' : ''}`;
                     return (
                       <td
                         key={d.iso}
@@ -712,10 +775,10 @@ function RelatorioPdf({ dados, veiculos = [], mes, contrato, situacao }) {
                         style={{
                           ...tdDia,
                           backgroundColor: fundo,
-                          backgroundImage: bloqueado ? HACHURA_BLOQUEIO_PDF : undefined,
+                          backgroundImage: bloqueado ? HACHURA_BLOQUEIO_PDF : gradiente,
                         }}
                       >
-                        {!bloqueado && cfg?.sigla && (
+                        {!bloqueado && !dividida && cfg?.sigla && (
                           <div
                             style={{
                               display: 'flex',

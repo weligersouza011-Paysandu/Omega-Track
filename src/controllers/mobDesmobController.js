@@ -108,7 +108,7 @@ export const buscarStatusManutencao = asyncHandler(async (req, res) => {
     categoria: veiculo.modelo,
     contrato: veiculo.contrato,
   });
-  // Âncora do ciclo: última parte preventiva > coluna manual > 0.
+  // Âncora do ciclo: maior KM entre a última parte preventiva e o registro manual.
   const ancora = await resolverAncorasPreventiva(tag.toUpperCase(), veiculo.km_ultima_preventiva);
   const diagnostico = calcularStatusManutencao({
     kmAtual,

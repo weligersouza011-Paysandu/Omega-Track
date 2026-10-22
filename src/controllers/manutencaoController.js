@@ -6,6 +6,9 @@ import {
   mediaKmDia,
   dataPrevistaPreventiva,
   mapaUltimasPreventivas,
+  escolherAncoraPreventiva,
+  agruparMediaPorModelo,
+  resolverMediaKmDia,
   JANELA_MEDIA_DIAS,
   JANELA_LEITURA_DIAS,
 } from '../services/manutencaoService.js';
@@ -13,14 +16,14 @@ import {
 // ============================================================================
 // FASE 3 — GET /api/manutencao/projecao-frota
 // Consolidado preditivo da frota ativa: última leitura (janela de 60 dias),
-// média diária (30 dias, dias úteis seg–sáb) e projeção da preventiva
-// (dias corridos a partir de hoje).
+// média diária (30 dias, dias úteis seg–sáb; estimada por modelo/categoria
+// quando não há histórico) e projeção da preventiva (dias corridos).
 // ============================================================================
 export const projecaoFrota = asyncHandler(async (req, res) => {
   const veiculos = await prisma.mobDesmob.findMany({
     where: { status: { not: 'Desmobilizado' }, deletado_em: null },
     orderBy: { tag: 'asc' },
-    select: { tag: true, placa: true, modelo: true, status: true, km_limite_preventiva: true, km_ultima_preventiva: true },
+    select: { tag: true, placa: true, modelo: true, contrato: true, status: true, km_limite_preventiva: true, km_ultima_preventiva: true },
   });
   if (veiculos.length === 0) {
     return res.json({ data: [], meta: { gerado_em: new Date().toISOString(), janela_dias: JANELA_MEDIA_DIAS, total: 0 } });
@@ -71,24 +74,46 @@ export const projecaoFrota = asyncHandler(async (req, res) => {
   // Âncoras de preventiva da frota (última parte preventiva por TAG).
   const preventivas = await mapaUltimasPreventivas(tagsUpper);
 
-  const linhas = veiculos.map((v) => {
+  const base = veiculos.map((v) => {
     const chave = String(v.tag).toUpperCase();
     const leituras = porTag.get(chave) || [];
-    const kmAtual = leituras.length > 0 ? leituras[leituras.length - 1].km : null;
     const leiturasMedia = leituras.filter((l) => new Date(l.data) >= desdeMedia);
-    const media = mediaKmDia(leiturasMedia);
+    const mediaCalculada = mediaKmDia(leiturasMedia);
     const resolvido = limiteDe(v.modelo, v.contrato, v.km_limite_preventiva);
-    // Âncora: parte preventiva > coluna manual > 0.
     const prev = preventivas.get(chave);
-    const manual = parseKm(v.km_ultima_preventiva);
-    const ancora = prev
-      ? { km: prev.km_ultima_preventiva, origem: 'parte_preventiva' }
-      : manual !== null
-        ? { km: manual, origem: 'registro_manual' }
-        : { km: 0, origem: 'zero' };
+    const ancora = escolherAncoraPreventiva(prev, v.km_ultima_preventiva);
+    const kmLeitura = leituras.length > 0 ? leituras[leituras.length - 1].km : null;
+    // Sem leitura em partes, o registro manual de preventiva é a última KM
+    // conhecida. Se o manual for mais recente que a última parte, ele também
+    // prevalece como KM atual (evita acumulado negativo).
+    const manualMaisRecente = ancora.origem_preventiva === 'registro_manual'
+      && ancora.km_ultima_preventiva > 0
+      && (kmLeitura === null || ancora.km_ultima_preventiva > kmLeitura);
+    const kmAtual = manualMaisRecente
+      ? ancora.km_ultima_preventiva
+      : kmLeitura;
+    return {
+      v,
+      leiturasMedia,
+      mediaCalculada,
+      resolvido,
+      ancora,
+      kmAtual,
+      origemKmAtual: kmAtual === null ? null : manualMaisRecente ? 'registro_manual' : 'parte_diaria',
+    };
+  });
+
+  // Média estimada: usa a média dos veículos do mesmo modelo; se não houver,
+  // cai no padrão por categoria (ex.: 50 km/dia para leves/caminhonetes).
+  const mediasModelo = agruparMediaPorModelo(
+    base.map((b) => ({ modelo: b.v.modelo, media_km_dia: b.mediaCalculada })),
+  );
+
+  const linhas = base.map(({ v, leiturasMedia, mediaCalculada, resolvido, ancora, kmAtual, origemKmAtual }) => {
+    const mediaResolvida = resolverMediaKmDia({ mediaCalculada, modelo: v.modelo, mediasModelo });
     const diag = calcularStatusManutencao({
       kmAtual,
-      kmUltimaPreventiva: ancora.km,
+      kmUltimaPreventiva: ancora.km_ultima_preventiva,
       kmLimite: resolvido.km_limite,
     });
     const restantes = diag.km_restantes_para_preventiva;
@@ -96,8 +121,8 @@ export const projecaoFrota = asyncHandler(async (req, res) => {
     if (restantes !== null && restantes !== undefined) {
       if (restantes <= 0) {
         diasRestantes = 0;
-      } else if (media !== null && media > 0) {
-        diasRestantes = Math.ceil(restantes / media);
+      } else if (mediaResolvida.media > 0) {
+        diasRestantes = Math.ceil(restantes / mediaResolvida.media);
       }
     }
     return {
@@ -106,17 +131,20 @@ export const projecaoFrota = asyncHandler(async (req, res) => {
       modelo: v.modelo,
       status: v.status,
       km_atual: kmAtual,
-      km_ultima_preventiva: ancora.km,
-      origem_preventiva: ancora.origem,
+      origem_km_atual: origemKmAtual,
+      km_ultima_preventiva: ancora.km_ultima_preventiva,
+      origem_preventiva: ancora.origem_preventiva,
       km_limite_preventiva: diag.km_limite_preventiva,
       origem_limite: resolvido.origem_limite,
       km_rodados_desde_preventiva: diag.km_rodados_desde_preventiva,
       km_restantes: restantes,
-      media_km_dia: media,
+      media_km_dia: mediaResolvida.media,
+      media_estimada: mediaResolvida.estimada,
+      origem_media: mediaResolvida.origem,
       dias_restantes_estimados: diasRestantes,
       data_prevista_preventiva: diasRestantes === null ? null : dataPrevistaPreventiva(diasRestantes),
       status_alerta: diag.status_alerta,
-      sem_registro_preventiva: ancora.origem === 'zero',
+      sem_registro_preventiva: ancora.origem_preventiva === 'zero',
       leituras_na_janela: leiturasMedia.length,
     };
   });
