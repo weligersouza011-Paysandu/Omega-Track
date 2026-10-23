@@ -17,6 +17,9 @@ export default {
           100: '#F1F5F9',
           50:  '#F8FAFC',
           accent: '#2563EB',
+          brand: '#9A142D',
+          carmim: '#9A142D',
+          brandDark: '#7F1025',
         },
         status: {
           verde: '#22C55E',

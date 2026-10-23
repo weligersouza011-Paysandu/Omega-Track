@@ -93,11 +93,25 @@ export default function LoginView({ onLogin }) {
 
       <div className="relative w-full max-w-sm rounded-2xl bg-white/[0.04] border border-white/10 shadow-2xl p-7 backdrop-blur">
         <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-omega-accent flex items-center justify-center font-extrabold text-white text-2xl shadow-lg shadow-violet-900/40">
-            Ω
+          <div className="w-16 h-16 rounded-2xl bg-white/95 border border-white/20 p-2 flex items-center justify-center shadow-xl shadow-black/40">
+            <img
+              src="/logo/0.png"
+              alt="Ômega Serviços e Montagens Industriais"
+              className="w-full h-full object-contain"
+              onError={(e) => {
+                if (!e.target.dataset.fb) {
+                  e.target.dataset.fb = '1';
+                  e.target.src = '/logo/01.png';
+                }
+              }}
+            />
           </div>
-          <h1 className="mt-3 text-xl font-extrabold text-white tracking-tight">Omega Track</h1>
-          <p className="mt-0.5 text-xs text-white/50">Gestão de Frota & Manutenção</p>
+          <h1 className="mt-3 text-xl font-extrabold text-white tracking-tight">Ômega Track</h1>
+          <p className="mt-0.5 text-xs text-white/60 font-medium">Ômega Serviços e Montagens Industriais</p>
+          <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 border border-white/10 text-[10px] font-semibold text-white/80">
+            <span className="w-1.5 h-1.5 rounded-full bg-status-verde" />
+            Gestão de Frotas e Operações
+          </div>
         </div>
 
         <form onSubmit={etapa === 'senha' ? entrar : avancar} className="mt-6 space-y-3.5">

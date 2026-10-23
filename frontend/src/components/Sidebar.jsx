@@ -75,15 +75,30 @@ export default function Sidebar({ open, onToggle, usuario }) {
         (open ? 'w-72' : 'w-72 -translate-x-full md:w-16 md:translate-x-0')
       }
     >
-      <div className={'h-14 flex items-center justify-between px-4 border-b border-omega-200 shrink-0'}>
+      <div className={'h-16 flex items-center justify-between px-3.5 border-b border-omega-200 shrink-0 bg-white'}>
         <div className="flex items-center gap-3 overflow-hidden min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-omega-accent to-indigo-500 flex items-center justify-center font-extrabold text-white shrink-0 text-lg shadow-sm">
-            Ω
+          <div className="w-10 h-10 rounded-lg bg-white border border-omega-200 shadow-sm flex items-center justify-center p-1 shrink-0 overflow-hidden">
+            <img
+              src="/logo/0.png"
+              alt="Ômega"
+              className="w-full h-full object-contain"
+              onError={(e) => {
+                if (!e.target.dataset.fb) {
+                  e.target.dataset.fb = '1';
+                  e.target.src = '/logo/01.png';
+                }
+              }}
+            />
           </div>
           {open && (
             <div className="min-w-0 whitespace-nowrap">
-              <div className="font-bold text-[15px] text-omega-900 leading-tight truncate">Omega Track</div>
-              <div className="text-[11px] text-omega-500 leading-tight">Contrato CT251</div>
+              <div className="font-extrabold text-[15px] text-omega-950 leading-tight truncate flex items-center gap-1.5">
+                <span>Ômega Track</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-omega-brand" />
+              </div>
+              <div className="text-[11px] font-semibold text-omega-500 leading-tight truncate">
+                Serviços e Montagens Industriais
+              </div>
             </div>
           )}
         </div>
@@ -133,13 +148,20 @@ export default function Sidebar({ open, onToggle, usuario }) {
         ))}
       </nav>
 
-      <div className="border-t border-omega-200 p-3">
+      <div className="border-t border-omega-200 p-3 bg-omega-50/60">
         <div className={
-          'flex items-center gap-2 text-[11px] text-omega-400 ' +
-          (open ? '' : 'justify-center')
+          'flex items-center gap-2 text-[11px] text-omega-600 font-medium ' +
+          (open ? 'justify-between' : 'justify-center')
         }>
-          <span className={'w-1.5 h-1.5 rounded-full bg-status-verde shrink-0 ' + (open ? '' : '')} />
-          {open && <span>Sistema Online</span>}
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-status-verde ring-2 ring-emerald-200 shrink-0" />
+            {open && <span className="font-semibold text-omega-700">Sistema Conectado</span>}
+          </div>
+          {open && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-white border border-omega-200 text-omega-500">
+              CT251
+            </span>
+          )}
         </div>
       </div>
     </aside>
