@@ -19,9 +19,9 @@
 //
 //   Eficiencia = Operacao / (Operacao + Desvios)
 //
-//   Percentuais dos cards de status: Operacao, Preventiva, Interdicao e
-//   Corretiva divididos SOMENTE pela soma desses quatro status. Pendencias,
-//   Indisponibilidade e Nao Operado nao entram no denominador; pendencias
+//   Percentuais dos cards de status: Operacao, Preventiva, Interdicao,
+//   Corretiva e Indisponibilidade divididos SOMENTE pela soma desses cinco
+//   status. Pendencias e Nao Operado nao entram no denominador; pendencias
 //   seguem disponiveis apenas como dias brutos.
 //
 // GET /api/eficiencia?dataInicio=&dataFim=&tag=&modelo=&contrato=&situacao=
@@ -427,9 +427,10 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   };
   const baseEficiencia = totais.operacao + totais.desvio;
   const totalObservado = baseEficiencia + totais.preventiva + totais.nao_operado + totais.pendentes;
-  // Base exclusiva dos cards de status: os quatro percentuais somam 100%.
-  // Pendencias, Indisponibilidade e Nao Operado ficam fora do denominador.
-  const basePercentual = totais.operacao + totais.preventiva + totais.interdicao + totais.corretiva;
+  // Base exclusiva dos cards de status: os cinco percentuais somam 100%.
+  // Pendencias e Nao Operado ficam fora do denominador.
+  const basePercentual = totais.operacao + totais.preventiva + totais.interdicao
+    + totais.corretiva + totais.indisponibilidade;
   const pct = (n) => (basePercentual > 0 ? n / basePercentual : null);
 
   const porTagLista = [...porTag.values()]
@@ -521,6 +522,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
           corretiva: pct(totais.corretiva),
           preventiva: pct(totais.preventiva),
           interdicao: pct(totais.interdicao),
+          indisponibilidade: pct(totais.indisponibilidade),
         },
         total_percentual: basePercentual,
         total_observado: totalObservado,

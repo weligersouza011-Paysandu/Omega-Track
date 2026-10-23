@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
+  Ban,
   BarChart3,
   FilterX,
   Gauge,
@@ -20,8 +21,8 @@ import MatrizCalendarioMensal from '../components/MatrizCalendarioMensal.jsx';
 // ============================================================================
 // Dashboard de Eficiencia de Transporte (layout escuro corporativo).
 // Consome GET /api/eficiencia: KPIs (corretiva/preventiva/interdicao/operacao/
-// pendencias), gauge de eficiencia geral, barras por TAG e por modelo, evolucao
-// mensal e interdições por veiculo.
+// indisponibilidade), gauge de eficiencia geral, barras por TAG e por modelo,
+// evolucao mensal e interdições por veiculo.
 //
 // Os filtros globais desta secao (TAG/Modelo/Contrato/MOB-DESMOB/datas)
 // afetam SOMENTE este painel superior. A Matriz Calendario inferior e
@@ -68,7 +69,6 @@ const SECOES = {
   preventiva: { rotulo: 'Manutenção Preventiva', curto: 'Preventiva', cor: '#F59E0B', classe: 'text-amber-400' },
   interdicao: { rotulo: 'Interdição', curto: 'Interdição', cor: '#D97706', classe: 'text-orange-400' },
   indisponibilidade: { rotulo: 'Indisponibilidade', curto: 'Indisp.', cor: '#8B5CF6', classe: 'text-violet-400' },
-  pendentes: { rotulo: 'Pendências', curto: 'Pendências', cor: '#3B82F6', classe: 'text-blue-400' },
 };
 
 const fmtPct = (v) => (v === null || v === undefined ? '—' : `${(v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
@@ -245,12 +245,12 @@ function KpiCard({ chave, total, percentual }) {
     corretiva: Wrench,
     preventiva: Hammer,
     interdicao: ShieldAlert,
-    pendentes: AlertTriangle,
+    indisponibilidade: Ban,
   }[chave];
   return (
     <div
       className="relative min-h-[100px] overflow-hidden rounded-xl border border-slate-800 bg-slate-900/80 p-3.5"
-      title={chave === 'pendentes' ? 'Pendências ficam fora do cálculo percentual — exibidas apenas em dias brutos.' : cfg.rotulo}
+      title={cfg.rotulo}
     >
       <span className="absolute inset-x-0 top-0 h-1" style={{ background: cfg.cor }} />
       <div className="flex items-center gap-1.5">
@@ -661,7 +661,7 @@ export default function GestaoEficienciaView({ sessao }) {
               <KpiCard chave="preventiva" total={totais.preventiva} percentual={percentuais.preventiva} />
               <KpiCard chave="interdicao" total={totais.interdicao} percentual={percentuais.interdicao} />
               <KpiCard chave="operacao" total={totais.operacao} percentual={percentuais.operacao} />
-              <KpiCard chave="pendentes" total={totais.pendentes} percentual={percentuais.pendentes} />
+              <KpiCard chave="indisponibilidade" total={totais.indisponibilidade} percentual={percentuais.indisponibilidade} />
             </div>
 
             <Card>
