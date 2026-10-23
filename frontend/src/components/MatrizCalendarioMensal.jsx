@@ -26,7 +26,9 @@ import { hojeISO } from '../utils/datas.js';
 //   - grade TAG x dias (modelo planilha) com sabado/domingo marcados como SD
 //     e feriados nacionais com F; dias fora da janela de mobilizacao
 //     (antes de data_mob / apos data_desmob) ficam bloqueados (hachurados,
-//     sem clique).
+//     sem clique). Dias com 2 lancamentos de status diferentes sao exibidos
+//     com a celula dividida 50/50 (sem sigla; Operacao sempre a esquerda) e
+//     tooltip detalhando a 1a e a 2a parte.
 //   - Permissao: SOMENTE perfil MASTER edita celulas. Demais perfis veem a
 //     grade em modo leitura (cursor padrao, sem abertura do modal); o backend
 //     tambem bloqueia o endpoint com 403.
@@ -141,26 +143,30 @@ function corStatusOpcao(opcao) {
 }
 
 function ehCelulaDividida(valor) {
-  return Boolean(valor && typeof valor === 'object' && valor.status_esq && valor.status_dir);
+  return Boolean(
+    valor
+    && typeof valor === 'object'
+    && valor.duplo === true
+    && valor.statusEsq
+    && valor.statusDir,
+  );
 }
 
 function secoesDaCelula(valor) {
-  if (ehCelulaDividida(valor)) return [valor.status_esq, valor.status_dir];
+  if (ehCelulaDividida(valor)) return [valor.statusEsq, valor.statusDir];
   return valor ? [valor] : [];
 }
 
 function secaoPrincipalDaCelula(valor) {
-  if (ehCelulaDividida(valor)) return valor.status_esq;
+  if (ehCelulaDividida(valor)) return valor.statusEsq;
   return typeof valor === 'string' ? valor : null;
 }
 
 function descricaoCelula(tag, iso, valor, observacao) {
   if (ehCelulaDividida(valor)) {
-    const primeira = valor.status_1 || valor.status_esq;
-    const segunda = valor.status_2 || valor.status_dir;
-    const rotulo1 = STATUS_MATRIZ[primeira]?.rotulo || '—';
-    const rotulo2 = STATUS_MATRIZ[segunda]?.rotulo || '—';
-    return `${tag} · ${dataBR(iso)} — 1ª: ${rotulo1} | 2ª: ${rotulo2}${observacao ? ` · ${observacao}` : ''}`;
+    const rotuloEsq = STATUS_MATRIZ[valor.statusEsq]?.rotulo || '—';
+    const rotuloDir = STATUS_MATRIZ[valor.statusDir]?.rotulo || '—';
+    return `${tag} · ${dataBR(iso)} — 1ª Parte: ${rotuloEsq} | 2ª Parte: ${rotuloDir}${observacao ? ` · ${observacao}` : ''}`;
   }
   const rotulo = valor ? STATUS_MATRIZ[valor]?.rotulo || '—' : 'Sem lançamento';
   return `${tag} · ${dataBR(iso)} — ${rotulo}${observacao ? ` · ${observacao}` : ''}`;
@@ -273,11 +279,11 @@ function BarrasPorVeiculo({ veiculos }) {
 // ---------------------------------------------------------------------------
 function ModalApontamento({ celula, salvando, erro, onFechar, onSalvar }) {
   const dividida = ehCelulaDividida(celula.secao);
-  const secaoInicial = dividida ? (celula.secao.status_dir || celula.secao.status_esq) : secaoPrincipalDaCelula(celula.secao);
+  const secaoInicial = dividida ? (celula.secao.statusDir || celula.secao.statusEsq) : secaoPrincipalDaCelula(celula.secao);
   const [status, setStatus] = useState(() => secaoParaStatusOpcao(secaoInicial));
   const [observacao, setObservacao] = useState(() => celula.observacao || '');
   const secoesAtuais = dividida
-    ? [celula.secao.status_1 || celula.secao.status_esq, celula.secao.status_2 || celula.secao.status_dir]
+    ? [celula.secao.statusEsq, celula.secao.statusDir]
     : secoesDaCelula(celula.secao);
   const statusesAtuais = secoesAtuais
     .map((secao, idx) => ({ secao, cfg: STATUS_MATRIZ[secao], ordem: idx + 1 }))
@@ -517,7 +523,7 @@ function GradeMatriz({ dados, veiculos = [], podeEditar, onClicarCelula, ordemTa
                     ? { backgroundColor: '#1e293b', backgroundImage: HACHURA_BLOQUEIO, opacity: 0.9, borderColor: 'transparent' }
                     : dividida
                       ? {
-                        backgroundImage: `linear-gradient(90deg, ${STATUS_MATRIZ[valor.status_esq]?.cor || '#475569'} 50%, ${STATUS_MATRIZ[valor.status_dir]?.cor || '#475569'} 50%)`,
+                        backgroundImage: `linear-gradient(90deg, ${STATUS_MATRIZ[valor.statusEsq]?.cor || '#475569'} 50%, ${STATUS_MATRIZ[valor.statusDir]?.cor || '#475569'} 50%)`,
                         borderColor: 'transparent',
                         opacity: 0.9,
                       }
@@ -765,7 +771,7 @@ function RelatorioPdf({ dados, veiculos = [], mes, contrato, situacao }) {
                               ? '#e2e8f0'
                               : '#ffffff';
                     const gradiente = dividida
-                      ? `linear-gradient(90deg, ${STATUS_MATRIZ[valor.status_esq]?.cor || '#475569'} 50%, ${STATUS_MATRIZ[valor.status_dir]?.cor || '#475569'} 50%)`
+                      ? `linear-gradient(90deg, ${STATUS_MATRIZ[valor.statusEsq]?.cor || '#475569'} 50%, ${STATUS_MATRIZ[valor.statusDir]?.cor || '#475569'} 50%)`
                       : undefined;
                     const descricao = `${descricaoCelula(v.tag, d.iso, valor)}${bloqueado ? ' (bloqueado)' : ''}`;
                     return (

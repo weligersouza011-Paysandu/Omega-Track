@@ -223,6 +223,9 @@ export const obterMinhaAssinatura = asyncHandler(async (req, res) => {
   if (!usuario) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Usuario nao encontrado.' });
   }
+  // Dado pessoal e mutavel: evita cache intermediario apos salvar uma nova
+  // assinatura no perfil.
+  res.set('Cache-Control', 'no-store');
   res.json({ data: { ...respostaAssinatura(usuario), usuario } });
 });
 

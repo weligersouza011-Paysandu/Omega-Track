@@ -10,7 +10,7 @@ import ModalAssinaturaDigital from './ModalAssinaturaDigital.jsx';
 import RelatorioParteDiariaPreview from './RelatorioParteDiariaPreview.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { hojeISO, paraInputData, formatarDataSemTimezone } from '../utils/datas.js';
-import { podeAlterarStatusOperacional } from '../utils/permissoes.js';
+import { podeAlterarStatusOperacional, ehMaster } from '../utils/permissoes.js';
 
 // Status internos do fluxo de aprovação (mapeados para exibição)
 const STATUS_APROVACAO = {
@@ -317,6 +317,7 @@ function TagCombobox({ veiculos = [], value, onSelect, inputCls }) {
 
 export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], inicial = null, prefill = null, onSalvo, onSave, onAtualizar }) {
   const usuario = sessao?.usuario || null;
+  const usuarioMaster = ehMaster(usuario);
   // Perfil operacional (nao-admin): Status Operacional do Dia fixado em
   // 'Operação' — sem acesso a paradas/manutenções (trava no payload também).
   const statusTravado = !podeAlterarStatusOperacional(usuario);
@@ -742,11 +743,11 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       const encontrado = await buscarParteDoDia(tag, dataISO);
       const alvo = encontrado?.parte;
       if (!alvo?.id || cancelado) return;
-      // Fora do retroativo travado, respeita o limite diário do veículo
-      // (ônibus aceita 2 registros; os demais, 1).
+      // Fora do retroativo travado, respeita o limite diário de 2 partes por
+      // veículo (dois turnos). O MASTER pode ultrapassar o limite.
       const retroativoTravado = prefill?.travar === true;
-      const limite = ehOnibus ? 2 : 1;
-      if (!retroativoTravado && Number(encontrado.total) < limite) return;
+      const limite = 2;
+      if (!retroativoTravado && (usuarioMaster || Number(encontrado.total) < limite)) return;
       // Evita carregar registro antigo se o operador trocou data/veículo
       // enquanto a consulta estava em andamento.
       if (String(formRef.current?.data || '').trim() !== dataISO) return;
@@ -757,7 +758,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       await carregarParteParaEdicao(alvo.id, { existente: true, manterSelecao: { data: dataISO, tag } });
     }, 450);
     return () => { cancelado = true; clearTimeout(timer); };
-  }, [open, carregando, inicial?.id, parteId, form.data, tagPrincipal, prefill?.travar, ehOnibus, buscarParteDoDia, carregarParteParaEdicao]);
+  }, [open, carregando, inicial?.id, parteId, form.data, tagPrincipal, prefill?.travar, usuarioMaster, buscarParteDoDia, carregarParteParaEdicao]);
 
   // ------- persistência -------
   // TAG deriva do 1º equipamento; autoria (funcionário/operador/função), usada
@@ -1306,11 +1307,15 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     if (!modalAssin) return;
     const { etapa } = modalAssin;
     const etapaNorm = String(etapa).toUpperCase();
+    const salvarPerfil = salvarNoPerfil === true;
     setAssinando(true);
     setErro(null);
     try {
-      // 1. Desenho ou foto + salvar no perfil → persiste a assinatura padrão primeiro
-      if ((modo === 'canvas' || modo === 'foto') && dataUrl && salvarNoPerfil) {
+      // 1. Sem relatorio salvo ainda: persiste a assinatura padrao no perfil
+      // imediatamente (nao existe rota de parte diaria para carregar a flag).
+      // Com relatorio salvo, o proprio backend da rota de assinatura persiste
+      // a assinatura ao receber `salvar_no_perfil`.
+      if (!parteId && (modo === 'canvas' || modo === 'foto') && dataUrl && salvarPerfil) {
         const respPerfil = await fetch('/api/usuarios/minha-assinatura', {
           method: 'PUT',
           headers: authHeaders(sessao),
@@ -1358,6 +1363,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         assinatura_dado: imagemFinal,
         assinatura_url: imagemFinal,
         assinatura_base64: (modo === 'canvas' || modo === 'foto') ? (dataUrl || null) : undefined,
+        salvar_no_perfil: salvarPerfil || undefined,
       };
       const resp = await fetch(`/api/partes-diarias/${parteId}/assinaturas`, {
         method: 'POST',

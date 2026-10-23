@@ -5,6 +5,7 @@ import { atuanteDaRequisicao, lerSessao, sessaoOperacional } from '../middleware
 import { parseKm, obterUltimaKmFinal } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
+import { salvarAssinaturaPadrao } from '../services/assinaturaService.js';
 
 // ============================================================================
 // Parte Diaria (Veiculos Leves) — modelo Omega Service
@@ -171,6 +172,48 @@ async function ehMasterAutenticado(req) {
   }
   const atuante = await atuanteDaRequisicao(req);
   return atuante?.nivel === 'MASTER';
+}
+
+// Usuario logado (JWT ou x-acting-matricula) para persistir a assinatura
+// padrao no proprio perfil. Diferente de atuanteDaRequisicao, aceita tambem
+// OPERACIONAL — qualquer perfil pode salvar a propria assinatura.
+async function usuarioDaRequisicao(req) {
+  if (req.atuante?.id) return req.atuante;
+  const sessao = lerSessao(req);
+  if (sessao?.sub) {
+    const usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+    if (usuario) return usuario;
+  }
+  const matricula = req.headers['x-acting-matricula'];
+  if (!matricula) return null;
+  return prisma.usuario.findFirst({ where: { matricula: String(matricula) } });
+}
+
+function flagVerdadeira(valor) {
+  if (valor === true || valor === 1) return true;
+  const texto = String(valor ?? '').trim().toLowerCase();
+  return texto === 'true' || texto === '1';
+}
+
+// Persiste a assinatura no perfil do usuario logado quando o cliente envia
+// `salvar_no_perfil` (ou `salvarPerfil`) na requisicao de assinatura.
+async function persistirAssinaturaNoPerfil(req, valor) {
+  const texto = String(valor || '').trim();
+  if (!texto) {
+    const erro = new Error('Envie a imagem da assinatura para salvar no perfil.');
+    erro.statusCode = 400;
+    throw erro;
+  }
+  const usuario = await usuarioDaRequisicao(req);
+  if (!usuario) {
+    const erro = new Error('Sessão necessária para salvar a assinatura no perfil.');
+    erro.statusCode = 401;
+    throw erro;
+  }
+  const dados = /^data:image\//i.test(texto)
+    ? { assinatura_base64: texto }
+    : { assinatura_url: texto };
+  return salvarAssinaturaPadrao(usuario, dados);
 }
 
 function calcularAderencia(obra, obra_programada) {
@@ -652,10 +695,10 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   // Nao Operado) coexiste de forma independente na listagem.
   const diaRef = new Date(Date.UTC(dataRef.getUTCFullYear(), dataRef.getUTCMonth(), dataRef.getUTCDate()));
 
-  // Limite diário por veículo: Ônibus permite 2 registros; os demais, 1.
-  // O MASTER pode ultrapassar o limite para ajustes operacionais.
-  const onibus = veiculoEhOnibus(veiculoFrota);
-  const limiteDiario = onibus ? 2 : 1;
+  // Limite diário por veículo: até 2 partes por dia para TODOS os veículos
+  // (dois turnos: motorista da manhã e da tarde). O MASTER pode ultrapassar
+  // o limite para ajustes operacionais.
+  const limiteDiario = 2;
   const partesNoDia = await prisma.parteDiaria.count({
     where: { tag: tagFinal, data: diaRef, deletado_em: null },
   });
@@ -665,9 +708,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
       return res.status(400).json({
         error: 'Limite diario atingido',
         code: 'LIMITE_DIARIO_PARTE',
-        message: onibus
-          ? `Este ônibus já possui ${partesNoDia} partes diárias em ${dataFormatada}. O limite é de 2 por dia.`
-          : `Este veículo já possui uma parte diária em ${dataFormatada}. O limite é de 1 por dia.`,
+        message: `Este veículo já possui ${partesNoDia} partes diárias em ${dataFormatada}. O limite é de 2 por dia.`,
         tag: tagFinal,
         data: diaRef.toISOString().slice(0, 10),
         modelo: veiculoFrota.modelo || null,
@@ -1438,9 +1479,13 @@ export const listarPendentesAssinatura = asyncHandler(async (req, res) => {
   });
 });
 
+// POST /api/partes-diarias/:id/assinar — assinatura unica (legado).
+// Body: { assinatura_base64, assinado_por, observacao?, salvar_no_perfil? }
+// salvar_no_perfil=true tambem persiste a imagem no perfil do usuario logado.
 export const assinarParteDiaria = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { assinatura_base64, assinado_por, observacao } = req.body;
+  const salvarPerfil = flagVerdadeira(req.body?.salvar_no_perfil) || flagVerdadeira(req.body?.salvarPerfil);
 
   if (!assinatura_base64 || !assinado_por) {
     return res.status(400).json({
@@ -1461,6 +1506,10 @@ export const assinarParteDiaria = asyncHandler(async (req, res) => {
       error: 'Conflito',
       message: 'Esta parte diaria ja foi assinada.',
     });
+  }
+
+  if (salvarPerfil) {
+    await persistirAssinaturaNoPerfil(req, assinatura_base64);
   }
 
   const assinatura_dados = {
@@ -1488,12 +1537,14 @@ export const assinarParteDiaria = asyncHandler(async (req, res) => {
 });
 
 // POST /api/partes-diarias/:id/assinaturas — fluxo em 3 etapas.
-// Body: { etapa: OPERADOR|TRANSPORTE|PLANEJADOR, nome, matricula?, assinatura_dado?
-//   (aliases: assinatura_url, assinatura_base64, dataUrl) }
+// Body: { etapa: OPERADOR|TRANSPORTE|PLANEJADOR, nome, matricula?, assinatura_dado?,
+//   salvar_no_perfil? } (aliases de assinatura: assinatura_url, assinatura_base64, dataUrl)
+// salvar_no_perfil=true tambem persiste a imagem no perfil do usuario logado.
 export const assinarEtapa = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const corpo = req.body || {};
   const { etapa, nome, matricula } = corpo;
+  const salvarPerfil = flagVerdadeira(corpo.salvar_no_perfil) || flagVerdadeira(corpo.salvarPerfil);
   // Compat frontend: aceita assinatura_dado, assinatura_url, assinatura_base64 ou dataUrl
   const assinaturaDadoFinal = corpo.assinatura_dado
     || corpo.assinatura_url
@@ -1529,6 +1580,13 @@ export const assinarEtapa = asyncHandler(async (req, res) => {
   const autor = autorDaRequisicao(req, req.body || {}) || String(nome).trim();
 
   const assinaturaDadoStr = assinaturaDadoFinal ? String(assinaturaDadoFinal) : null;
+
+  // Flag opcional do modal: salva a mesma imagem como assinatura padrao do
+  // usuario logado antes de registrar a assinatura da parte diaria.
+  if (salvarPerfil) {
+    await persistirAssinaturaNoPerfil(req, assinaturaDadoStr);
+  }
+
   await prisma.parteDiariaAssinatura.upsert({
     where: { parte_id_etapa: { parte_id: id, etapa: etapaNorm } },
     update: {

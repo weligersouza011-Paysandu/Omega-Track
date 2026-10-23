@@ -104,11 +104,20 @@ export default function ModalAssinaturaDigital({
         const resp = await fetch("/api/usuarios/minha-assinatura", {
           headers: authHeaders(lerSessao()),
           signal: controller.signal,
+          cache: "no-store",
         });
         const corpo = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(corpo?.message || `Falha ao carregar assinatura (${resp.status}).`);
         const salva = corpo?.data?.assinatura_padrao || corpo?.data?.assinatura_url || null;
-        if (!controller.signal.aborted) setAssinaturaPerfil(salva);
+        if (!controller.signal.aborted) {
+          setAssinaturaPerfil(salva);
+          // Se o usuário já tem assinatura no perfil, abre direto na tela de
+          // confirmação (1 clique). Se ele já escolheu desenhar/anexar antes
+          // da resposta, respeita a escolha.
+          if (salva) {
+            setTela((atual) => (atual === "escolha" ? "cadastrada" : atual));
+          }
+        }
       } catch (e) {
         if (e?.name !== "AbortError" && !controller.signal.aborted) {
           setErroPerfil("Não foi possível verificar a assinatura salva no perfil.");

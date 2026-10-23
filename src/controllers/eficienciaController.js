@@ -545,9 +545,11 @@ function celulaDualDoDia(lancamentos = []) {
   }
   if (secoes.length !== 2) return null;
   const [primeira, segunda] = secoes;
+  // Regra da operação na esquerda: quando um dos status do dia é Operação,
+  // ele ocupa obrigatoriamente a metade esquerda da célula.
   const statusEsq = secoes.includes('operacao') ? 'operacao' : primeira;
   const statusDir = statusEsq === primeira ? segunda : primeira;
-  return { status_esq: statusEsq, status_dir: statusDir, status_1: primeira, status_2: segunda };
+  return { duplo: true, statusEsq, statusDir };
 }
 
 // ============================================================================
@@ -560,9 +562,8 @@ function celulaDualDoDia(lancamentos = []) {
 // (dia util seg-sex, sem feriado, dentro da janela de mobilizacao, sem
 // lancamento e sem descarte manual) ou null (fim de semana, feriado, dia futuro
 // ou fora da janela). Quando o dia possui dois status distintos, a celula vira
-// { status_esq, status_dir, status_1, status_2 } (Operacao sempre a esquerda;
-// status_1/status_2 preservam a ordem cronologica para o tooltip). Aderencia do
-// veiculo/mes = Operacao / (Operacao + Desvios), mantendo o pior caso por dia.
+// { duplo: true, statusEsq, statusDir } (Operacao sempre a esquerda). Aderencia
+// do veiculo/mes = Operacao / (Operacao + Desvios), mantendo o pior caso por dia.
 //
 // Escopo: SOMENTE TAG com ao menos um apontamento no mes. Frota ativa sem
 // registro nao entra na tabela. O filtro `situacao` restringe as TAGs que
