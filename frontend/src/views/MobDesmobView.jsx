@@ -3,6 +3,7 @@ import { Plus, Search, Filter, Download, X, LayoutGrid, BarChart3, FileText, Che
 import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
 import VehicleDetailPanel from '../components/VehicleDetailPanel.jsx';
+import VehicleFullModal from '../components/VehicleFullModal.jsx';
 import EditVehicleModal from '../components/EditVehicleModal.jsx';
 import ParametrosPreventiva from '../components/ParametrosPreventiva.jsx';
 import CampoListaComCriador from '../components/CampoListaComCriador.jsx';
@@ -517,7 +518,7 @@ export default function MobDesmobView({ sessao }) {
                 )}
               </div>
               <div className="text-[10px] text-omega-400">
-                Clique na foto para ver detalhes
+                Clique no card para abrir a ficha completa em tela cheia
               </div>
             </div>
 
@@ -606,24 +607,23 @@ export default function MobDesmobView({ sessao }) {
               )}
             </div>
           </div>
-
-          {temSelecionado && (
-            <div className="w-[26rem] shrink-0 min-w-0">
-              <VehicleDetailPanel
-                veiculo={veiculoSelecionado}
-                onClose={() => setVeiculoSelecionado(null)}
-                onEdit={() => abrirEdicao(veiculoSelecionado)}
-                onDesmob={(v) => {
-                  setModalDesmob(v || veiculoSelecionado);
-                  setDataDesmob(new Date().toISOString().slice(0, 10));
-                }}
-                podeExcluir={souMaster}
-                onExcluir={(v) => setModalExclusao(v || veiculoSelecionado)}
-              />
-            </div>
-          )}
         </div>
       </div>
+
+      {/* Modal / View de Tela Inteira para Detalhamento do Veículo */}
+      {veiculoSelecionado && (
+        <VehicleFullModal
+          veiculo={veiculoSelecionado}
+          onClose={() => setVeiculoSelecionado(null)}
+          onEdit={(v) => abrirEdicao(v || veiculoSelecionado)}
+          onDesmob={(v) => {
+            setModalDesmob(v || veiculoSelecionado);
+            setDataDesmob(new Date().toISOString().slice(0, 10));
+          }}
+          podeExcluir={souMaster}
+          onExcluir={(v) => setModalExclusao(v || veiculoSelecionado)}
+        />
+      )}
 
       <Modal
         open={modalCadastro}
