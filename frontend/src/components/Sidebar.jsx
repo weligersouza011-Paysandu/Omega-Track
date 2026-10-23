@@ -10,7 +10,7 @@ const SECTIONS = [
       { to: '/inicio', label: 'Início', icon: Home, exact: true },
       { to: '/obras', label: 'Obras', icon: Building2, exact: true },
       { to: '/frota', label: 'Mobilizacao & Frota', icon: Truck, exact: false },
-      { to: '/preditiva', label: 'Preditiva de Preventivas', icon: Gauge, exact: true },
+      { to: '/preditiva', label: 'Gantt de Preventivas', icon: Gauge, exact: true },
       { to: '/gestao-eficiencia', label: 'Gestão de Eficiência', icon: TrendingUp, exact: true },
       { to: '/telemetria', label: 'Telemetria & Seguranca', icon: ShieldAlert, exact: true },
     ],

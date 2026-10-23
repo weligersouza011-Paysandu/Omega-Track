@@ -19,6 +19,11 @@
 //
 //   Eficiencia = Operacao / (Operacao + Desvios)
 //
+//   Percentuais dos cards de status: Operacao, Preventiva, Interdicao e
+//   Corretiva divididos SOMENTE pela soma desses quatro status. Pendencias,
+//   Indisponibilidade e Nao Operado nao entram no denominador; pendencias
+//   seguem disponiveis apenas como dias brutos.
+//
 // GET /api/eficiencia?dataInicio=&dataFim=&tag=&modelo=&contrato=&situacao=
 //   situacao: MOB (padrao — frota mobilizada) | DESMOB | TODOS.
 //   Periodo padrao: inicio do mes (hoje - 5 meses) ate hoje; maximo 366 dias.
@@ -422,7 +427,10 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   };
   const baseEficiencia = totais.operacao + totais.desvio;
   const totalObservado = baseEficiencia + totais.preventiva + totais.nao_operado + totais.pendentes;
-  const pct = (n) => (totalObservado > 0 ? n / totalObservado : null);
+  // Base exclusiva dos cards de status: os quatro percentuais somam 100%.
+  // Pendencias, Indisponibilidade e Nao Operado ficam fora do denominador.
+  const basePercentual = totais.operacao + totais.preventiva + totais.interdicao + totais.corretiva;
+  const pct = (n) => (basePercentual > 0 ? n / basePercentual : null);
 
   const porTagLista = [...porTag.values()]
     .map((linha) => {
@@ -513,10 +521,8 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
           corretiva: pct(totais.corretiva),
           preventiva: pct(totais.preventiva),
           interdicao: pct(totais.interdicao),
-          indisponibilidade: pct(totais.indisponibilidade),
-          nao_operado: pct(totais.nao_operado),
-          pendentes: pct(totais.pendentes),
         },
+        total_percentual: basePercentual,
         total_observado: totalObservado,
         veiculos: porTag.size,
       },

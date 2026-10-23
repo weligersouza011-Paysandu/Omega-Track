@@ -248,7 +248,10 @@ function KpiCard({ chave, total, percentual }) {
     pendentes: AlertTriangle,
   }[chave];
   return (
-    <div className="relative min-h-[100px] overflow-hidden rounded-xl border border-slate-800 bg-slate-900/80 p-3.5">
+    <div
+      className="relative min-h-[100px] overflow-hidden rounded-xl border border-slate-800 bg-slate-900/80 p-3.5"
+      title={chave === 'pendentes' ? 'Pendências ficam fora do cálculo percentual — exibidas apenas em dias brutos.' : cfg.rotulo}
+    >
       <span className="absolute inset-x-0 top-0 h-1" style={{ background: cfg.cor }} />
       <div className="flex items-center gap-1.5">
         <Icone size={13} style={{ color: cfg.cor }} className="hidden shrink-0 2xl:block" />
