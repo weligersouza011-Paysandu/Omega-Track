@@ -38,7 +38,7 @@ export default function Header({ usuario, onSair, onMenu }) {
 
   return (
     <header className="h-16 bg-white border-b border-omega-200 px-4 md:px-6 flex items-center gap-3 md:gap-4 sticky top-0 z-20 shadow-[0_1px_2px_rgba(15,23,42,0.03)] relative">
-      {/* Linha fina com o gradiente da marca corporativa Ômega */}
+      {/* Linha fina com o gradiente da marca corporativa Omega */}
       <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-omega-brand via-omega-accent to-omega-950" />
 
       {/* Botão de menu gaveta no mobile */}
@@ -51,18 +51,18 @@ export default function Header({ usuario, onSair, onMenu }) {
         <Menu size={20} />
       </button>
 
-      {/* Identidade Corporativa Ômega Oficial (Alinhada à Esquerda) */}
+      {/* Identidade Corporativa Omega Oficial (Alinhada à Esquerda) */}
       <div className="flex items-center gap-3 shrink-0">
-        <Link to="/inicio" className="flex items-center gap-2.5 md:gap-3 group focus:outline-none" title="Ômega Track · Gestão Operacional">
+        <Link to="/inicio" className="flex items-center gap-2.5 md:gap-3 group focus:outline-none" title="Omega Track · Gestão Operacional">
           <div className="flex items-center justify-center p-1 rounded-lg bg-white border border-omega-200/80 shadow-sm group-hover:border-omega-brand/50 transition-colors">
             <img
-              src="/logo/0.png"
-              alt="Ômega Serviços e Montagens Industriais"
+              src="/logo/logo-redonda.png"
+              alt="Omega Serviços e Montagens Industriais"
               className="h-8 md:h-9 w-auto object-contain shrink-0"
               onError={(e) => {
                 if (!e.target.dataset.fb) {
                   e.target.dataset.fb = '1';
-                  e.target.src = '/logo/01.png';
+                  e.target.src = '/logo/0.png';
                 }
               }}
             />
@@ -70,14 +70,14 @@ export default function Header({ usuario, onSair, onMenu }) {
           <div className="flex flex-col text-left leading-tight">
             <div className="flex items-center gap-2">
               <span className="font-extrabold text-sm md:text-base tracking-tight text-omega-950 group-hover:text-omega-brand transition-colors">
-                Ômega Track
+                Omega Track
               </span>
               <span className="hidden xl:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-omega-brand/10 text-omega-brand border border-omega-brand/20 uppercase tracking-wider">
                 Industrial
               </span>
             </div>
             <span className="text-[10px] md:text-[11px] font-medium text-omega-500 hidden sm:block truncate max-w-[220px] md:max-w-none">
-              Ômega Track · Gestão Operacional
+              Omega Track · Gestão Operacional
             </span>
           </div>
         </Link>
