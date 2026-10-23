@@ -77,15 +77,15 @@ export default function Sidebar({ open, onToggle, usuario }) {
     >
       <div className={'h-16 flex items-center justify-between px-3.5 border-b border-omega-200 shrink-0 bg-white'}>
         <div className="flex items-center gap-3 overflow-hidden min-w-0">
-          <div className="w-10 h-10 rounded-lg bg-white border border-omega-200 shadow-sm flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
+          <div className="w-10 h-10 rounded-full bg-white border border-omega-200/90 shadow-sm flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
             <img
-              src="/logo/logo-redonda.png"
+              src="/logo/omega-circle.png"
               alt="Omega"
-              className="w-full h-full object-contain"
+              className="w-full h-full rounded-full object-contain"
               onError={(e) => {
                 if (!e.target.dataset.fb) {
                   e.target.dataset.fb = '1';
-                  e.target.src = '/logo/0.png';
+                  e.target.src = '/logo/logo-redonda.png';
                 }
               }}
             />

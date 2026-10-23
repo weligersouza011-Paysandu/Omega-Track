@@ -54,15 +54,15 @@ export default function Header({ usuario, onSair, onMenu }) {
       {/* Identidade Corporativa Omega Oficial (Alinhada à Esquerda) */}
       <div className="flex items-center gap-3 shrink-0">
         <Link to="/inicio" className="flex items-center gap-2.5 md:gap-3 group focus:outline-none" title="Omega Track · Gestão Operacional">
-          <div className="flex items-center justify-center p-1 rounded-lg bg-white border border-omega-200/80 shadow-sm group-hover:border-omega-brand/50 transition-colors">
+          <div className="flex items-center justify-center p-0.5 rounded-full bg-white border border-omega-200/90 shadow-sm group-hover:border-omega-brand/50 transition-colors">
             <img
-              src="/logo/logo-redonda.png"
+              src="/logo/omega-circle.png"
               alt="Omega Serviços e Montagens Industriais"
-              className="h-8 md:h-9 w-auto object-contain shrink-0"
+              className="h-8 md:h-9 w-8 md:w-9 rounded-full object-contain shrink-0"
               onError={(e) => {
                 if (!e.target.dataset.fb) {
                   e.target.dataset.fb = '1';
-                  e.target.src = '/logo/0.png';
+                  e.target.src = '/logo/logo-redonda.png';
                 }
               }}
             />

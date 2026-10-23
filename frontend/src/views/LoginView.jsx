@@ -93,15 +93,15 @@ export default function LoginView({ onLogin }) {
 
       <div className="relative w-full max-w-sm rounded-2xl bg-white/[0.04] border border-white/10 shadow-2xl p-7 backdrop-blur">
         <div className="flex flex-col items-center text-center">
-          <div className="w-16 h-16 rounded-2xl bg-white/95 border border-white/20 p-1 flex items-center justify-center shadow-xl shadow-black/40">
+          <div className="w-16 h-16 rounded-full bg-white/95 border border-white/20 p-1 flex items-center justify-center shadow-xl shadow-black/40">
             <img
-              src="/logo/logo-redonda.png"
+              src="/logo/omega-circle.png"
               alt="Omega Serviços e Montagens Industriais"
-              className="w-full h-full object-contain drop-shadow-sm"
+              className="w-full h-full rounded-full object-contain drop-shadow-sm"
               onError={(e) => {
                 if (!e.target.dataset.fb) {
                   e.target.dataset.fb = '1';
-                  e.target.src = '/logo/0.png';
+                  e.target.src = '/logo/logo-redonda.png';
                 }
               }}
             />
