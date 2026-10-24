@@ -86,6 +86,12 @@ function percentual(parte, total) {
   return Math.round((parte / total) * 1000) / 10;
 }
 
+export const eDiesel = (combustivel) => {
+  if (!combustivel) return false; // Se não informado, tratar conforme regra ou omitir
+  const c = String(combustivel).toUpperCase();
+  return c.includes('DIESEL');
+};
+
 function montarLinha(veiculo, medicao, hojeISO) {
   const classificacao = classificarMedicao(medicao, hojeISO);
   return {
@@ -93,6 +99,7 @@ function montarLinha(veiculo, medicao, hojeISO) {
     placa: veiculo.placa,
     modelo: veiculo.modelo,
     contrato: veiculo.contrato,
+    combustivel: veiculo.combustivel,
     data_medicao: isoDeData(medicao?.data_medicao),
     validade: isoDeData(medicao?.validade),
     dias_restantes: classificacao.dias_restantes,
@@ -129,12 +136,20 @@ export const obterPainelFumacaPreta = asyncHandler(async (req, res) => {
   const hojeISO = hojeISOOperacao();
 
   const veiculos = await prisma.mobDesmob.findMany({
-    where: { status: 'Mobilizado', deletado_em: null },
+    where: {
+      status: 'Mobilizado',
+      deletado_em: null,
+      combustivel: {
+        contains: 'diesel',
+        mode: 'insensitive',
+      },
+    },
     select: {
       tag: true,
       placa: true,
       modelo: true,
       contrato: true,
+      combustivel: true,
       monitoramento_fumaca: {
         select: {
           data_medicao: true,
@@ -147,7 +162,8 @@ export const obterPainelFumacaPreta = asyncHandler(async (req, res) => {
     orderBy: [{ contrato: 'asc' }, { tag: 'asc' }],
   });
 
-  const lista = veiculos.map((veiculo) => montarLinha(veiculo, veiculo.monitoramento_fumaca, hojeISO));
+  const veiculosDiesel = veiculos.filter((veiculo) => eDiesel(veiculo.combustivel));
+  const lista = veiculosDiesel.map((veiculo) => montarLinha(veiculo, veiculo.monitoramento_fumaca, hojeISO));
 
   res.json({
     data: {
@@ -193,12 +209,19 @@ export const salvarMedicaoFumacaPreta = asyncHandler(async (req, res) => {
 
   const veiculo = await prisma.mobDesmob.findFirst({
     where: { tag, status: 'Mobilizado', deletado_em: null },
-    select: { tag: true, placa: true, modelo: true, contrato: true },
+    select: { tag: true, placa: true, modelo: true, contrato: true, combustivel: true },
   });
   if (!veiculo) {
     return res.status(404).json({
       error: 'Veículo não encontrado',
       message: 'A TAG informada não pertence a um veículo mobilizado e ativo.',
+    });
+  }
+
+  if (!eDiesel(veiculo.combustivel)) {
+    return res.status(400).json({
+      error: 'Veículo não elegível',
+      message: 'O monitoramento de fumaça preta é aplicável exclusivamente a veículos movidos a Diesel.',
     });
   }
 

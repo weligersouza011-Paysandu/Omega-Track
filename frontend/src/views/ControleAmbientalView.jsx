@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CloudFog,
   FileWarning,
+  Fuel,
   Leaf,
   Loader2,
   LockKeyhole,
@@ -24,6 +25,12 @@ import { authHeaders, lerSessao } from '../utils/sessao.js';
 import { formatarDataSemTimezone, hojeISO, somarMesesISO } from '../utils/datas.js';
 import { ehMaster, podeEscrever } from '../utils/permissoes.js';
 
+export const eDiesel = (combustivel) => {
+  if (!combustivel) return false;
+  const c = String(combustivel).toUpperCase();
+  return c.includes('DIESEL');
+};
+
 const CORES = {
   CONFORME: '#10B981',
   ALERTA: '#F59E0B',
@@ -35,7 +42,7 @@ const KPIS = [
   {
     chave: 'total_mobilizado',
     titulo: 'Total mobilizado',
-    descricao: 'Veículos ativos no contrato',
+    descricao: 'Veículos a diesel ativos',
     icone: Truck,
     cor: '#0F172A',
     fundo: 'bg-omega-50',
@@ -106,11 +113,12 @@ function percentual(parte, total) {
 }
 
 function recalcularResumo(lista) {
-  const total = lista.length;
-  const emConformidade = lista.filter((v) => v.status === 'CONFORME').length;
-  const emAlerta = lista.filter((v) => v.status === 'ALERTA').length;
-  const vencidos = lista.filter((v) => v.status === 'VENCIDO').length;
-  const pendentes = lista.filter((v) => v.status === 'PENDENTE').length;
+  const listaDiesel = (lista || []).filter((v) => eDiesel(v.combustivel));
+  const total = listaDiesel.length;
+  const emConformidade = listaDiesel.filter((v) => v.status === 'CONFORME').length;
+  const emAlerta = listaDiesel.filter((v) => v.status === 'ALERTA').length;
+  const vencidos = listaDiesel.filter((v) => v.status === 'VENCIDO').length;
+  const pendentes = listaDiesel.filter((v) => v.status === 'PENDENTE').length;
   const comMedicao = total - pendentes;
   return {
     total_mobilizado: total,
@@ -343,7 +351,7 @@ function ModalMedicao({ veiculo, onClose, onSalvo }) {
       open
       onClose={fechar}
       title={`${veiculo.data_medicao ? 'Editar' : 'Lançar'} medição — ${veiculo.tag}`}
-      subtitle={`${veiculo.modelo || 'Modelo não informado'} • ${veiculo.placa}`}
+      subtitle={`${veiculo.modelo || 'Modelo não informado'} • ${veiculo.combustivel || 'Diesel'} • ${veiculo.placa}`}
       footer={(
         <>
           <button type="button" onClick={fechar} disabled={salvando} className="btn-secondary disabled:opacity-50">
@@ -383,6 +391,10 @@ function ModalMedicao({ veiculo, onClose, onSalvo }) {
             <span className="label">Veículo</span>
             <div className="flex h-[38px] items-center gap-2 rounded-lg border border-omega-100 bg-omega-50/70 px-3 text-sm">
               <span className="min-w-0 flex-1 truncate font-semibold text-omega-700">{veiculo.modelo || '—'}</span>
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800 ring-1 ring-inset ring-amber-600/20">
+                <Fuel size={11} className="text-amber-600" />
+                {veiculo.combustivel || 'Diesel'}
+              </span>
               <span className="shrink-0 rounded-md bg-white px-2 py-0.5 text-[11px] font-bold text-omega-500 ring-1 ring-inset ring-omega-200">
                 {veiculo.placa}
               </span>
@@ -488,8 +500,16 @@ export default function ControleAmbientalView() {
     buscar();
   }, [buscar]);
 
-  const resumo = dados?.resumo || {};
-  const veiculos = dados?.veiculos || [];
+  const veiculos = useMemo(() => {
+    return (dados?.veiculos || []).filter((v) => eDiesel(v.combustivel));
+  }, [dados?.veiculos]);
+
+  const resumo = useMemo(() => {
+    if (dados?.resumo && veiculos.length === (dados?.veiculos || []).length) {
+      return dados.resumo;
+    }
+    return recalcularResumo(veiculos);
+  }, [dados?.resumo, dados?.veiculos, veiculos]);
 
   const dadosRosca = useMemo(() => [
     {
@@ -529,7 +549,7 @@ export default function ControleAmbientalView() {
     return veiculos.filter((v) => {
       if (filtroStatus !== 'TODOS' && v.status !== filtroStatus) return false;
       if (!termo) return true;
-      return [v.tag, v.modelo, v.placa]
+      return [v.tag, v.modelo, v.placa, v.combustivel]
         .filter(Boolean)
         .some((valor) => String(valor).toLowerCase().includes(termo));
     });
@@ -564,13 +584,13 @@ export default function ControleAmbientalView() {
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-600">
             <Leaf size={13} />
-            Meio Ambiente
+            Meio Ambiente • Monitoramento Diesel
           </div>
           <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-omega-900 sm:text-3xl">
             Controle Ambiental da Frota
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-omega-500">
-            Plano de Monitoramento de Fumaça Preta — conformidade, cobertura de medição e vencimentos da frota mobilizada.
+            Plano de Monitoramento de Fumaça Preta (Escala Ringelmann) — conformidade e cobertura de medição exclusiva para a frota a <strong>Diesel</strong> mobilizada.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -640,11 +660,11 @@ export default function ControleAmbientalView() {
                     Status de Conformidade
                   </div>
                   <p className="mt-1 text-xs text-omega-500">
-                    Proporção da frota mobilizada por situação do laudo de fumaça preta.
+                    Proporção da frota a diesel mobilizada por situação do laudo de fumaça preta.
                   </p>
                 </div>
                 <span className="hidden rounded-full bg-omega-50 px-2.5 py-1 text-[10px] font-bold text-omega-500 sm:inline-flex">
-                  {fmtNum(resumo.total_mobilizado || 0)} veículos
+                  {fmtNum(resumo.total_mobilizado || 0)} veículos a diesel
                 </span>
               </div>
 
@@ -684,7 +704,7 @@ export default function ControleAmbientalView() {
                     </div>
                   )}
                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-omega-400">Frota</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-omega-400">Frota Diesel</div>
                     <div className="text-3xl font-black tabular-nums tracking-tight text-omega-900">{fmtNum(resumo.total_mobilizado || 0)}</div>
                     <div className="mt-0.5 text-[10px] font-semibold text-omega-400">veículos</div>
                     <div className="mt-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700">
@@ -716,7 +736,7 @@ export default function ControleAmbientalView() {
                     Cobertura de Medição
                   </div>
                   <p className="mt-1 text-xs text-omega-500">
-                    Percentual da frota mobilizada com laudo cadastrado.
+                    Percentual da frota a diesel mobilizada com laudo cadastrado.
                   </p>
                 </div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-omega-400">% mapeado</span>
@@ -726,7 +746,7 @@ export default function ControleAmbientalView() {
                 <div>
                   <div className="text-4xl font-black tabular-nums tracking-tight text-omega-900">{fmtPct(resumo.cobertura_percentual)}</div>
                   <div className="mt-1 text-xs font-semibold text-omega-500">
-                    {fmtNum(resumo.com_medicao || 0)} de {fmtNum(resumo.total_mobilizado || 0)} veículos com medição
+                    {fmtNum(resumo.com_medicao || 0)} de {fmtNum(resumo.total_mobilizado || 0)} veículos a diesel com medição
                   </div>
                 </div>
                 <div className="rounded-xl bg-sky-50 px-3 py-2 text-center">
@@ -765,7 +785,7 @@ export default function ControleAmbientalView() {
               </div>
 
               <div className="mt-4 rounded-xl bg-omega-50/80 px-3 py-2.5 text-[11px] leading-relaxed text-omega-500">
-                A cobertura considera qualquer medição cadastrada, independentemente da validade. Laudos vencidos continuam contabilizados na cobertura.
+                A cobertura considera qualquer medição cadastrada para a frota a diesel, independentemente da validade. Laudos vencidos continuam contabilizados na cobertura.
               </div>
             </section>
           </div>
@@ -777,7 +797,7 @@ export default function ControleAmbientalView() {
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-omega-50 text-omega-600">
                     <Truck size={16} />
                   </span>
-                  Frota monitorada
+                  Frota a Diesel monitorada
                   {!podeEditar && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-omega-100 px-2 py-0.5 text-[10px] font-bold text-omega-500">
                       <LockKeyhole size={11} /> Somente leitura
@@ -785,7 +805,7 @@ export default function ControleAmbientalView() {
                   )}
                 </div>
                 <p className="mt-1 text-xs text-omega-500">
-                  {fmtNum(veiculosFiltrados.length)} de {fmtNum(veiculos.length)} veículo(s) mobilizado(s) exibido(s).
+                  {fmtNum(veiculosFiltrados.length)} de {fmtNum(veiculos.length)} veículo(s) a diesel mobilizado(s) exibido(s).
                 </p>
               </div>
               <div className="relative w-full sm:w-72">
@@ -834,6 +854,7 @@ export default function ControleAmbientalView() {
                     <th className="px-4 py-2.5">TAG</th>
                     <th className="px-4 py-2.5">Modelo</th>
                     <th className="px-4 py-2.5">Placa</th>
+                    <th className="px-4 py-2.5">Combustível</th>
                     <th className="px-4 py-2.5">Data da Medição</th>
                     <th className="px-4 py-2.5">Validade (6 Meses)</th>
                     <th className="px-4 py-2.5">Dias Restantes</th>
@@ -854,6 +875,12 @@ export default function ControleAmbientalView() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs font-bold tabular-nums text-omega-700">{v.placa}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 ring-1 ring-inset ring-amber-600/20">
+                            <Fuel size={11} className="text-amber-600" />
+                            {v.combustivel || 'Diesel'}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-xs font-medium tabular-nums text-omega-600">
                           {formatarDataSemTimezone(v.data_medicao)}
@@ -894,12 +921,12 @@ export default function ControleAmbientalView() {
                   })}
                   {veiculosFiltrados.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center">
+                      <td colSpan={9} className="px-4 py-12 text-center">
                         <CloudFog size={28} className="mx-auto text-omega-300" />
-                        <div className="mt-2 text-sm font-bold text-omega-700">Nenhum veículo encontrado</div>
+                        <div className="mt-2 text-sm font-bold text-omega-700">Nenhum veículo a diesel encontrado</div>
                         <div className="mt-0.5 text-xs text-omega-400">
                           {veiculos.length === 0
-                            ? 'Não há veículos com status Mobilizado no momento.'
+                            ? 'Não há veículos a diesel com status Mobilizado no momento.'
                             : 'Ajuste a busca ou o filtro de situação.'}
                         </div>
                       </td>
