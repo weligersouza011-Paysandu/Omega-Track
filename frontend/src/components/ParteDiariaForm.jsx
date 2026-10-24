@@ -9,7 +9,7 @@ import BadgeStatus from './BadgeStatus.jsx';
 import ModalAssinaturaDigital from './ModalAssinaturaDigital.jsx';
 import RelatorioParteDiariaPreview from './RelatorioParteDiariaPreview.jsx';
 import { authHeaders } from '../utils/sessao.js';
-import { hojeISO, paraInputData, formatarDataSemTimezone } from '../utils/datas.js';
+import { hojeISO, paraInputData, formatarDataSemTimezone, formatarDataBR, extrairPartesData } from '../utils/datas.js';
 import { podeAlterarStatusOperacional, ehMaster } from '../utils/permissoes.js';
 
 // Status internos do fluxo de aprovação (mapeados para exibição)
@@ -481,6 +481,27 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       setErroData('Domingo não faz parte da grade de trabalho. Escolha outro dia.');
       return;
     }
+
+    // Validação preventiva: se já houver veículo desmobilizado vinculado no formulário
+    const tagVinculada = form.equipamentos?.[0]?.tag_patrimonio;
+    if (tagVinculada) {
+      const veic = (veiculos || []).find((v) => String(v.tag).toUpperCase() === String(tagVinculada).toUpperCase());
+      if (veic && String(veic.status || '').trim().toUpperCase() === 'DESMOBILIZADO') {
+        const dataDesmob = veic.data_desmob || veic.data_desmobilizacao;
+        const pDes = extrairPartesData(dataDesmob);
+        const desmobISO = pDes ? `${pDes.ano}-${pDes.mes}-${pDes.dia}` : null;
+        const pNova = extrairPartesData(iso);
+        const novaDataISO = pNova ? `${pNova.ano}-${pNova.mes}-${pNova.dia}` : null;
+        if (novaDataISO && desmobISO && novaDataISO > desmobISO) {
+          const dataFormatada = formatarDataBR(dataDesmob);
+          const msg = `Veículo desmobilizado em ${dataFormatada}. Não é possível criar partes diárias para datas posteriores à desmobilização.`;
+          setErroData(msg);
+          setErro(msg);
+          return;
+        }
+      }
+    }
+
     setErroData(null);
     sujoRef.current = true;
     setForm((f) => aplicarHorariosPadraoJornada({ ...f, data: iso }));
@@ -928,10 +949,26 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     }
 
     // 4. Veículo em Equipamentos (obrigatório em todos os modos)
-    const temVeiculo = (f.equipamentos || []).some((e) => String(e.tag_patrimonio || '').trim());
-    if (!temVeiculo) {
+    const veiculoEquip = (f.equipamentos || []).find((e) => String(e?.tag_patrimonio || '').trim());
+    if (!veiculoEquip) {
       marcarErro('equipamentos', 'campo-equipamentos', 'Veículo é obrigatório (adicione um veículo em Equipamentos)');
       setSecoes((s) => ({ ...s, equip: true }));
+    } else {
+      const tagP = String(veiculoEquip.tag_patrimonio).trim().toUpperCase();
+      const veic = (veiculos || []).find((v) => String(v.tag).toUpperCase() === tagP);
+      if (veic && String(veic.status || '').trim().toUpperCase() === 'DESMOBILIZADO') {
+        const dataDesmob = veic.data_desmob || veic.data_desmobilizacao;
+        const pDes = extrairPartesData(dataDesmob);
+        const desmobISO = pDes ? `${pDes.ano}-${pDes.mes}-${pDes.dia}` : null;
+        const pRel = extrairPartesData(f.data);
+        const relatorioISO = pRel ? `${pRel.ano}-${pRel.mes}-${pRel.dia}` : null;
+        if (relatorioISO && desmobISO && relatorioISO > desmobISO) {
+          const dataFormatada = formatarDataBR(dataDesmob);
+          const msg = `Veículo desmobilizado em ${dataFormatada}. Não é possível criar partes diárias para datas posteriores à desmobilização.`;
+          marcarErro('equipamentos', 'campo-equipamentos', msg);
+          setSecoes((s) => ({ ...s, equip: true }));
+        }
+      }
     }
 
     // 5. Quilometragem
@@ -1014,8 +1051,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
           return null;
         }
       }
-      // Exibe o detalhe exato do banco/Prisma (campo `details` em dev) em vez do genérico
-      if (!resp.ok) throw new Error(corpo.details || corpo.message || `Falha ao salvar (API ${resp.status})`);
+      // Exibe a mensagem de erro exata da API ou detalhes do banco
+      if (!resp.ok) throw new Error(corpo.erro || corpo.message || corpo.details || `Falha ao salvar (API ${resp.status})`);
       sujoRef.current = false;
       aplicarResposta(corpo.data);
       if (silencioso) {
@@ -1155,16 +1192,52 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     setModalOcor(null);
   };
 
-  const frotaAtiva = useMemo(() => {
+  const frotaDisponivel = useMemo(() => {
     const norm = (v) => String(v || '').toUpperCase();
     const q = norm(buscaEquip);
+    const pRel = extrairPartesData(form.data);
+    const dataRelatorioISO = pRel ? `${pRel.ano}-${pRel.mes}-${pRel.dia}` : null;
+
     return (veiculos || [])
-      .filter((v) => v?.tag && v.status !== 'Desmobilizado')
+      .filter((v) => {
+        if (!v?.tag) return false;
+        const statusNorm = norm(v.status);
+        if (statusNorm === 'DESMOBILIZADO') {
+          const dataDesmob = v.data_desmob || v.data_desmobilizacao;
+          const pDes = extrairPartesData(dataDesmob);
+          const desmobISO = pDes ? `${pDes.ano}-${pDes.mes}-${pDes.dia}` : null;
+          // Se houver data do relatório definida, exibe apenas se data <= data_desmobilizacao
+          if (dataRelatorioISO && desmobISO) {
+            return dataRelatorioISO <= desmobISO;
+          }
+          return !dataRelatorioISO;
+        }
+        return true;
+      })
       .filter((v) => !q || norm(v.tag).includes(q) || norm(v.placa).includes(q) || norm(v.modelo).includes(q));
-  }, [veiculos, buscaEquip]);
+  }, [veiculos, buscaEquip, form.data]);
 
   const vincularEquipamento = (veiculo) => {
     if (!veiculo?.tag) return;
+
+    // Validação de desmobilização: impede vínculo se relatório for posterior à desmobilização
+    const statusNorm = String(veiculo.status || '').trim().toUpperCase();
+    if (statusNorm === 'DESMOBILIZADO') {
+      const dataDesmob = veiculo.data_desmob || veiculo.data_desmobilizacao;
+      const pDes = extrairPartesData(dataDesmob);
+      const desmobISO = pDes ? `${pDes.ano}-${pDes.mes}-${pDes.dia}` : null;
+      const pRel = extrairPartesData(form.data);
+      const dataRelatorioISO = pRel ? `${pRel.ano}-${pRel.mes}-${pRel.dia}` : null;
+
+      if (dataRelatorioISO && desmobISO && dataRelatorioISO > desmobISO) {
+        const dataFormatada = formatarDataBR(dataDesmob);
+        const msg = `Veículo desmobilizado em ${dataFormatada}. Não é possível criar partes diárias para datas posteriores à desmobilização.`;
+        setErro(msg);
+        marcarErro('equipamentos', 'campo-equipamentos', msg);
+        return;
+      }
+    }
+
     sujoRef.current = true;
     limparErroCampo('equipamentos');
     // O 1º equipamento é o veículo principal (TAG do relatório).
@@ -2296,34 +2369,46 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             />
           </div>
           <div className="max-h-80 overflow-auto rounded-xl border border-omega-100 divide-y divide-omega-100">
-            {frotaAtiva.length === 0 && (
+            {frotaDisponivel.length === 0 && (
               <div className="p-6 text-center text-xs text-omega-400 italic">
-                Nenhum veículo ativo encontrado na frota.
+                Nenhum veículo disponível encontrado na frota para a data informada.
               </div>
             )}
-            {frotaAtiva.map((v) => (
-              <button
-                key={v.tag}
-                onClick={() => vincularEquipamento(v)}
-                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-omega-50 transition-colors"
-              >
-                <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
-                  <Truck size={16} />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-mono font-extrabold text-omega-900 text-sm">
-                    {v.tag} <span className="font-semibold text-omega-400">• {v.placa || '—'}</span>
+            {frotaDisponivel.map((v) => {
+              const ehDesmobilizado = String(v.status || '').trim().toUpperCase() === 'DESMOBILIZADO';
+              const dataDesmobFormatada = ehDesmobilizado ? formatarDataBR(v.data_desmob || v.data_desmobilizacao) : null;
+              return (
+                <button
+                  key={v.tag}
+                  onClick={() => vincularEquipamento(v)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-omega-50 transition-colors"
+                >
+                  <span className={`w-9 h-9 rounded-xl ${ehDesmobilizado ? 'bg-amber-600' : 'bg-omega-900'} text-white flex items-center justify-center shrink-0`}>
+                    <Truck size={16} />
                   </span>
-                  <span className="block text-xs text-omega-500 truncate">
-                    {v.modelo || 'Modelo não informado'}{v.status ? ` • ${v.status}` : ''}
+                  <span className="min-w-0">
+                    <span className="block font-mono font-extrabold text-omega-900 text-sm">
+                      {v.tag} <span className="font-semibold text-omega-400">• {v.placa || '—'}</span>
+                    </span>
+                    <span className="flex items-center gap-2 text-xs text-omega-500 truncate mt-0.5">
+                      <span>{v.modelo || 'Modelo não informado'}</span>
+                      {ehDesmobilizado && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                          Desmobilizado em {dataDesmobFormatada}
+                        </span>
+                      )}
+                      {!ehDesmobilizado && v.status && (
+                        <span className="text-omega-400">• {v.status}</span>
+                      )}
+                    </span>
                   </span>
-                </span>
-                <Plus size={16} className="ml-auto text-omega-300 shrink-0" />
-              </button>
-            ))}
+                  <Plus size={16} className="ml-auto text-omega-300 shrink-0" />
+                </button>
+              );
+            })}
           </div>
           <p className="text-[11px] text-omega-400 text-center">
-            {frotaAtiva.length} veículo(s) ativo(s) • horímetro e status podem ser ajustados na linha após vincular
+            {frotaDisponivel.length} veículo(s) disponível(is) • horímetro e status podem ser ajustados na linha após vincular
           </p>
         </div>
       </Modal>

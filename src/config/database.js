@@ -1,9 +1,13 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient({
+const prisma = globalThis.prisma || new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
 });
+
+if (!globalThis.prisma) {
+  globalThis.prisma = prisma;
+}
 
 async function testConnection(maxRetries = 3, delayMs = 2000) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {

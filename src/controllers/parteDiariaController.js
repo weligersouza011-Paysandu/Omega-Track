@@ -153,6 +153,45 @@ function dataISOParaUTC(iso) {
   return d;
 }
 
+function extrairDataISO(d) {
+  if (!d) return null;
+  if (typeof d === 'string') {
+    const match = d.match(/^\d{4}-\d{2}-\d{2}/);
+    if (match) return match[0];
+  }
+  if (d instanceof Date && !Number.isNaN(d.getTime())) {
+    return d.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+function formatarDataBR(isoOuDate) {
+  const iso = extrairDataISO(isoOuDate);
+  if (!iso) return '—';
+  const [ano, mes, dia] = iso.split('-');
+  return `${dia}/${mes}/${ano}`;
+}
+
+// Permite lançamento de partes diárias para veículos desmobilizados
+// apenas se a data do relatório for menor ou igual (<=) à data de desmobilização.
+function validarVeiculoDesmobilizado(veiculo, dataRelatorio) {
+  if (!veiculo) return null;
+  const statusNormalizado = String(veiculo.status || '').trim().toLowerCase();
+  if (statusNormalizado !== 'desmobilizado') return null;
+
+  const dataDesmob = veiculo.data_desmob || veiculo.data_desmobilizacao;
+  if (!dataDesmob) return null;
+
+  const desmobISO = extrairDataISO(dataDesmob);
+  const relatorioISO = extrairDataISO(dataRelatorio);
+
+  if (relatorioISO && desmobISO && relatorioISO > desmobISO) {
+    const dataFormatada = formatarDataBR(dataDesmob);
+    return `Veículo desmobilizado em ${dataFormatada}. Operação permitida apenas até a data de desmobilização.`;
+  }
+  return null;
+}
+
 function autorDaRequisicao(req, corpo = {}) {
   return (
     corpo.atualizado_por ||
@@ -689,6 +728,16 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   if (Number.isNaN(dataRef.getTime())) {
     return res.status(400).json({ error: 'Data invalida', message: 'Informe uma data válida para a parte diária.' });
   }
+
+  // Validação de desmobilização: permite retroativo apenas se data_relatorio <= data_desmobilizacao
+  const erroDesmob = validarVeiculoDesmobilizado(veiculoFrota, dataRef);
+  if (erroDesmob) {
+    return res.status(400).json({
+      erro: erroDesmob,
+      error: 'Veículo desmobilizado',
+      message: erroDesmob,
+    });
+  }
   const filhos = normalizarFilhos(req.body);
   // IMPORTANTE: o POST e SEMPRE aditivo — cria um registro novo e NUNCA
   // substitui/mescla Partes Diarias existentes (outro status, outro tipo de
@@ -852,6 +901,25 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   });
   if (!atual) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada.' });
+  }
+
+  // Validação de desmobilização na edição/atualização
+  const tagAlvo = corpo.tag
+    || (Array.isArray(corpo.equipamentos) && corpo.equipamentos.find((e) => e && String(e.tag_patrimonio || '').trim())?.tag_patrimonio)
+    || atual.tag;
+  const dataAlvo = corpo.data || atual.data;
+  if (tagAlvo) {
+    const veiculoAlvo = await prisma.mobDesmob.findFirst({
+      where: { tag: { equals: String(tagAlvo).trim(), mode: 'insensitive' }, deletado_em: null },
+    });
+    const erroDesmob = validarVeiculoDesmobilizado(veiculoAlvo, dataAlvo);
+    if (erroDesmob) {
+      return res.status(400).json({
+        erro: erroDesmob,
+        error: 'Veículo desmobilizado',
+        message: erroDesmob,
+      });
+    }
   }
 
   const tem = (k) => Object.prototype.hasOwnProperty.call(corpo, k);
@@ -1205,6 +1273,16 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
     return res.status(400).json({
       error: 'Veiculo invalido',
       message: `TAG "${tagBruta}" não encontrada na frota. Selecione um veículo da matriz.`,
+    });
+  }
+
+  // Validação de desmobilização na matriz calendário (apontamento rápido)
+  const erroDesmobApontamento = validarVeiculoDesmobilizado(veiculo, diaData);
+  if (erroDesmobApontamento) {
+    return res.status(400).json({
+      erro: erroDesmobApontamento,
+      error: 'Veículo desmobilizado',
+      message: erroDesmobApontamento,
     });
   }
 
