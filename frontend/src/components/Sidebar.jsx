@@ -78,7 +78,7 @@ export default function Sidebar({ open, onToggle, usuario }) {
     >
       <div className={'h-16 flex items-center justify-between px-3.5 border-b border-omega-200 shrink-0 bg-white'}>
         <div className="flex items-center gap-3 overflow-hidden min-w-0">
-          <div className="w-10 h-10 rounded-full bg-white border border-omega-200/90 shadow-sm flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
+          <div className="theme-logo w-10 h-10 rounded-full bg-white border border-omega-200/90 shadow-sm flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
             <img
               src="/logo/omega-circle.png"
               alt="Omega"

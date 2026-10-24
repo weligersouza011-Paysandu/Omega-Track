@@ -8,6 +8,11 @@
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      try {
+        if (localStorage.getItem('omegatrack-tema') === 'dark') document.documentElement.classList.add('dark');
+      } catch (_) { /* preferência local indisponível */ }
+    </script>
     <meta name="description" content="Omega Track · Sistema Corporativo de Gestão de Frotas, Operações e Manutenção — Omega Serviços e Montagens Industriais" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

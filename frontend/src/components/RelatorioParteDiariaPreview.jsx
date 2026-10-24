@@ -548,6 +548,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
             width: '100%', maxWidth: 794, minHeight: 1123,
             margin: '0 auto',
             background: '#fff',
+            color: '#0f172a', colorScheme: 'light',
             padding: '20px',
             boxSizing: 'border-box',
             boxShadow: '0 12px 50px rgba(0,0,0,0.5)',

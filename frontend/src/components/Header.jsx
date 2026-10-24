@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Menu, Clock, LogOut, ShieldCheck } from 'lucide-react';
+import { Search, Menu, Clock, LogOut, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { lerSessao, authHeaders } from '../utils/sessao.js';
 import { ehOperacional } from '../utils/permissoes.js';
 
-export default function Header({ usuario, onSair, onMenu }) {
+export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }) {
   const hoje = new Date();
   const dataFormatada = hoje.toLocaleDateString('pt-BR', {
     weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
@@ -54,7 +54,7 @@ export default function Header({ usuario, onSair, onMenu }) {
       {/* Identidade Corporativa Omega Oficial (Alinhada à Esquerda) */}
       <div className="flex items-center gap-3 shrink-0">
         <Link to="/inicio" className="flex items-center gap-2.5 md:gap-3 group focus:outline-none" title="Omega Track · Gestão Operacional">
-          <div className="flex items-center justify-center p-0.5 rounded-full bg-white border border-omega-200/90 shadow-sm group-hover:border-omega-brand/50 transition-colors">
+          <div className="theme-logo flex items-center justify-center p-0.5 rounded-full bg-white border border-omega-200/90 shadow-sm group-hover:border-omega-brand/50 transition-colors">
             <img
               src="/logo/omega-circle.png"
               alt="Omega Serviços e Montagens Industriais"
@@ -84,7 +84,7 @@ export default function Header({ usuario, onSair, onMenu }) {
       </div>
 
       {/* Centro: Data e Turno */}
-      <div className="flex items-center justify-center gap-2 text-omega-500 text-xs md:text-sm flex-1 min-w-0">
+      <div className="hidden sm:flex items-center justify-center gap-2 text-omega-500 text-xs md:text-sm flex-1 min-w-0">
         <Clock size={15} className="shrink-0 text-omega-400 hidden sm:block" />
         <span className="capitalize text-center truncate">{dataFormatada}</span>
       </div>
@@ -100,6 +100,18 @@ export default function Header({ usuario, onSair, onMenu }) {
           />
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={onAlternarTema}
+        aria-label={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+        title={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+        aria-pressed={tema === 'dark'}
+        className="theme-toggle relative ml-auto sm:ml-0 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-omega-200 bg-white text-omega-700 shadow-sm outline-none transition-colors duration-300 hover:border-omega-accent hover:text-omega-accent focus-visible:ring-2 focus-visible:ring-omega-accent focus-visible:ring-offset-2"
+      >
+        <Moon size={18} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? '-rotate-90 scale-50 opacity-0' : 'rotate-0 scale-100 opacity-100'}`} />
+        <Sun size={18} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? 'rotate-0 scale-100 opacity-100' : 'rotate-90 scale-50 opacity-0'}`} />
+      </button>
 
       {usuario && (
         <div className="flex items-center gap-2 shrink-0">

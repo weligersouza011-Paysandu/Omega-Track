@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './layouts/AppLayout.jsx';
 import HomePartesDiariasView from './views/HomePartesDiariasView.jsx';
@@ -19,6 +19,16 @@ import LoginView from './views/LoginView.jsx';
 import { lerSessao, encerrarSessao } from './utils/sessao.js';
 import { ehOperacional } from './utils/permissoes.js';
 
+const CHAVE_TEMA = 'omegatrack-tema';
+
+function temaSalvo() {
+  try {
+    return localStorage.getItem(CHAVE_TEMA) === 'dark' ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
+}
+
 // Guarda de rota: perfil OPERACIONAL só acessa o Início (/ e /inicio).
 // Qualquer URL direta restrita redireciona para /inicio.
 function RestritoAdmin({ children, operacional }) {
@@ -28,9 +38,20 @@ function RestritoAdmin({ children, operacional }) {
 
 export default function App() {
   const [sessao, setSessao] = useState(() => lerSessao());
+  const [tema, setTema] = useState(temaSalvo);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', tema === 'dark');
+    try {
+      localStorage.setItem(CHAVE_TEMA, tema);
+    } catch {
+      // A alternância continua válida nesta sessão mesmo sem armazenamento local.
+    }
+  }, [tema]);
 
   if (!sessao?.token) {
-    return <LoginView onLogin={(s) => setSessao(s)} />;
+    return <LoginView onLogin={(s) => setSessao(s)} tema={tema}
+      onAlternarTema={() => setTema((atual) => atual === 'dark' ? 'light' : 'dark')} />;
   }
 
   const sair = () => {
@@ -42,7 +63,8 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<AppLayout sessao={sessao} onSair={sair} />}>
+      <Route path="/" element={<AppLayout sessao={sessao} onSair={sair} tema={tema}
+        onAlternarTema={() => setTema((atual) => atual === 'dark' ? 'light' : 'dark')} />}>
         <Route index element={<HomePartesDiariasView sessao={sessao} />} />
         <Route path="inicio" element={<HomePartesDiariasView sessao={sessao} />} />
         <Route path="obras" element={<RestritoAdmin operacional={operacional}><ObrasView sessao={sessao} /></RestritoAdmin>} />

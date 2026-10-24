@@ -190,7 +190,7 @@ export default function GestaoPreditivaView() {
   ];
 
   return (
-    <div className="space-y-5 rounded-2xl bg-slate-950 p-4 sm:p-6 shadow-2xl ring-1 ring-slate-800 text-slate-100">
+    <div className="theme-native-dark space-y-5 rounded-2xl bg-slate-950 p-4 sm:p-6 shadow-2xl ring-1 ring-slate-800 text-slate-100">
       {/* Cabeçalho Dark Industrial */}
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-800 pb-5">
         <div>

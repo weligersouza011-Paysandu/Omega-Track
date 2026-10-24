@@ -125,7 +125,7 @@ export default function ObraSearchSelect({ id, obraAtual, obrasAtivas, disabled,
 
       {aberto && posicao && createPortal(
         <div ref={painelRef} style={posicao}
-          className="fixed z-[100] overflow-y-auto rounded-xl border border-omega-200 bg-white shadow-xl p-2">
+          className="theme-select-portal fixed z-[100] overflow-y-auto rounded-xl border border-omega-200 bg-white shadow-xl p-2">
           <div className="relative">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-omega-400" />
             <input ref={buscaRef} type="search" value={busca}

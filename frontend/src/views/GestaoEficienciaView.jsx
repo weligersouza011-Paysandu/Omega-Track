@@ -537,7 +537,7 @@ export default function GestaoEficienciaView({ sessao }) {
   const meses = dados?.por_mes || [];
 
   return (
-    <div className="space-y-5 rounded-2xl bg-slate-950 p-4 shadow-2xl ring-1 ring-slate-800 sm:p-6">
+    <div className="theme-native-dark space-y-5 rounded-2xl bg-slate-950 p-4 shadow-2xl ring-1 ring-slate-800 sm:p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-[11px] font-bold uppercase tracking-widest text-sky-400">Transporte</div>

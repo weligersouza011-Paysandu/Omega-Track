@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, LogIn, AlertTriangle, KeyRound, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, LogIn, AlertTriangle, KeyRound, ArrowRight, ArrowLeft, Sun, Moon } from 'lucide-react';
 import { fazerLogin, verificarMatricula, rotaInicialPorSetor } from '../utils/sessao.js';
 
 // Login dinâmico em 2 etapas:
 //  1. Só matrícula + "Avançar" -> checa o perfil no banco.
 //  2a. OPERACIONAL -> entra direto só com a matrícula.
 //  2b. ADMINISTRADOR -> revela o campo de senha com animação ("Entrar").
-export default function LoginView({ onLogin }) {
+export default function LoginView({ onLogin, tema, onAlternarTema }) {
   const navigate = useNavigate();
   const [matricula, setMatricula] = useState('');
   const [senha, setSenha] = useState('');
@@ -78,7 +78,15 @@ export default function LoginView({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen bg-omega-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="theme-login min-h-screen bg-omega-950 flex items-center justify-center p-4 relative overflow-hidden">
+      <button type="button" onClick={onAlternarTema}
+        aria-label={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+        title={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+        aria-pressed={tema === 'dark'}
+        className="theme-toggle absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-white/20 bg-white/10 text-white transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400">
+        <Moon size={19} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? '-rotate-90 scale-50 opacity-0' : 'rotate-0 scale-100 opacity-100'}`} />
+        <Sun size={19} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? 'rotate-0 scale-100 opacity-100' : 'rotate-90 scale-50 opacity-0'}`} />
+      </button>
       <style>{`
         @keyframes omega-fade-slide-in {
           from { opacity: 0; transform: translateY(-8px); }
