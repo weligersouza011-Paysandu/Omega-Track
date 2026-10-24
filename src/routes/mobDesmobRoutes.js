@@ -7,6 +7,7 @@ import {
   registrarPreventiva,
   criarVeiculo,
   atualizarVeiculo,
+  atualizarDadosTecnicosVeiculo,
   deletarVeiculo,
   desmobilizarVeiculo,
   atualizarFotoVeiculo,
@@ -25,6 +26,8 @@ router.get('/:tag/status-manutencao', buscarStatusManutencao);
 router.post('/:tag/preventiva', registrarPreventiva);
 router.post('/', criarVeiculo);
 router.put('/:tag/desmobilizar', desmobilizarVeiculo);
+// Edição rápida dos dados técnicos (ficha do veículo) — atualização parcial.
+router.patch('/:tag', atualizarDadosTecnicosVeiculo);
 router.put('/:tag', atualizarVeiculo);
 router.post('/:tag/foto', atualizarFotoVeiculo);
 router.delete('/:tag', requerAdmin, requerMaster, deletarVeiculo);

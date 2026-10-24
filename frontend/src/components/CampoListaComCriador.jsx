@@ -36,9 +36,18 @@ export default function CampoListaComCriador({
             onChange={onChange}
             className="input flex-1"
             placeholder={placeholderNovo}
+            required={required}
+            aria-required={required || undefined}
           />
         ) : (
-          <select id={id} value={valorForaDaLista ? valorTrim : value} onChange={onChange} className="input flex-1">
+          <select
+            id={id}
+            value={valorForaDaLista ? valorTrim : value}
+            onChange={onChange}
+            className="input flex-1"
+            required={required}
+            aria-required={required || undefined}
+          >
             <option value="">{placeholderSelecionar}</option>
             {valorForaDaLista && <option value={valorTrim}>{valorTrim}</option>}
             {opcoesUnicas.map((op) => (

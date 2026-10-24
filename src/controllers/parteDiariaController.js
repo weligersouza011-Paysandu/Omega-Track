@@ -41,18 +41,20 @@ function normalizarModeloVeiculo(modelo) {
     .toUpperCase();
 }
 
-function veiculoEhOnibus(veiculoOuModelo) {
+function ehFluxoSimplificadoTransporte(veiculoOuModelo) {
   const modelo = typeof veiculoOuModelo === 'string'
     ? veiculoOuModelo
     : veiculoOuModelo?.modelo;
-  return normalizarModeloVeiculo(modelo) === 'ONIBUS';
+  const norm = normalizarModeloVeiculo(modelo);
+  return norm === 'ONIBUS' || norm === 'VAN';
 }
 
 export function calcularStatusAprovacao(assinaturas = [], opcoes = {}) {
   const etapas = new Set((assinaturas || []).map((a) => String(a.etapa || '').toUpperCase()));
-  const ehOnibus = opcoes.ehOnibus === true || veiculoEhOnibus(opcoes.veiculo || opcoes.modelo);
-  // Ônibus: o Transporte é a etapa final; o Planejamento não participa.
-  if (ehOnibus) {
+  const fluxoSimplificado = opcoes.fluxoSimplificado === true
+    || ehFluxoSimplificadoTransporte(opcoes.veiculo || opcoes.modelo);
+  // Ônibus e VAN: o Transporte é a etapa final; o Planejamento não participa.
+  if (fluxoSimplificado) {
     if (etapas.has('TRANSPORTE')) return 'Aprovado';
     if (etapas.has('OPERADOR')) return 'Finalizado pelo Operador';
     return 'Em Preenchimento';
@@ -930,6 +932,7 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   });
   if (autorOriginal.nome) dados.funcionario = autorOriginal.nome;
   if (autorOriginal.matricula) dados.operador = autorOriginal.matricula;
+  if (autorOriginal.funcao) dados.funcao = autorOriginal.funcao;
   if (tem('status_operacional') && dados.status_operacional) {
     dados.status = dados.status_operacional;
   } else if (tem('status') && dados.status) {
@@ -992,16 +995,17 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   // Só sincroniza coleções que chegaram como array válido: valores nulos ou
   // mal formatados nunca apagam dados nem quebram o createMany (anti-500)
   const temLista = (k) => Array.isArray(corpo[k]);
-  if (temLista('mao_obra') && autorOriginal.nome) {
+  if (temLista('mao_obra') && (autorOriginal.nome || autorOriginal.matricula)) {
     const lista = filhos.mao_obra || [];
     const primeiro = lista[0];
     if (primeiro) {
-      primeiro.nome = autorOriginal.nome;
-      primeiro.matricula = autorOriginal.matricula || primeiro.matricula;
+      if (autorOriginal.nome) primeiro.nome = autorOriginal.nome;
+      if (autorOriginal.matricula) primeiro.matricula = autorOriginal.matricula;
+      if (autorOriginal.funcao) primeiro.funcao = autorOriginal.funcao;
       filhos.mao_obra = [primeiro, ...lista.slice(1)];
     } else {
       filhos.mao_obra = [{
-        nome: autorOriginal.nome,
+        nome: autorOriginal.nome || '',
         matricula: autorOriginal.matricula || null,
         funcao: autorOriginal.funcao || null,
         horario: null,

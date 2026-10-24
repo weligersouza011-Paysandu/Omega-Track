@@ -12,12 +12,23 @@ import DocumentManagementView from './DocumentManagementView.jsx';
 import { veiculos as initialVeiculos } from '../data/mockData.js';
 import { ehMaster } from '../utils/permissoes.js';
 import { authHeaders } from '../utils/sessao.js';
+import { hojeISO } from '../utils/datas.js';
 
 const FILTROS_RAPIDOS = [
   { key: 'todos', label: 'Todos', icon: null, cor: null },
   { key: 'Mobilizado', label: 'Mobilizado (Ativo)', icon: CheckCircle2, cor: 'status-verde' },
   { key: 'Desmobilizado', label: 'Desmobilizado (Desativado)', icon: X, cor: 'status-vermelho' },
 ];
+
+const formMobilizacaoInicial = () => ({
+  tag: '',
+  placa: '',
+  modelo: '',
+  contrato: '',
+  status: '',
+  data_mob: hojeISO(),
+  data_desmob: '',
+});
 
 const ABAS = [
   { key: 'galeria', label: 'Galeria de Veículos', icon: LayoutGrid },
@@ -65,8 +76,8 @@ export default function MobDesmobView({ sessao }) {
   const [modalDesmob, setModalDesmob] = useState(null);
   const [modalExclusao, setModalExclusao] = useState(null);
   const [excluindo, setExcluindo] = useState(false);
-  const [form, setForm] = useState({ tag: '', placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: new Date().toISOString().slice(0, 10) });
-  const [dataDesmob, setDataDesmob] = useState(new Date().toISOString().slice(0, 10));
+  const [form, setForm] = useState(formMobilizacaoInicial);
+  const [dataDesmob, setDataDesmob] = useState(hojeISO());
   const [motivoDesmob, setMotivoDesmob] = useState('');
   const [desmobilizando, setDesmobilizando] = useState(false);
   const [carregando, setCarregando] = useState(true);
@@ -178,21 +189,37 @@ export default function MobDesmobView({ sessao }) {
   const temFiltroAtivo = filtroStatus !== 'todos' || filtroContrato !== 'todos' || busca.trim() !== '';
 
   const salvarNovo = async () => {
-    if (!form.tag.trim() || !form.placa.trim()) {
-      setErroCadastro('TAG e Placa são obrigatórias.');
+    const faltando = [];
+    if (!form.tag.trim()) faltando.push('TAG');
+    if (!form.placa.trim()) faltando.push('Placa');
+    if (!String(form.modelo || '').trim()) faltando.push('Modelo / Categoria');
+    if (!String(form.contrato || '').trim()) faltando.push('Contrato');
+    if (!form.status) faltando.push('Status');
+    if (!form.data_mob) faltando.push('Data MOB');
+    if (form.status === 'Desmobilizado' && !form.data_desmob) faltando.push('Data DESMOB');
+
+    if (faltando.length > 0) {
+      setErroCadastro(`Preencha os campos obrigatórios: ${faltando.join(', ')}.`);
       return;
     }
-    if (!String(form.modelo || '').trim()) {
-      setErroCadastro('Modelo / Categoria é obrigatório.');
+    if (
+      form.status === 'Desmobilizado' &&
+      form.data_mob &&
+      form.data_desmob < form.data_mob
+    ) {
+      setErroCadastro('A Data DESMOB não pode ser anterior à Data MOB.');
       return;
     }
+
     setErroCadastro(null);
     const payload = {
-      ...form,
       tag: form.tag.trim(),
       placa: form.placa.toUpperCase().trim(),
       modelo: String(form.modelo).trim(),
-      contrato: String(form.contrato || '').trim() || null,
+      contrato: String(form.contrato).trim(),
+      status: form.status,
+      data_mob: form.data_mob,
+      data_desmob: form.status === 'Desmobilizado' ? form.data_desmob : null,
     };
     try {
       const resp = await fetch('/api/mob-desmob', {
@@ -200,19 +227,40 @@ export default function MobDesmobView({ sessao }) {
         headers: authHeaders(sessao),
         body: JSON.stringify(payload),
       });
-      if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}));
+        const erroHttp = new Error(corpo.message || `Falha ao cadastrar (API ${resp.status}).`);
+        erroHttp.status = resp.status;
+        throw erroHttp;
+      }
       const { data } = await resp.json();
-      setVeiculos([data, ...veiculos]);
+      setVeiculos((lista) => [data, ...lista]);
+      setToast(`${payload.tag} cadastrado com sucesso.`);
     } catch (e) {
+      // Erros de validação/negócio do backend não podem ser mascarados.
+      if (e.status && e.status < 500) {
+        setErroCadastro(e.message);
+        return;
+      }
       // Fallback offline: adiciona localmente sem foto até sincronizar.
-      setVeiculos([{ ...payload, foto_veiculo: null, data_desmob: null }, ...veiculos]);
+      setVeiculos((lista) => [{ ...payload, foto_veiculo: null }, ...lista]);
+      setToast('Veículo cadastrado localmente (falha na API — sincronize depois).');
     }
     setModalCadastro(false);
-    setForm({ tag: '', placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: new Date().toISOString().slice(0, 10) });
+    setForm(formMobilizacaoInicial());
   };
 
   const confirmarDesmob = async () => {
     if (!modalDesmob || desmobilizando) return;
+    if (!dataDesmob) {
+      setToast('Informe a Data de Desmobilização antes de confirmar.');
+      return;
+    }
+    const dataMobVeiculo = modalDesmob.data_mob ? String(modalDesmob.data_mob).slice(0, 10) : null;
+    if (dataMobVeiculo && dataDesmob < dataMobVeiculo) {
+      setToast('A Data de Desmobilização não pode ser anterior à Data MOB.');
+      return;
+    }
     setDesmobilizando(true);
     try {
       // Endpoint dedicado: atualiza status + data/responsavel/observacao e
@@ -222,22 +270,31 @@ export default function MobDesmobView({ sessao }) {
         headers: authHeaders(sessao),
         body: JSON.stringify({ data_desmob: dataDesmob, observacao: motivoDesmob.trim() || null }),
       });
-      if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}));
+        const erroHttp = new Error(corpo.message || `Falha ao desmobilizar (API ${resp.status}).`);
+        erroHttp.status = resp.status;
+        throw erroHttp;
+      }
       const { data } = await resp.json();
-      setVeiculos(veiculos.map(v => v.tag === data.veiculo.tag ? data.veiculo : v));
+      setVeiculos((lista) => lista.map(v => v.tag === data.veiculo.tag ? data.veiculo : v));
       setToast(
         `${data.veiculo.tag} desmobilizado. ${data.documentos_apagados} documento(s) e ${data.anexos_apagados} anexo(s) apagados do controle.`
       );
     } catch (e) {
-      setVeiculos(veiculos.map(v =>
+      if (e.status && e.status < 500) {
+        setToast(e.message);
+        setDesmobilizando(false);
+        return;
+      }
+      setVeiculos((lista) => lista.map(v =>
         v.tag === modalDesmob.tag ? { ...v, status: 'Desmobilizado', data_desmob: dataDesmob } : v
       ));
       setToast('Veículo desmobilizado localmente (falha na API — sincronize depois).');
-    } finally {
-      setDesmobilizando(false);
-      setModalDesmob(null);
-      setMotivoDesmob('');
     }
+    setDesmobilizando(false);
+    setModalDesmob(null);
+    setMotivoDesmob('');
   };
 
   const confirmarExclusao = async () => {
@@ -276,6 +333,15 @@ export default function MobDesmobView({ sessao }) {
     setVeiculoSelecionado(atualizado);
     setModalEdicao(null);
     setToast('Veículo atualizado com sucesso!');
+  };
+
+  const aoSalvarDadosTecnicos = (atualizado) => {
+    if (!atualizado?.tag) return;
+    setVeiculos((lista) => lista.map((v) => (v.tag === atualizado.tag ? { ...v, ...atualizado } : v)));
+    setVeiculoSelecionado((atual) =>
+      atual?.tag === atualizado.tag ? { ...atual, ...atualizado } : atual
+    );
+    setToast('Dados técnicos atualizados com sucesso!');
   };
 
   const exportar = async () => {
@@ -618,10 +684,11 @@ export default function MobDesmobView({ sessao }) {
           onEdit={(v) => abrirEdicao(v || veiculoSelecionado)}
           onDesmob={(v) => {
             setModalDesmob(v || veiculoSelecionado);
-            setDataDesmob(new Date().toISOString().slice(0, 10));
+            setDataDesmob(hojeISO());
           }}
           podeExcluir={souMaster}
           onExcluir={(v) => setModalExclusao(v || veiculoSelecionado)}
+          onTechnicalSaved={aoSalvarDadosTecnicos}
         />
       )}
 
@@ -644,12 +711,26 @@ export default function MobDesmobView({ sessao }) {
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="label">TAG <span className="text-status-vermelho">*</span></label>
-            <input value={form.tag} onChange={e => setForm({ ...form, tag: e.target.value })} className="input" placeholder="Ex: JI439" />
+            <label className="label" htmlFor="cad-tag">TAG <span className="text-status-vermelho">*</span></label>
+            <input
+              id="cad-tag"
+              value={form.tag}
+              onChange={e => setForm({ ...form, tag: e.target.value })}
+              className="input"
+              placeholder="Ex: JI439"
+              required
+            />
           </div>
           <div>
-            <label className="label">Placa <span className="text-status-vermelho">*</span></label>
-            <input value={form.placa} onChange={e => setForm({ ...form, placa: e.target.value })} className="input font-mono uppercase" placeholder="SZ10E93" />
+            <label className="label" htmlFor="cad-placa">Placa <span className="text-status-vermelho">*</span></label>
+            <input
+              id="cad-placa"
+              value={form.placa}
+              onChange={e => setForm({ ...form, placa: e.target.value })}
+              className="input font-mono uppercase"
+              placeholder="SZ10E93"
+              required
+            />
           </div>
           <div className="md:col-span-2">
             <CampoListaComCriador
@@ -667,26 +748,58 @@ export default function MobDesmobView({ sessao }) {
             <CampoListaComCriador
               id="cad-contrato"
               label="Contrato"
+              required
               value={form.contrato}
               onChange={e => setForm({ ...form, contrato: e.target.value })}
-              opcoes={contratos.map((c) => c.nome)}
+              opcoes={contratos.map((c) => c.nome).filter((nome) => nome !== 'Sem contrato')}
               placeholderSelecionar="Selecione o contrato..."
               placeholderNovo="Digite o novo contrato..."
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Status</label>
-              <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} className="input">
-                <option>Mobilizado</option>
-                <option>Desmobilizado</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Data MOB</label>
-              <input type="date" value={form.data_mob} onChange={e => setForm({ ...form, data_mob: e.target.value })} className="input" />
-            </div>
+          <div>
+            <label className="label" htmlFor="cad-status">Status <span className="text-status-vermelho">*</span></label>
+            <select
+              id="cad-status"
+              value={form.status}
+              onChange={e => setForm({ ...form, status: e.target.value })}
+              className="input"
+              required
+            >
+              <option value="">Selecione o status...</option>
+              <option>Mobilizado</option>
+              <option>Desmobilizado</option>
+            </select>
           </div>
+          <div>
+            <label className="label" htmlFor="cad-data-mob">Data MOB <span className="text-status-vermelho">*</span></label>
+            <input
+              id="cad-data-mob"
+              type="date"
+              value={form.data_mob}
+              onChange={e => setForm({ ...form, data_mob: e.target.value })}
+              className="input"
+              required
+            />
+          </div>
+          {form.status === 'Desmobilizado' && (
+            <div className="md:col-span-2">
+              <label className="label" htmlFor="cad-data-desmob">
+                Data de Desmobilização (Data DESMOB) <span className="text-status-vermelho">*</span>
+              </label>
+              <input
+                id="cad-data-desmob"
+                type="date"
+                value={form.data_desmob}
+                min={form.data_mob || undefined}
+                onChange={e => setForm({ ...form, data_desmob: e.target.value })}
+                className="input"
+                required
+              />
+              <p className="mt-1 text-[11px] text-omega-500">
+                Obrigatória para veículos com status Desmobilizado.
+              </p>
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -699,7 +812,11 @@ export default function MobDesmobView({ sessao }) {
         footer={
           <>
             <button onClick={() => { if (!desmobilizando) { setModalDesmob(null); setMotivoDesmob(''); } }} disabled={desmobilizando} className="btn-secondary disabled:opacity-50">Cancelar</button>
-            <button onClick={confirmarDesmob} disabled={desmobilizando} className="btn-danger disabled:opacity-50 inline-flex items-center gap-2">
+            <button
+              onClick={confirmarDesmob}
+              disabled={desmobilizando || !dataDesmob}
+              className="btn-danger disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+            >
               {desmobilizando && <Loader2 size={15} className="animate-spin" />}
               {desmobilizando ? 'Desmobilizando...' : 'Sim, desmobilizar e apagar documentos'}
             </button>
@@ -716,8 +833,18 @@ export default function MobDesmobView({ sessao }) {
             no controle de documentação.
           </div>
           <div>
-            <label className="label">Data da Desmobilizacao</label>
-            <input type="date" value={dataDesmob} onChange={e => setDataDesmob(e.target.value)} className="input" />
+            <label className="label" htmlFor="desmob-data">
+              Data da Desmobilizacao <span className="text-status-vermelho">*</span>
+            </label>
+            <input
+              id="desmob-data"
+              type="date"
+              value={dataDesmob}
+              min={modalDesmob?.data_mob ? String(modalDesmob.data_mob).slice(0, 10) : undefined}
+              onChange={e => setDataDesmob(e.target.value)}
+              className="input"
+              required
+            />
           </div>
           <div>
             <label className="label">Motivo / Observacao</label>

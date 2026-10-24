@@ -3,13 +3,7 @@ import { ImagePlus, Loader2 } from 'lucide-react';
 import Modal from './Modal.jsx';
 import CampoListaComCriador from './CampoListaComCriador.jsx';
 import { authHeaders } from '../utils/sessao.js';
-
-function paraInputDate(valor) {
-  if (!valor) return '';
-  const d = new Date(valor);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toISOString().slice(0, 10);
-}
+import { paraInputData } from '../utils/datas.js';
 
 export default function EditVehicleModal({ open, veiculo, contratos = [], modelos = [], sessao, onClose, onSaved }) {
   const [form, setForm] = useState({ placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: '', data_desmob: '', km_limite_preventiva: '', km_ultima_preventiva: '' });
@@ -25,8 +19,8 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
         modelo: veiculo.modelo || veiculo.categoria || '',
         contrato: (veiculo.contrato || '').trim(),
         status: veiculo.status || 'Mobilizado',
-        data_mob: paraInputDate(veiculo.data_mob),
-        data_desmob: paraInputDate(veiculo.data_desmob),
+        data_mob: paraInputData(veiculo.data_mob),
+        data_desmob: veiculo.data_desmob ? paraInputData(veiculo.data_desmob) : '',
         km_limite_preventiva: veiculo.km_limite_preventiva ?? 10000,
         km_ultima_preventiva: veiculo.km_ultima_preventiva ?? '',
       });
@@ -51,12 +45,24 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
   const set = (campo) => (e) => setForm((f) => ({ ...f, [campo]: e.target.value }));
 
   const salvar = async () => {
-    if (!form.placa.trim()) {
-      setErro('Placa é obrigatória.');
+    const faltando = [];
+    if (!form.placa.trim()) faltando.push('Placa');
+    if (!String(form.modelo || '').trim()) faltando.push('Modelo / Categoria');
+    if (!String(form.contrato || '').trim()) faltando.push('Contrato');
+    if (!form.status) faltando.push('Status');
+    if (!form.data_mob) faltando.push('Data MOB');
+    if (form.status === 'Desmobilizado' && !form.data_desmob) faltando.push('Data DESMOB');
+
+    if (faltando.length > 0) {
+      setErro(`Preencha os campos obrigatórios: ${faltando.join(', ')}.`);
       return;
     }
-    if (!String(form.modelo || '').trim()) {
-      setErro('Modelo / Categoria é obrigatório.');
+    if (
+      form.status === 'Desmobilizado' &&
+      form.data_mob &&
+      form.data_desmob < form.data_mob
+    ) {
+      setErro('A Data DESMOB não pode ser anterior à Data MOB.');
       return;
     }
     setSalvando(true);
@@ -91,8 +97,8 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
         modelo: form.modelo.trim() || null,
         contrato: form.contrato.trim() || null,
         status: form.status,
-        data_mob: form.data_mob || undefined,
-        data_desmob: form.data_desmob || null,
+        data_mob: form.data_mob,
+        data_desmob: form.status === 'Desmobilizado' ? form.data_desmob : null,
         km_limite_preventiva: String(form.km_limite_preventiva ?? '').trim() === '' ? 10000 : Number(form.km_limite_preventiva),
         km_ultima_preventiva: String(form.km_ultima_preventiva ?? '').trim() === '' ? null : Number(form.km_ultima_preventiva),
       };
@@ -197,12 +203,14 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
             <input value={veiculo.tag} disabled className="input font-mono bg-omega-50 text-omega-500" />
           </div>
           <div>
-            <label className="label">Placa <span className="text-status-vermelho">*</span></label>
+            <label className="label" htmlFor="edit-placa">Placa <span className="text-status-vermelho">*</span></label>
             <input
+              id="edit-placa"
               value={form.placa}
               onChange={set('placa')}
               className="input font-mono uppercase"
               placeholder="SZI0E93"
+              required
             />
           </div>
           <div className="md:col-span-2">
@@ -221,16 +229,24 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
             <CampoListaComCriador
               id="edit-contrato"
               label="Contrato"
+              required
               value={form.contrato}
               onChange={set('contrato')}
-              opcoes={contratos.map((c) => c.nome)}
+              opcoes={contratos.map((c) => c.nome).filter((nome) => nome !== 'Sem contrato')}
               placeholderSelecionar="Selecione o contrato..."
               placeholderNovo="Digite o novo contrato..."
             />
           </div>
           <div>
-            <label className="label">Status</label>
-            <select value={form.status} onChange={set('status')} className="input">
+            <label className="label" htmlFor="edit-status">Status <span className="text-status-vermelho">*</span></label>
+            <select
+              id="edit-status"
+              value={form.status}
+              onChange={set('status')}
+              className="input"
+              required
+            >
+              <option value="">Selecione o status...</option>
               <option>Mobilizado</option>
               <option>Desmobilizado</option>
             </select>
@@ -241,13 +257,32 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
             )}
           </div>
           <div>
-            <label className="label">Data MOB</label>
-            <input type="date" value={form.data_mob} onChange={set('data_mob')} className="input" />
+            <label className="label" htmlFor="edit-data-mob">Data MOB <span className="text-status-vermelho">*</span></label>
+            <input
+              id="edit-data-mob"
+              type="date"
+              value={form.data_mob}
+              onChange={set('data_mob')}
+              className="input"
+              required
+            />
           </div>
-          <div>
-            <label className="label">Data DESMOB</label>
-            <input type="date" value={form.data_desmob} onChange={set('data_desmob')} className="input" />
-          </div>
+          {form.status === 'Desmobilizado' && (
+            <div>
+              <label className="label" htmlFor="edit-data-desmob">
+                Data DESMOB <span className="text-status-vermelho">*</span>
+              </label>
+              <input
+                id="edit-data-desmob"
+                type="date"
+                value={form.data_desmob}
+                min={form.data_mob || undefined}
+                onChange={set('data_desmob')}
+                className="input"
+                required
+              />
+            </div>
+          )}
           <div>
             <label className="label">Limite preventiva (km)</label>
             <input type="number" min="1" value={form.km_limite_preventiva} onChange={set('km_limite_preventiva')} className="input tabular-nums" placeholder="10000" />

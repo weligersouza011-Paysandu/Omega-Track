@@ -28,6 +28,9 @@
   .btn-success {
     @apply btn bg-status-verde text-white hover:bg-green-600 focus:ring-green-300;
   }
+  .btn-omega-red {
+    @apply btn bg-omega-red-600 text-white hover:bg-omega-red-700 shadow-sm hover:shadow focus:ring-omega-red-500;
+  }
   .input {
     @apply block w-full rounded-lg border border-omega-200 bg-white px-3 py-2 text-sm text-omega-900 placeholder-omega-400 shadow-sm focus:border-omega-accent focus:outline-none focus:ring-1 focus:ring-omega-accent;
   }

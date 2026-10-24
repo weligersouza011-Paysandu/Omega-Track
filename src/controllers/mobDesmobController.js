@@ -12,6 +12,181 @@ import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCl
 import { registrarLogAtividade } from '../services/auditService.js';
 
 const CINCO_DIAS_MS = 5 * 24 * 60 * 60 * 1000;
+const ANO_MINIMO_VEICULO = 1900;
+
+export const COMBUSTIVEIS_VALIDOS = [
+  'Diesel S10',
+  'Gasolina Comum',
+  'Gasolina Aditivada',
+  'Etanol',
+  'Flex',
+  'Elétrico / Híbrido',
+];
+
+const STATUS_VEICULO_VALIDOS = ['Mobilizado', 'Desmobilizado'];
+
+function erroValidacao(message, error = 'Dados invalidos') {
+  const err = new Error(message);
+  err.statusCode = 400;
+  err.error = error;
+  return err;
+}
+
+function estaVazio(valor) {
+  return valor === undefined || valor === null || String(valor).trim() === '';
+}
+
+function converterDataObrigatoria(valor, rotulo) {
+  if (estaVazio(valor)) {
+    throw erroValidacao(`${rotulo} é obrigatória.`, 'Campos obrigatorios');
+  }
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) {
+    throw erroValidacao(`${rotulo} inválida.`, 'Data invalida');
+  }
+  return data;
+}
+
+function converterDataOpcional(valor, rotulo) {
+  if (estaVazio(valor)) return null;
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) {
+    throw erroValidacao(`${rotulo} inválida.`, 'Data invalida');
+  }
+  return data;
+}
+
+// Regra de negócio: TODO veículo precisa de TAG, placa, modelo/categoria,
+// contrato, status e data MOB. Desmobilizado exige também a data DESMOB.
+function validarDadosMobilizacao(dados = {}) {
+  const faltando = [];
+  if (estaVazio(dados.tag)) faltando.push('TAG');
+  if (estaVazio(dados.placa)) faltando.push('Placa');
+  if (estaVazio(dados.modelo)) faltando.push('Modelo / Categoria');
+  if (estaVazio(dados.contrato)) faltando.push('Contrato');
+  if (estaVazio(dados.status)) faltando.push('Status');
+  if (estaVazio(dados.data_mob)) faltando.push('Data MOB');
+
+  const status = String(dados.status || '').trim();
+  if (status && !STATUS_VEICULO_VALIDOS.includes(status)) {
+    throw erroValidacao(
+      `Status inválido. Use ${STATUS_VEICULO_VALIDOS.join(' ou ')}.`,
+      'Status invalido'
+    );
+  }
+
+  if (status === 'Desmobilizado' && estaVazio(dados.data_desmob)) {
+    faltando.push('Data DESMOB');
+  }
+
+  if (faltando.length > 0) {
+    throw erroValidacao(
+      `Campos obrigatórios: ${faltando.join(', ')}.`,
+      'Campos obrigatorios'
+    );
+  }
+
+  const dataMob = converterDataObrigatoria(dados.data_mob, 'Data MOB');
+  const dataDesmob = converterDataOpcional(dados.data_desmob, 'Data DESMOB');
+
+  if (status === 'Desmobilizado' && !dataDesmob) {
+    throw erroValidacao('Data DESMOB é obrigatória para veículos desmobilizados.', 'Campos obrigatorios');
+  }
+  if (dataDesmob && dataDesmob.getTime() < dataMob.getTime()) {
+    throw erroValidacao('Data DESMOB não pode ser anterior à Data MOB.', 'Datas invalidas');
+  }
+
+  return {
+    tag: String(dados.tag).trim(),
+    placa: String(dados.placa).trim().toUpperCase(),
+    modelo: String(dados.modelo).trim(),
+    contrato: String(dados.contrato).trim(),
+    status,
+    data_mob: dataMob,
+    // Data de desmobilização só existe enquanto o veículo estiver desmobilizado.
+    data_desmob: status === 'Desmobilizado' ? dataDesmob : null,
+  };
+}
+
+function semAcento(valor) {
+  return String(valor)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+// Whitelist dos dados técnicos editáveis na ficha completa. Campos ausentes
+// no body são preservados (PATCH parcial).
+function validarDadosTecnicos(campos = {}, base = {}) {
+  const possui = (campo) => Object.prototype.hasOwnProperty.call(campos, campo);
+  const dados = {};
+  const anoMaximo = new Date().getFullYear() + 1;
+
+  for (const campo of ['ano_fabricacao', 'ano_modelo']) {
+    if (!possui(campo)) continue;
+    const valor = campos[campo];
+    if (valor === null || valor === undefined || String(valor).trim() === '') {
+      dados[campo] = null;
+      continue;
+    }
+    const numero = Number(valor);
+    if (!Number.isInteger(numero) || numero < ANO_MINIMO_VEICULO || numero > anoMaximo) {
+      throw erroValidacao(
+        `${campo === 'ano_fabricacao' ? 'Ano Fabricação' : 'Ano Modelo'} deve ser um ano entre ${ANO_MINIMO_VEICULO} e ${anoMaximo}.`,
+        'Ano invalido'
+      );
+    }
+    dados[campo] = numero;
+  }
+
+  if (possui('km_inicial')) {
+    const valor = campos.km_inicial;
+    if (valor === null || valor === undefined || String(valor).trim() === '') {
+      dados.km_inicial = null;
+    } else {
+      const numero = Number(valor);
+      if (!Number.isFinite(numero) || numero < 0) {
+        throw erroValidacao('KM Inicial MOB deve ser um número maior ou igual a zero.', 'KM invalida');
+      }
+      dados.km_inicial = Math.trunc(numero);
+    }
+  }
+
+  if (possui('combustivel')) {
+    const valor = campos.combustivel;
+    if (valor === null || valor === undefined || String(valor).trim() === '') {
+      dados.combustivel = null;
+    } else {
+      const canonico = COMBUSTIVEIS_VALIDOS.find(
+        (opcao) => semAcento(opcao) === semAcento(String(valor).trim())
+      );
+      if (!canonico) {
+        throw erroValidacao(
+          `Combustível inválido. Opções permitidas: ${COMBUSTIVEIS_VALIDOS.join(', ')}.`,
+          'Combustivel invalido'
+        );
+      }
+      dados.combustivel = canonico;
+    }
+  }
+
+  for (const campo of ['chassi', 'renavam', 'cor']) {
+    if (!possui(campo)) continue;
+    const valor = campos[campo];
+    dados[campo] =
+      valor === null || valor === undefined || String(valor).trim() === ''
+        ? null
+        : String(valor).trim().slice(0, 50);
+  }
+
+  const anoFabricacao = dados.ano_fabricacao !== undefined ? dados.ano_fabricacao : base.ano_fabricacao;
+  const anoModelo = dados.ano_modelo !== undefined ? dados.ano_modelo : base.ano_modelo;
+  if (anoFabricacao != null && anoModelo != null && Number(anoModelo) < Number(anoFabricacao)) {
+    throw erroValidacao('Ano Modelo não pode ser anterior ao Ano Fabricação.', 'Anos invalidos');
+  }
+
+  return dados;
+}
 
 export const listarVeiculos = asyncHandler(async (req, res) => {
   const { status, contrato, page = 1, limit = 50 } = req.query;
@@ -201,36 +376,33 @@ function validarParametrosPreventiva({ km_limite_preventiva, km_ultima_preventiv
 }
 
 export const criarVeiculo = asyncHandler(async (req, res) => {
-  const { tag, placa, foto_veiculo, status, data_mob, data_desmob, modelo, contrato } = req.body;
-
-  if (!tag || !placa || !status) {
-    return res.status(400).json({
-      error: 'Campos obrigatorios',
-      message: 'Os campos tag, placa e status sao obrigatorios.',
-    });
-  }
+  const body = req.body || {};
+  const dados = validarDadosMobilizacao(body);
 
   // Regra de ouro: foto_veiculo aceita SOMENTE URL do Cloudinary (sem binario).
-  validarUrlMidia(foto_veiculo, 'foto_veiculo');
+  validarUrlMidia(body.foto_veiculo, 'foto_veiculo');
 
   const veiculo = await prisma.mobDesmob.create({
     data: {
-      tag,
-      placa: placa.toUpperCase(),
-      foto_veiculo,
-      status,
-      data_mob: data_mob ? new Date(data_mob) : undefined,
-      data_desmob: data_desmob ? new Date(data_desmob) : null,
-      modelo,
-      contrato,
-      ...validarParametrosPreventiva(req.body),
+      ...dados,
+      foto_veiculo: body.foto_veiculo,
+      ...validarDadosTecnicos(body),
+      ...validarParametrosPreventiva(body),
     },
   });
 
   await registrarLogAtividade(req, {
     acao: 'CRIAR_VEICULO',
     modulo: 'Frota',
-    detalhes: { tag: veiculo.tag, placa: veiculo.placa, modelo: veiculo.modelo, contrato: veiculo.contrato, status: veiculo.status },
+    detalhes: {
+      tag: veiculo.tag,
+      placa: veiculo.placa,
+      modelo: veiculo.modelo,
+      contrato: veiculo.contrato,
+      status: veiculo.status,
+      data_mob: veiculo.data_mob,
+      data_desmob: veiculo.data_desmob,
+    },
   });
 
   res.status(201).json({ data: veiculo });
@@ -238,27 +410,49 @@ export const criarVeiculo = asyncHandler(async (req, res) => {
 
 export const atualizarVeiculo = asyncHandler(async (req, res) => {
   const { tag } = req.params;
-  const { placa, foto_veiculo, status, data_mob, data_desmob, modelo, contrato } = req.body;
-
-  // Regra de ouro: foto_veiculo aceita SOMENTE URL do Cloudinary (sem binario).
-  validarUrlMidia(foto_veiculo, 'foto_veiculo');
+  const body = req.body || {};
 
   const anterior = await prisma.mobDesmob.findFirst({ where: { tag, deletado_em: null } });
   if (!anterior) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
   }
 
+  const temCampo = (campo) => Object.prototype.hasOwnProperty.call(body, campo);
+
+  // Regra de ouro: foto_veiculo aceita SOMENTE URL do Cloudinary (sem binario).
+  if (temCampo('foto_veiculo')) {
+    validarUrlMidia(body.foto_veiculo, 'foto_veiculo');
+  }
+
+  const status = temCampo('status') ? String(body.status || '').trim() : anterior.status;
+  const dataMob = temCampo('data_mob') ? body.data_mob : anterior.data_mob;
+  let dataDesmob = temCampo('data_desmob') ? body.data_desmob : anterior.data_desmob;
+  // Reversão para Mobilizado limpa a data de desmobilização.
+  if (status !== 'Desmobilizado') dataDesmob = null;
+
+  const dados = validarDadosMobilizacao({
+    tag: anterior.tag,
+    placa: temCampo('placa') ? body.placa : anterior.placa,
+    modelo: temCampo('modelo') ? body.modelo : anterior.modelo,
+    contrato: temCampo('contrato') ? body.contrato : anterior.contrato,
+    status,
+    data_mob: dataMob,
+    data_desmob: dataDesmob,
+  });
+  const tecnicos = validarDadosTecnicos(body, anterior);
+
   const veiculo = await prisma.mobDesmob.update({
     where: { tag },
     data: {
-      placa: placa ? placa.toUpperCase() : undefined,
-      foto_veiculo,
-      status,
-      data_mob: data_mob ? new Date(data_mob) : undefined,
-      data_desmob: data_desmob ? new Date(data_desmob) : null,
-      modelo,
-      contrato,
-      ...validarParametrosPreventiva(req.body),
+      placa: dados.placa,
+      modelo: dados.modelo,
+      contrato: dados.contrato,
+      status: dados.status,
+      data_mob: dados.data_mob,
+      data_desmob: dados.data_desmob,
+      ...(temCampo('foto_veiculo') ? { foto_veiculo: body.foto_veiculo || null } : {}),
+      ...tecnicos,
+      ...validarParametrosPreventiva(body),
     },
   });
 
@@ -272,15 +466,70 @@ export const atualizarVeiculo = asyncHandler(async (req, res) => {
         status: anterior.status,
         modelo: anterior.modelo,
         contrato: anterior.contrato,
+        data_mob: anterior.data_mob,
         data_desmob: anterior.data_desmob,
+        ano_fabricacao: anterior.ano_fabricacao,
+        ano_modelo: anterior.ano_modelo,
+        km_inicial: anterior.km_inicial,
+        combustivel: anterior.combustivel,
       },
       depois: {
         placa: veiculo.placa,
         status: veiculo.status,
         modelo: veiculo.modelo,
         contrato: veiculo.contrato,
+        data_mob: veiculo.data_mob,
         data_desmob: veiculo.data_desmob,
+        ano_fabricacao: veiculo.ano_fabricacao,
+        ano_modelo: veiculo.ano_modelo,
+        km_inicial: veiculo.km_inicial,
+        combustivel: veiculo.combustivel,
       },
+    },
+  });
+
+  res.json({ data: veiculo });
+});
+
+// PATCH /api/mob-desmob/:tag — edição rápida dos dados técnicos exibidos na
+// ficha do veículo. Aceita somente a whitelist de campos técnicos.
+export const atualizarDadosTecnicosVeiculo = asyncHandler(async (req, res) => {
+  const { tag } = req.params;
+  const body = req.body || {};
+
+  const anterior = await prisma.mobDesmob.findFirst({ where: { tag, deletado_em: null } });
+  if (!anterior) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
+  }
+
+  const tecnicos = validarDadosTecnicos(body, anterior);
+  if (Object.keys(tecnicos).length === 0) {
+    return res.status(400).json({
+      error: 'Nenhum dado tecnico',
+      message: 'Informe ao menos um campo técnico para atualizar.',
+    });
+  }
+
+  const veiculo = await prisma.mobDesmob.update({
+    where: { tag },
+    data: tecnicos,
+  });
+
+  await registrarLogAtividade(req, {
+    acao: 'EDITAR_DADOS_TECNICOS_VEICULO',
+    modulo: 'Frota',
+    detalhes: {
+      tag: veiculo.tag,
+      antes: {
+        chassi: anterior.chassi,
+        renavam: anterior.renavam,
+        cor: anterior.cor,
+        ano_fabricacao: anterior.ano_fabricacao,
+        ano_modelo: anterior.ano_modelo,
+        km_inicial: anterior.km_inicial,
+        combustivel: anterior.combustivel,
+      },
+      depois: tecnicos,
     },
   });
 
@@ -337,6 +586,20 @@ export const desmobilizarVeiculo = asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
   }
 
+  if (estaVazio(data_desmob)) {
+    return res.status(400).json({
+      error: 'Campos obrigatorios',
+      message: 'Data DESMOB é obrigatória para desmobilizar o veículo.',
+    });
+  }
+  const dataDesmob = converterDataObrigatoria(data_desmob, 'Data DESMOB');
+  if (veiculo.data_mob && dataDesmob.getTime() < new Date(veiculo.data_mob).getTime()) {
+    return res.status(400).json({
+      error: 'Datas invalidas',
+      message: 'Data DESMOB não pode ser anterior à Data MOB.',
+    });
+  }
+
   // 1. Anexos no Cloudinary: busca docs com URL e exclui (falha isolada nao trava).
   const docs = await prisma.documentacaoVeiculo.findMany({
     where: { tag },
@@ -355,7 +618,7 @@ export const desmobilizarVeiculo = asyncHandler(async (req, res) => {
       where: { tag },
       data: {
         status: 'Desmobilizado',
-        data_desmob: data_desmob ? new Date(data_desmob) : new Date(),
+        data_desmob: dataDesmob,
         responsavel_desmob: responsavel ? String(responsavel).slice(0, 255) : null,
         observacao_desmob: observacao ? String(observacao) : null,
       },

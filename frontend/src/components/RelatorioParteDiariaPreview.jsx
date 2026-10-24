@@ -113,10 +113,30 @@ function calcHorasTrabalhadas(entrada, saida, intEntrada, intSaida) {
   return minToHHMM(total);
 }
 
+function normalizarModeloVeiculo(modelo) {
+  return String(modelo || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+}
+
+function ehFluxoSimplificadoTransporte(modelo) {
+  const norm = normalizarModeloVeiculo(modelo);
+  return norm === 'ONIBUS' || norm === 'VAN';
+}
+
 // Status do registro — mesma regra do formulário (resolverStatusAprovacao).
-function rotuloStatus(statusRelatorio, assinaturas = []) {
+function rotuloStatus(statusRelatorio, assinaturas = [], modelo = '') {
   const etapas = new Set((assinaturas || []).map((a) => String(a.etapa || '').toUpperCase()));
-  if (etapas.has('PLANEJADOR') || statusRelatorio === 'APROVADO') return 'Aprovado';
+  if (statusRelatorio === 'APROVADO') return 'Aprovado';
+  // Ônibus e VAN: o Transporte é a etapa final e o Planejamento não participa.
+  if (ehFluxoSimplificadoTransporte(modelo)) {
+    if (etapas.has('TRANSPORTE')) return 'Aprovado';
+    if (etapas.has('OPERADOR')) return 'Finalizado pelo Operador';
+    return 'Em Preenchimento';
+  }
+  if (etapas.has('PLANEJADOR')) return 'Aprovado';
   if (etapas.has('TRANSPORTE')) return 'Revisado pelo Transporte';
   if (etapas.has('OPERADOR')) return 'Finalizado pelo Operador';
   return 'Em Preenchimento';
@@ -268,6 +288,10 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
     km_final,
     tag, // TAG legada (payload deriva do 1º equipamento)
     veiculo, // objeto legado { modelo } p/ descrição do fallback
+    funcionario,
+    operador,
+    funcao,
+    criado_por,
     mao_obra      = [],
     equipamentos  = [],
     atividades    = [],
@@ -332,7 +356,10 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
   const diaSemana      = diaSemanaDe(data);
   const dataFormatada  = formatarDataBR(data);
   const horasTrab      = calcHorasTrabalhadas(horario_entrada, horario_saida, intervalo_entrada, intervalo_saida);
-  const statusLabel    = rotuloStatus(status_relatorio, assinaturas);
+  const modeloVeiculo  = (typeof veiculo === 'string' ? veiculo : veiculo?.modelo)
+    || (equipamentos || []).find((e) => String(e?.descricao || '').trim())?.descricao
+    || '';
+  const statusLabel    = rotuloStatus(status_relatorio, assinaturas, modeloVeiculo);
   const badgeSt        = badgeStyle(statusLabel);
   const statusOp       = status_operacional || status || '—';
   const numRelatorio   = numero_relatorio || id?.split('-')[0]?.toUpperCase() || '—';
@@ -340,6 +367,24 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
   const intervaloStr   = intervalo_entrada && intervalo_saida ? `${intervalo_entrada} - ${intervalo_saida}` : intervalo_entrada || '—';
   const kmIniStr       = km_inicial !== '' && km_inicial != null ? String(km_inicial) : '—';
   const kmFimStr       = km_final !== '' && km_final != null ? String(km_final) : '—';
+
+  // Mão de obra: assegura exibição e preservação do operador autor original
+  const autorOriginalPreview = {
+    nome: funcionario || criado_por || (mao_obra || [])[0]?.nome || '',
+    matricula: operador || (mao_obra || [])[0]?.matricula || '',
+    funcao: funcao || (mao_obra || [])[0]?.funcao || '',
+  };
+
+  const maoObraView = (mao_obra && mao_obra.length > 0)
+    ? mao_obra.map((m, i) => (i === 0 ? {
+        ...m,
+        nome: autorOriginalPreview.nome || m.nome,
+        matricula: autorOriginalPreview.matricula || m.matricula,
+        funcao: autorOriginalPreview.funcao || m.funcao,
+      } : m))
+    : (autorOriginalPreview.nome || autorOriginalPreview.matricula
+        ? [{ ...autorOriginalPreview, observacao: '' }]
+        : []);
 
   // Equipamentos: usa a lista real; fallback apenas p/ o `tag` legado do payload.
   const equipamentosView = equipamentos.length > 0
@@ -677,15 +722,15 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
           <table style={{ ...TAB, ...OUTER }}>
             <ColGroup widths={COLS_MAO_OBRA} />
             <tbody>
-              <SectionHeader title="Mão de obra" count={mao_obra.length} />
+              <SectionHeader title="Mão de obra" count={maoObraView.length} />
               <tr>
                 <ThCell style={{ width: '24%', whiteSpace: 'nowrap' }}>Matrícula</ThCell>
                 <ThCell style={{ width: '46%', whiteSpace: 'nowrap' }}>Nome</ThCell>
                 <ThCell style={{ width: '30%', whiteSpace: 'nowrap' }}>Função</ThCell>
               </tr>
-              {mao_obra.length === 0
+              {maoObraView.length === 0
                 ? <EmptyRow cols={3} text="Nenhum colaborador lançado." />
-                : mao_obra.map((m, i) => (
+                : maoObraView.map((m, i) => (
                     <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#fafcff' }}>
                       <TdCell style={{ whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                         {m.matricula || '—'}

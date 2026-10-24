@@ -23,8 +23,10 @@ import {
   ShieldCheck,
   Sparkles,
   RefreshCw,
+  Pencil,
 } from 'lucide-react';
 import BadgeStatus from './BadgeStatus.jsx';
+import VehicleTechnicalEditModal from './VehicleTechnicalEditModal.jsx';
 import { authHeaders, lerSessao } from '../utils/sessao.js';
 
 const ABAS = [
@@ -41,9 +43,11 @@ export default function VehicleFullModal({
   onDesmob,
   podeExcluir = false,
   onExcluir,
+  onTechnicalSaved,
 }) {
   const [abaAtiva, setAbaAtiva] = useState('visao_geral');
   const [copiado, setCopiado] = useState(false);
+  const [modalTecnico, setModalTecnico] = useState(false);
 
   // Estados de dados vinculados
   const [partes, setPartes] = useState([]);
@@ -61,7 +65,13 @@ export default function VehicleFullModal({
   // Suporte a tecla ESC
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onClose?.();
+      if (e.key !== 'Escape') return;
+      // ESC fecha primeiro a edição técnica; só depois a ficha completa.
+      if (modalTecnico) {
+        setModalTecnico(false);
+        return;
+      }
+      onClose?.();
     };
     window.addEventListener('keydown', handleKeyDown);
     const scrollOriginal = document.body.style.overflow;
@@ -71,7 +81,7 @@ export default function VehicleFullModal({
       window.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = scrollOriginal;
     };
-  }, [onClose]);
+  }, [onClose, modalTecnico]);
 
   // Carregar dados auxiliares quando abrir o modal ou mudar de aba
   useEffect(() => {
@@ -411,7 +421,18 @@ export default function VehicleFullModal({
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3 shadow-lg">
                   <div className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center justify-between">
                     <span>Identificação Veicular</span>
-                    <ShieldCheck size={16} />
+                    <div className="flex items-center gap-1.5">
+                      <ShieldCheck size={16} />
+                      <button
+                        type="button"
+                        onClick={() => setModalTecnico(true)}
+                        className="p-1 rounded-md text-slate-400 hover:text-sky-400 hover:bg-slate-800 transition-colors"
+                        title="Editar identificação e dados técnicos"
+                        aria-label="Editar identificação e dados técnicos"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </div>
                   </div>
                   <div className="space-y-2.5 text-sm">
                     <div>
@@ -446,7 +467,18 @@ export default function VehicleFullModal({
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3 shadow-lg">
                   <div className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center justify-between">
                     <span>Fabricação & Mecânica</span>
-                    <Gauge size={16} />
+                    <div className="flex items-center gap-1.5">
+                      <Gauge size={16} />
+                      <button
+                        type="button"
+                        onClick={() => setModalTecnico(true)}
+                        className="p-1 rounded-md text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition-colors"
+                        title="Editar dados técnicos (anos, KM e combustível)"
+                        aria-label="Editar dados técnicos"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
@@ -832,6 +864,16 @@ export default function VehicleFullModal({
           )}
         </div>
       </div>
+
+      <VehicleTechnicalEditModal
+        open={modalTecnico}
+        veiculo={veiculo}
+        onClose={() => setModalTecnico(false)}
+        onSaved={(atualizado) => {
+          setModalTecnico(false);
+          onTechnicalSaved?.(atualizado);
+        }}
+      />
     </div>
   );
 }

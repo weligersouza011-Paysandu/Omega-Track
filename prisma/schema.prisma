@@ -24,6 +24,15 @@ model MobDesmob {
   km_limite_preventiva Int  @default(10000)
   km_ultima_preventiva Int?
 
+  // === Dados técnicos (edição rápida na ficha do veículo) ===
+  chassi         String? @db.VarChar(50)
+  renavam        String? @db.VarChar(50)
+  cor            String? @db.VarChar(50)
+  ano_fabricacao Int?
+  ano_modelo     Int?
+  km_inicial     Int?
+  combustivel    String? @db.VarChar(50)
+
   // === Soft delete (recuperação por 5 dias) ===
   deletado_em  DateTime? @db.Timestamp(6)
   deletado_por String?   @db.VarChar(255)

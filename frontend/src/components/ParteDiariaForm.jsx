@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Trash2, ChevronDown, Clock, Users, Truck, ClipboardList,
   AlertTriangle, Camera, PenLine, Save,
-  Upload, History, Eye, X, Loader2, CheckCircle2, Search, Check, Gauge, FileText, Building2,
+  Upload, History, Eye, X, Loader2, CheckCircle2, Search, Check, Gauge, FileText, Building2, Lock,
 } from 'lucide-react';
 import Modal from './Modal.jsx';
 import BadgeStatus from './BadgeStatus.jsx';
@@ -36,13 +36,18 @@ function normalizarModeloVeiculo(modelo) {
     .toUpperCase();
 }
 
-function resolverStatusAprovacao(statusRelatorio, assinaturas = [], ehOnibus = false) {
+function ehFluxoSimplificadoTransporte(modelo) {
+  const norm = normalizarModeloVeiculo(modelo);
+  return norm === 'ONIBUS' || norm === 'VAN';
+}
+
+function resolverStatusAprovacao(statusRelatorio, assinaturas = [], fluxoSimplificado = false) {
   const temOp = assinaturas.some((a) => String(a.etapa).toUpperCase() === 'OPERADOR');
   const temTr = assinaturas.some((a) => String(a.etapa).toUpperCase() === 'TRANSPORTE');
   const temPl = assinaturas.some((a) => String(a.etapa).toUpperCase() === 'PLANEJADOR');
   if (statusRelatorio === 'APROVADO') return 'APROVADO';
-  // Ônibus: o Transporte é a etapa final e o Planejamento não participa.
-  if (ehOnibus) {
+  // Ônibus e VAN: o Transporte é a etapa final e o Planejamento não participa.
+  if (fluxoSimplificado) {
     if (temTr) return 'APROVADO';
     if (temOp) return 'FINALIZADO_OPERADOR';
     return 'EM_PREENCHIMENTO';
@@ -59,7 +64,7 @@ const ETAPAS = [
   { valor: 'TRANSPORTE', rotulo: 'Transporte' },
   { valor: 'PLANEJADOR', rotulo: 'Planejador' },
 ];
-const ETAPAS_ONIBUS = ETAPAS.filter((etapa) => etapa.valor !== 'PLANEJADOR');
+const ETAPAS_FLUXO_SIMPLIFICADO = ETAPAS.filter((etapa) => etapa.valor !== 'PLANEJADOR');
 // Status Operacional do Dia (cabeçalho — campo obrigatório)
 const STATUS_OPERACIONAL_DIA = [
   'Operação',
@@ -190,30 +195,30 @@ function estadoVazio(usuario, data = hojeISO()) {
 
 function Secao({ icone: Icone, titulo, count, aberto, onToggle, onAdicionar, labelAdicionar, temErro, children }) {
   return (
-    <div className={`card overflow-hidden transition-all duration-300 ${temErro ? '!border-red-400 ring-2 ring-red-500/50 shadow-md shadow-red-500/10' : ''}`}>
+    <div className={`card overflow-hidden transition-all duration-300 border border-omega-200/80 shadow-sm ${temErro ? '!border-red-400 ring-2 ring-red-500/50 shadow-md shadow-red-500/10' : ''}`}>
       {/* Título em linha própria (nunca corta) + "+ Adicionar" abaixo no mobile */}
-      <div className={`px-4 py-3 ${temErro ? 'bg-red-50/50' : ''}`}>
+      <div className={`px-4 py-3 ${temErro ? 'bg-red-50/50' : 'bg-white'}`}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full">
-          <button onClick={onToggle} type="button" className="flex items-center gap-2 flex-1 min-w-0 w-full text-left">
-            <span className={`p-1.5 rounded-lg text-white shrink-0 ${temErro ? 'bg-red-600' : 'bg-omega-900'}`}>
+          <button onClick={onToggle} type="button" className="flex items-center gap-2.5 flex-1 min-w-0 w-full text-left cursor-pointer group">
+            <span className={`p-1.5 rounded-lg text-white shrink-0 transition-colors ${temErro ? 'bg-red-600' : 'bg-omega-900 group-hover:bg-omega-800'}`}>
               <Icone size={14} />
             </span>
-            <span className={`text-base font-bold ${temErro ? 'text-red-900' : 'text-omega-900'}`}>{titulo}</span>
-            <span className={`chip shrink-0 ${temErro ? 'bg-red-100 text-red-800' : 'bg-omega-100 text-omega-700'}`}>({count})</span>
+            <span className={`text-sm sm:text-base font-bold transition-colors ${temErro ? 'text-red-900' : 'text-omega-950 group-hover:text-omega-brand'}`}>{titulo}</span>
+            <span className={`chip shrink-0 ${temErro ? 'bg-red-100 text-red-800' : 'bg-omega-100 text-omega-700 font-semibold'}`}>({count})</span>
             <ChevronDown size={15} className={`ml-auto text-omega-400 transition-transform shrink-0 ${aberto ? 'rotate-180' : ''}`} />
           </button>
           {onAdicionar && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onAdicionar(); }}
-              className={`${temErro ? 'btn-primary !bg-red-600 hover:!bg-red-700' : 'btn-secondary'} !py-1.5 !px-2.5 text-xs w-full sm:w-auto mt-1 sm:mt-0 justify-center shrink-0`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-omega-red-600 hover:bg-omega-red-700 active:scale-95 shadow-sm hover:shadow transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-omega-red-600 w-full sm:w-auto mt-1 sm:mt-0 justify-center shrink-0 cursor-pointer"
             >
-              <Plus size={14} /> {labelAdicionar || 'Adicionar'}
+              <Plus size={14} className="stroke-[2.5]" /> {labelAdicionar || 'Adicionar'}
             </button>
           )}
         </div>
       </div>
-      {aberto && <div className="px-4 pb-4 pt-1 border-t border-omega-100 space-y-3">{children}</div>}
+      {aberto && <div className="px-4 pb-4 pt-2 border-t border-omega-100 space-y-3 bg-white/50">{children}</div>}
     </div>
   );
 }
@@ -339,6 +344,14 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     return registro?.funcao || registro?.funcaoUser || usuario?.funcao || usuario?.funcaoUser || '';
   }, [usuarios, usuario]);
   const [form, setForm] = useState(() => estadoVazio(usuario));
+  // Fixação permanente da mão de obra do operador autor/criador original.
+  // Garante que outros perfis (Encarregados, Transporte, etc.) nunca sobrescrevam o criador original.
+  const [criadorOriginal, setCriadorOriginal] = useState(() => ({
+    nome: usuario?.nome || '',
+    matricula: usuario?.matricula || '',
+    funcao: usuario?.funcao || '',
+  }));
+  const criadorOriginalRef = useRef(null);
   const [assinaturas, setAssinaturas] = useState([]);
   const [auditoria, setAuditoria] = useState({ criado_por: null, atualizado_por: null, updated_at: null, visualizacoes: 0, logs: [] });
   const [parteId, setParteId] = useState(null);
@@ -391,11 +404,17 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     };
   }, [form.equipamentos, tagPrincipal, veiculos]);
 
-  const ehOnibus = useMemo(
-    () => normalizarModeloVeiculo(veiculoPrincipal?.modelo) === 'ONIBUS',
+  const fluxoSimplificadoTransporte = useMemo(
+    () => ehFluxoSimplificadoTransporte(veiculoPrincipal?.modelo),
     [veiculoPrincipal],
   );
-  const etapasAssinatura = ehOnibus ? ETAPAS_ONIBUS : ETAPAS;
+  const etapasAssinatura = fluxoSimplificadoTransporte ? ETAPAS_FLUXO_SIMPLIFICADO : ETAPAS;
+  const rotuloFluxoSimplificado = useMemo(() => {
+    const modelo = normalizarModeloVeiculo(veiculoPrincipal?.modelo);
+    if (modelo === 'VAN') return 'VAN';
+    if (modelo === 'ONIBUS') return 'Ônibus';
+    return 'Transporte';
+  }, [veiculoPrincipal]);
 
   const alternarSecao = (k) => setSecoes((s) => ({ ...s, [k]: !s[k] }));
 
@@ -553,6 +572,15 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       pularAutosaveRef.current = true;
       sujoRef.current = false;
       setParteId(p.id);
+      // Identifica e fixa permanentemente o autor/operador original do lançamento
+      const autorCriador = {
+        nome: p.mao_obra?.[0]?.nome || p.funcionario || p.criado_por || '',
+        matricula: p.mao_obra?.[0]?.matricula || p.operador || '',
+        funcao: p.mao_obra?.[0]?.funcao || p.funcao || '',
+      };
+      criadorOriginalRef.current = autorCriador;
+      setCriadorOriginal(autorCriador);
+
       // Migração suave: registros antigos sem módulos ganham o autor original
       // na mão de obra e o TAG legado vira o primeiro equipamento.
       const maoBase = (p.mao_obra || []).map((i) => ({
@@ -563,13 +591,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         observacao: i.observacao || '',
       }));
       if (maoBase.length === 0) {
-        const autorOriginal = {
-          nome: p.funcionario || p.criado_por || '',
-          matricula: p.operador || '',
-          funcao: p.funcao || '',
-        };
-        if (autorOriginal.nome || autorOriginal.matricula) {
-          maoBase.push({ ...autorOriginal, horario: '', observacao: '' });
+        if (autorCriador.nome || autorCriador.matricula) {
+          maoBase.push({ ...autorCriador, horario: '', observacao: '' });
         } else if (usuario?.nome || usuario?.matricula) {
           maoBase.push({
             nome: usuario?.nome || '',
@@ -579,6 +602,14 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             observacao: '',
           });
         }
+      } else {
+        // Fixa a linha 0 estritamente com o autor/operador criador original
+        maoBase[0] = {
+          ...maoBase[0],
+          nome: autorCriador.nome || maoBase[0].nome,
+          matricula: autorCriador.matricula || maoBase[0].matricula,
+          funcao: autorCriador.funcao || maoBase[0].funcao,
+        };
       }
       const equipBase = (p.equipamentos || []).map((i) => ({
         tag_patrimonio: i.tag_patrimonio || '',
@@ -676,6 +707,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       // data do dia pendente + veiculo correspondente ja no 1º equipamento.
       const dataBase = prefill?.data ? paraInputData(prefill.data) : hojeISO();
       const base = estadoVazio(usuario, dataBase);
+      const autorNovo = {
+        nome: usuario?.nome || '',
+        matricula: usuario?.matricula || '',
+        funcao: funcaoDoLogado || usuario?.funcao || '',
+      };
+      criadorOriginalRef.current = autorNovo;
+      setCriadorOriginal(autorNovo);
       if (prefill?.tag) {
         const tag = String(prefill.tag).trim().toUpperCase();
         const veiculo = (veiculos || []).find((v) => String(v?.tag || '').toUpperCase() === tag);
@@ -762,20 +800,35 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
 
   // ------- persistência -------
   // TAG deriva do 1º equipamento; autoria (funcionário/operador/função), usada
-  // na listagem e no filtro por perfil, vem da 1ª linha de mão de obra travada.
+  // na listagem e no filtro por perfil, vem da 1ª linha de mão de obra travada
+  // com garantia de preservação do criador original mesmo após revisões ou assinaturas.
   const montarPayload = useCallback((f = form, listaAssin = assinaturas) => {
     const veiculoPrincipal = (f.equipamentos || []).find((e) => String(e.tag_patrimonio || '').trim());
+    const autorCriadorFixo = criadorOriginalRef.current || criadorOriginal || {
+      nome: usuario?.nome || '',
+      matricula: usuario?.matricula || '',
+      funcao: funcaoDoLogado || usuario?.funcao || '',
+    };
     const maoTravada = (f.mao_obra || []).map((r, idx) => (idx === 0 ? {
       ...r,
-      nome: String(r.nome || '').trim(),
-      matricula: String(r.matricula || '').trim(),
-      funcao: r.funcao || '',
+      nome: String(autorCriadorFixo.nome || r.nome || '').trim(),
+      matricula: String(autorCriadorFixo.matricula || r.matricula || '').trim(),
+      funcao: autorCriadorFixo.funcao || r.funcao || '',
     } : {
       ...r,
       // Auxiliares sem função resolvida assumem o cargo default "Sinaleiro"
       funcao: r.funcao || 'Sinaleiro',
     }));
-    const responsavelJornada = maoTravada[0] || {};
+    if (maoTravada.length === 0 && (autorCriadorFixo.nome || autorCriadorFixo.matricula)) {
+      maoTravada.push({
+        nome: String(autorCriadorFixo.nome || '').trim(),
+        matricula: String(autorCriadorFixo.matricula || '').trim(),
+        funcao: autorCriadorFixo.funcao || '',
+        horario: '',
+        observacao: '',
+      });
+    }
+    const responsavelJornada = maoTravada[0] || autorCriadorFixo || {};
     // Perfil operacional: payload sempre em Operação (trava de status).
     const statusOperacionalEfetivo = statusTravado ? 'Operação' : (f.status_operacional || 'Operação');
     // Modo do relatório: no modo parada, o motivo vira a ocorrência registrada.
@@ -785,9 +838,11 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       ? [{ tipo: 'Operacional', descricao: motivoTrim }]
       : (f.ocorrencias || []).map((o) => ({ tipo: o.tipo, descricao: o.descricao }));
     // Status de aprovação derivado das assinaturas presentes (espelha o backend).
-    // Em ônibus o Transporte é a etapa final; nos demais, o Planejamento.
+    // No fluxo simplificado (ônibus/VAN) o Transporte é a etapa final; nos demais, o Planejamento.
     const etapasAssin = new Set((listaAssin || []).map((a) => String(a.etapa || '').toUpperCase()));
-    const aprovado = ehOnibus ? etapasAssin.has('TRANSPORTE') : etapasAssin.has('PLANEJADOR');
+    const aprovado = fluxoSimplificadoTransporte
+      ? etapasAssin.has('TRANSPORTE')
+      : etapasAssin.has('PLANEJADOR');
     const statusAprovacao = aprovado
       ? 'Aprovado'
       : etapasAssin.has('TRANSPORTE')
@@ -812,9 +867,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       status_aprovacao: statusAprovacao,
       tag: String(veiculoPrincipal?.tag_patrimonio || '').trim().toUpperCase(),
       status: statusOperacionalEfetivo,
-      funcionario: String(responsavelJornada.nome || '').trim() || usuario?.nome || null,
-      operador: String(responsavelJornada.matricula || '').trim() || usuario?.matricula || null,
-      funcao: String(responsavelJornada.funcao || '').trim() || null,
+      funcionario: String(autorCriadorFixo.nome || responsavelJornada.nome || '').trim() || null,
+      operador: String(autorCriadorFixo.matricula || responsavelJornada.matricula || '').trim() || null,
+      funcao: String(autorCriadorFixo.funcao || responsavelJornada.funcao || '').trim() || null,
       km_inicial: String(f.km_inicial ?? '').trim() || null,
       km_final: String(f.km_final ?? '').trim() || null,
       mao_obra: maoTravada,
@@ -824,7 +879,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       ocorrencias: ocorrenciasPayload,
       fotos: f.fotos,
     };
-  }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada, statusTravado, ehOnibus]);
+  }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada, statusTravado, fluxoSimplificadoTransporte, criadorOriginal]);
 
   const aplicarResposta = useCallback((p) => {
     if (!p) return;
@@ -1159,7 +1214,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   }, [sessao, parteId]);
 
   const atualizarColaborador = (idx, campo, valor) => {
-    if (idx === 0) return; // 1º registro (logado) é travado
+    if (idx === 0) return; // 1º registro é o operador criador original permanente (travado)
     sujoRef.current = true;
     setForm((f) => ({
       ...f,
@@ -1183,6 +1238,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     }));
   };
   const removerItem = (chave, idx) => {
+    if (chave === 'mao_obra' && idx === 0) return; // O operador criador original não pode ser removido
     sujoRef.current = true;
     setForm((f) => ({ ...f, [chave]: (f[chave] || []).filter((_, i) => i !== idx) }));
   };
@@ -1256,13 +1312,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const statusRelatorioParaEtapa = (etapa, listaAtual = assinaturas) => {
     const etapas = new Set((listaAtual || []).map((a) => String(a.etapa || '').toUpperCase()));
     etapas.add(String(etapa || '').toUpperCase());
-    if (ehOnibus) return etapas.has('TRANSPORTE') ? 'APROVADO' : 'REVISAO';
+    if (fluxoSimplificadoTransporte) return etapas.has('TRANSPORTE') ? 'APROVADO' : 'REVISAO';
     return etapas.has('PLANEJADOR') ? 'APROVADO' : 'REVISAO';
   };
 
   const statusRelatorioAposRemocao = (restantes) => {
     const etapas = new Set((restantes || []).map((a) => String(a.etapa || '').toUpperCase()));
-    if (ehOnibus) {
+    if (fluxoSimplificadoTransporte) {
       if (etapas.has('TRANSPORTE')) return 'APROVADO';
       if (etapas.has('OPERADOR')) return 'REVISAO';
       return 'PREENCHENDO';
@@ -1421,8 +1477,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
 
   // Status de aprovação baseado nas assinaturas presentes
   const chaveAprovacao = useMemo(
-    () => resolverStatusAprovacao(form.status_relatorio, assinaturas, ehOnibus),
-    [form.status_relatorio, assinaturas, ehOnibus]
+    () => resolverStatusAprovacao(form.status_relatorio, assinaturas, fluxoSimplificadoTransporte),
+    [form.status_relatorio, assinaturas, fluxoSimplificadoTransporte]
   );
   const infoAprovacao = STATUS_APROVACAO[chaveAprovacao] || STATUS_APROVACAO.EM_PREENCHIMENTO;
 
@@ -1497,17 +1553,36 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             )}
 
             {/* 1. CABEÇALHO / DETALHES DO RELATÓRIO */}
-            <div className="card overflow-hidden">
-              <div className="px-4 pt-4 pb-3 text-center border-b border-omega-100 bg-omega-50/40">
-                <div className="inline-flex items-center gap-2">
-                  <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center text-lg font-black">Ω</span>
-                  <span className="text-left leading-tight">
-                    <span className="block text-[11px] font-extrabold tracking-widest text-omega-900">OMEGA SERVICE</span>
-                    <span className="block text-[10px] text-omega-400 font-medium">Gestão de Transporte</span>
-                  </span>
+            <div className="card overflow-hidden shadow-sm border border-omega-200/80">
+              <div className="px-5 py-4 text-center border-b border-omega-100 bg-gradient-to-b from-white to-omega-50/60">
+                <div className="flex flex-col items-center justify-center">
+                  <img
+                    src="/logo/0.png"
+                    alt="Omega Service"
+                    className="h-11 sm:h-13 w-auto object-contain mx-auto drop-shadow-xs transition-transform"
+                    onError={(e) => {
+                      if (!e.target.dataset.fb) {
+                        e.target.dataset.fb = '1';
+                        e.target.src = '/logo/01.png';
+                      } else if (e.target.dataset.fb === '1') {
+                        e.target.dataset.fb = '2';
+                        e.target.src = '/logo/omega-horizontal.png';
+                      }
+                    }}
+                  />
+                  <h3 className="mt-2.5 text-base md:text-lg font-extrabold tracking-tight text-omega-950">
+                    Parte Diária
+                  </h3>
+                  <div className="flex items-center justify-center gap-2 mt-0.5">
+                    <span className="text-[11px] font-semibold text-omega-600">{diaSemanaDe(form.data)}</span>
+                    {form.data && (
+                      <>
+                        <span className="text-omega-300">•</span>
+                        <span className="text-[11px] font-medium text-omega-500">{formatarDataSemTimezone(form.data)}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <h3 className="mt-2 text-base font-extrabold text-omega-900">Parte Diária</h3>
-                <p className="text-[11px] text-omega-400">{diaSemanaDe(form.data)}</p>
               </div>
               <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
@@ -1683,7 +1758,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             <Secao icone={Users} titulo="Mão de Obra" count={form.mao_obra.length} aberto={secoes.mao} onToggle={() => alternarSecao('mao')} onAdicionar={() => adicionar('mao_obra', { nome: '', matricula: '', funcao: 'Sinaleiro' })}>
               {form.mao_obra.length === 0 && <LinhaVazia texto="Nenhum colaborador lançado. Use + Adicionar." />}
               {form.mao_obra.length > 0 && (
-                <p className="text-[11px] text-omega-400 -mb-1">O primeiro registro é o operador autor do lançamento (travado). Use + Adicionar para auxiliares. A função é preenchida pelo cadastro.</p>
+                <p className="text-[11px] text-omega-500 -mb-1">
+                  O primeiro registro é o <strong className="text-omega-800">operador autor do lançamento (fixado e protegido)</strong>. Use <strong className="text-omega-red-600">+ Adicionar</strong> para colaboradores auxiliares.
+                </p>
               )}
               <datalist id="mao-matriculas">
                 {usuarios.map((u) => (
@@ -1699,34 +1776,74 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 const travado = i === 0;
                 const val = (f, fb) => (travado ? (f || fb || '') : (f ?? ''));
                 return (
-                  <div key={i} className={`grid grid-cols-1 md:grid-cols-12 gap-2 p-2.5 rounded-xl border ${travado ? 'border-omega-900/20 bg-omega-900/[0.03]' : 'border-omega-100 bg-omega-50/40'}`}>
-                    <input
-                      value={val(it.matricula, '')}
-                      onChange={(e) => atualizarColaborador(i, 'matricula', e.target.value)}
-                      readOnly={travado}
-                      title={travado ? 'Operador autor (travado)' : undefined}
-                      className={`${inputCls} w-full md:col-span-3 font-mono ${travado ? 'bg-omega-50 text-omega-500' : ''}`}
-                      placeholder="Matrícula *"
-                      list={travado ? undefined : 'mao-matriculas'}
-                    />
-                    <input
-                      value={val(it.nome, '')}
-                      onChange={(e) => atualizarColaborador(i, 'nome', e.target.value)}
-                      readOnly={travado}
-                      title={travado ? 'Operador autor (travado)' : undefined}
-                      className={`${inputCls} w-full font-medium md:col-span-4 ${travado ? 'bg-omega-50 text-omega-500' : 'text-omega-900'}`}
-                      placeholder="Nome *"
-                      list={travado ? undefined : 'mao-nomes'}
-                    />
-                    <input
-                      value={val(it.funcao, '')}
-                      readOnly
-                      title={travado ? 'Função do operador autor' : 'Preenchida automaticamente pelo cadastro do colaborador'}
-                      className={`${inputCls} w-full md:col-span-4 bg-omega-50 text-omega-500`}
-                      placeholder="Função (automática)"
-                    />
-                    <div className="md:col-span-1 flex md:justify-end">
-                      {!travado && <button onClick={() => removerItem('mao_obra', i)} className={btnIcone} title="Remover"><Trash2 size={15} /></button>}
+                  <div
+                    key={i}
+                    className={`rounded-xl border transition-all ${
+                      travado
+                        ? 'p-3 bg-gradient-to-r from-omega-950/[0.04] via-omega-900/[0.02] to-transparent border-omega-900/20 shadow-xs'
+                        : 'p-2.5 bg-omega-50/40 border-omega-200/70 hover:border-omega-300'
+                    }`}
+                  >
+                    {travado && (
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-omega-900 text-white uppercase tracking-wider shadow-xs">
+                          <Lock size={10} className="text-amber-300" /> Operador Autor (Criador da Parte Diária)
+                        </span>
+                        <span className="text-[11px] text-omega-500 font-medium hidden sm:inline">
+                          • Preservado permanentemente (não pode ser sobrescrito)
+                        </span>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                      <input
+                        value={val(it.matricula, '')}
+                        onChange={(e) => atualizarColaborador(i, 'matricula', e.target.value)}
+                        readOnly={travado}
+                        title={travado ? 'Matrícula do operador autor que abriu o relatório (fixada)' : undefined}
+                        className={`${inputCls} w-full md:col-span-3 font-mono ${
+                          travado
+                            ? '!bg-slate-100 !text-slate-800 !border-slate-300 font-semibold cursor-not-allowed select-none'
+                            : ''
+                        }`}
+                        placeholder="Matrícula *"
+                        list={travado ? undefined : 'mao-matriculas'}
+                      />
+                      <input
+                        value={val(it.nome, '')}
+                        onChange={(e) => atualizarColaborador(i, 'nome', e.target.value)}
+                        readOnly={travado}
+                        title={travado ? 'Nome do operador autor que abriu o relatório (fixado)' : undefined}
+                        className={`${inputCls} w-full font-medium md:col-span-4 ${
+                          travado
+                            ? '!bg-slate-100 !text-slate-900 !border-slate-300 font-bold cursor-not-allowed select-none'
+                            : 'text-omega-900'
+                        }`}
+                        placeholder="Nome *"
+                        list={travado ? undefined : 'mao-nomes'}
+                      />
+                      <input
+                        value={val(it.funcao, '')}
+                        readOnly
+                        title={travado ? 'Função do operador autor (fixada)' : 'Preenchida automaticamente pelo cadastro do colaborador'}
+                        className={`${inputCls} w-full md:col-span-4 ${
+                          travado
+                            ? '!bg-slate-100 !text-slate-800 !border-slate-300 font-semibold cursor-not-allowed select-none'
+                            : 'bg-omega-50 text-omega-500'
+                        }`}
+                        placeholder="Função (automática)"
+                      />
+                      <div className="md:col-span-1 flex md:justify-end items-center">
+                        {!travado && (
+                          <button
+                            type="button"
+                            onClick={() => removerItem('mao_obra', i)}
+                            className={btnIcone}
+                            title="Remover colaborador auxiliar"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -1752,9 +1869,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                     <button
                       type="button"
                       onClick={() => { setBuscaEquip(''); setModalEquip(true); }}
-                      className="ml-auto btn-primary !py-1 !px-2.5 text-xs shrink-0"
+                      className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold text-white bg-omega-red-600 hover:bg-omega-red-700 active:scale-95 shadow-sm transition-all shrink-0 cursor-pointer"
                     >
-                      <Plus size={13} /> Escolher da Frota
+                      <Plus size={13} className="stroke-[2.5]" /> Escolher da Frota
                     </button>
                   </div>
                 )}
@@ -1964,9 +2081,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                 <div className="flex items-center gap-2">
                   <span className="p-1.5 rounded-lg bg-omega-900 text-white"><PenLine size={14} /></span>
                   <span className="text-sm font-bold text-omega-900">Assinaturas – Fluxo de Aprovação</span>
-                  {ehOnibus && (
+                  {fluxoSimplificadoTransporte && (
                     <span className="rounded-md bg-sky-100 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-sky-800 ring-1 ring-inset ring-sky-300">
-                      Ônibus • 2 etapas
+                      {rotuloFluxoSimplificado} • 2 etapas
                     </span>
                   )}
                 </div>
@@ -1974,12 +2091,12 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   {infoAprovacao.rotulo}
                 </span>
               </div>
-              {ehOnibus && (
+              {fluxoSimplificadoTransporte && (
                 <p className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-semibold text-sky-800">
-                  Fluxo de ônibus: Operador + Transporte. A aprovação é automática após a assinatura do Transporte.
+                  Fluxo simplificado ({rotuloFluxoSimplificado}): Operador + Transporte. A aprovação é automática após a assinatura do Transporte.
                 </p>
               )}
-              {/* Grid das etapas: 2 para ônibus, 3 no fluxo padrão */}
+              {/* Grid das etapas: 2 no fluxo simplificado (ônibus/VAN), 3 no fluxo padrão */}
               <div className={`grid grid-cols-1 gap-3 ${etapasAssinatura.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
                 {etapasAssinatura.map((et) => {
                   const a = assinaturaDe(et.valor);
@@ -2224,9 +2341,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             <button
               onClick={confirmarModalAtiv}
               disabled={!modalAtiv?.descricao.trim() || !modalAtiv?.status}
-              className="btn-primary disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold text-white bg-omega-red-600 hover:bg-omega-red-700 active:scale-95 shadow-sm hover:shadow transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
-              <Plus size={15} /> Adicionar
+              <Plus size={15} className="stroke-[2.5]" /> Adicionar
             </button>
           </>
         }
@@ -2276,9 +2393,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             <button
               onClick={confirmarModalOcor}
               disabled={!modalOcor?.tipo || !modalOcor?.descricao.trim()}
-              className="btn-primary disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold text-white bg-omega-red-600 hover:bg-omega-red-700 active:scale-95 shadow-sm hover:shadow transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
-              <Plus size={15} /> Adicionar
+              <Plus size={15} className="stroke-[2.5]" /> Adicionar
             </button>
           </>
         }
@@ -2327,6 +2444,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             ...form,
             id: parteId,
             numero_relatorio: parteId ? String(parteId).split('-')[0].toUpperCase() : undefined,
+            veiculo: veiculoPrincipal,
             assinaturas,
           }}
           onFechar={() => setVerRelatorio(false)}
