@@ -89,6 +89,27 @@ export async function requerAdmin(req, res, next) {
   next();
 }
 
+// Rotas novas que exigem a identidade assinada da sessao, sem o fallback
+// legado de matricula informado pelo cliente.
+export async function requerAdminAutenticado(req, res, next) {
+  const sessao = lerSessao(req);
+  if (!sessao?.sub) {
+    return res.status(401).json({
+      error: 'Nao autenticado',
+      message: 'Sessao ausente ou invalida. Faca login.',
+    });
+  }
+  const usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+  if (!usuario || usuario.tipo !== 'ADMINISTRADOR') {
+    return res.status(403).json({
+      error: 'Sem permissao',
+      message: 'Apenas administradores podem acessar a programacao.',
+    });
+  }
+  req.atuante = usuario;
+  next();
+}
+
 export function requerMaster(req, res, next) {
   if (!req.atuante || req.atuante.nivel !== 'MASTER') {
     return res.status(403).json({

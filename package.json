@@ -7,6 +7,11 @@
   "scripts": {
     "start": "node --max-old-space-size=400 src/server.js",
     "dev": "node --watch-path=./src --watch-path=./package.json src/server.js",
+    "local:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-local.ps1",
+    "local:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1",
+    "local:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-local.ps1",
+    "local:admin": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-local-admin.ps1",
+    "local:migrate-default": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/migrate-to-default.ps1",
     "build": "npm --prefix frontend install --include=dev && npm --prefix frontend run build",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

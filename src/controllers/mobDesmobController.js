@@ -242,7 +242,7 @@ export const buscarVeiculoPorTag = asyncHandler(async (req, res) => {
 export const buscarVeiculoPorPlaca = asyncHandler(async (req, res) => {
   const { placa } = req.params;
   const veiculo = await prisma.mobDesmob.findFirst({
-    where: { placa: placa.toUpperCase(), deletado_em: null },
+    where: { placa: { equals: placa, mode: 'insensitive' }, deletado_em: null },
     include: {
       documentacoes: { orderBy: { validade: 'asc' } },
       partes_diarias: { where: { deletado_em: null }, take: 10, orderBy: { data: 'desc' } },
@@ -699,7 +699,7 @@ export const vincularTelemetriaPorPlaca = asyncHandler(async (req, res) => {
   const telemetria = req.body;
 
   const veiculo = await prisma.mobDesmob.findFirst({
-    where: { placa: placa.toUpperCase(), deletado_em: null },
+    where: { placa: { equals: placa, mode: 'insensitive' }, deletado_em: null },
     select: { tag: true, placa: true, status: true, modelo: true },
   });
 

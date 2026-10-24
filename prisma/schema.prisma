@@ -40,6 +40,8 @@ model MobDesmob {
   documentacoes        DocumentacaoVeiculo[]
   partes_diarias       ParteDiaria[]
   monitoramento_fumaca MonitoramentoFumacaPreta?
+  programacoes         ProgramacaoRecurso[]
+  manutencoes           ManutencaoRecurso[]
 
   @@index([placa])
   @@index([status])
@@ -313,10 +315,55 @@ model Obra {
   updated_at      DateTime @default(now()) @updatedAt @db.Timestamp(6)
 
   partes_diarias ParteDiaria[]
+  programacoes    ProgramacaoRecurso[]
 
   @@index([ativo])
   @@index([nome])
   @@map("obras")
+}
+
+// Uma obra por equipamento em cada dia. A chave unica evita conflitos
+// mesmo quando duas pessoas alteram a programacao ao mesmo tempo.
+model ProgramacaoRecurso {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tag                  String   @db.VarChar(50)
+  obra_id              String   @db.Uuid
+  data                 DateTime @db.Date
+  operador_matricula   String?  @db.VarChar(50)
+  operador_nome        String?  @db.VarChar(255)
+  supervisor_matricula String?  @db.VarChar(50)
+  supervisor_nome      String?  @db.VarChar(255)
+  created_at           DateTime @default(now()) @db.Timestamp(6)
+  updated_at           DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  equipamento MobDesmob @relation(fields: [tag], references: [tag], onDelete: Cascade)
+  obra        Obra      @relation(fields: [obra_id], references: [id], onDelete: Restrict)
+
+  @@unique([tag, data])
+  @@index([data])
+  @@index([obra_id, data])
+  @@map("programacao_recursos")
+}
+
+// Cada passagem pela oficina permanece no historico. Somente um registro
+// sem data de retorno pode existir por equipamento (indice parcial na migracao).
+model ManutencaoRecurso {
+  id               String    @id @default(uuid()) @db.Uuid
+  tag              String    @db.VarChar(50)
+  tipo             String    @db.VarChar(20)
+  data_saida       DateTime  @db.Date
+  previsao_retorno DateTime  @db.Date
+  descricao        String    @db.Text
+  data_retorno     DateTime? @db.Date
+  registrado_por   String?   @db.VarChar(50)
+  retornado_por    String?   @db.VarChar(50)
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  updated_at       DateTime  @default(now()) @updatedAt @db.Timestamp(6)
+
+  equipamento MobDesmob @relation(fields: [tag], references: [tag], onDelete: Cascade)
+
+  @@index([tag, data_saida])
+  @@map("manutencao_recursos")
 }
 
 // Auditoria de lançamento diário: pendência (veículo x dia sem Parte Diária)
@@ -372,6 +419,7 @@ model ParametroPreventiva {
 }
 
 enum SetorUsuario {
+  MEIO_AMBIENTE
   TRANSPORTE
   GESTAO
 }

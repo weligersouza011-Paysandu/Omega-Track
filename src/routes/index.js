@@ -10,6 +10,7 @@ import usuariosRoutes from './usuariosRoutes.js';
 import loginRoutes from './loginRoutes.js';
 import eficienciaRoutes from './eficienciaRoutes.js';
 import controleAmbientalRoutes from './controleAmbientalRoutes.js';
+import programacaoRecursosRoutes from './programacaoRecursosRoutes.js';
 
 const router = Router();
 
@@ -28,6 +29,8 @@ router.get('/', (req, res) => {
       documentacao: '/api/documentacao-veiculos',
       documentacao_farol: '/api/documentacao-veiculos/farol',
       obras: '/api/obras (GET aberto; POST/PUT/DELETE restritos a Gestao/Transporte ou ADM Master)',
+      programacao_recursos: 'GET /api/programacao-recursos?data=AAAA-MM-DD; PUT /api/programacao-recursos/lote { data, alteracoes: [{ tag, obraId|null, operadorMatricula?, supervisorMatricula? }] }; PUT/DELETE /:data/:tag; POST /copiar-ultima-programacao (Gestao/Transporte ou ADM Master)',
+      programacao_manutencoes: 'POST /api/programacao-recursos/manutencoes { tag, tipo: PREVENTIVA|CORRETIVA, dataSaida, previsaoRetorno, descricao }; PATCH /manutencoes/:id/retorno { dataRetorno }',
       partes_diarias: '/api/partes-diarias (POST/PUT aceitam formulario completo; POST limita 2 partes/dia por veiculo para todos os modelos, com bypass MASTER)',
       parte_assinaturas: 'POST /api/partes-diarias/:id/assinaturas { etapa: OPERADOR|TRANSPORTE|PLANEJADOR, nome, salvar_no_perfil? } (Onibus/VAN: apenas OPERADOR + TRANSPORTE; aprovacao automatica no Transporte; salvar_no_perfil=true persiste a imagem como assinatura padrao do usuario logado)',
       parte_fotos: "POST /api/partes-diarias/:id/fotos (campo `arquivo` + legenda)",
@@ -78,6 +81,7 @@ router.get('/ping', (req, res) => {
 router.use('/mob-desmob', mobDesmobRoutes);
 router.use('/documentacao-veiculos', documentacaoRoutes);
 router.use('/obras', obraRoutes);
+router.use('/programacao-recursos', programacaoRecursosRoutes);
 router.use('/partes-diarias', parteDiariaRoutes);
 router.use('/manutencao', manutencaoRoutes);
 router.use('/parametros-preventiva', parametroPreventivaRoutes);

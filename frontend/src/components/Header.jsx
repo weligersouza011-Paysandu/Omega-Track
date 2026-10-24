@@ -37,7 +37,7 @@ export default function Header({ usuario, onSair, onMenu }) {
   }, [operacional, usuario?.matricula]);
 
   return (
-    <header className="h-16 bg-white border-b border-omega-200 px-4 md:px-6 flex items-center gap-3 md:gap-4 sticky top-0 z-20 shadow-[0_1px_2px_rgba(15,23,42,0.03)] relative">
+    <header className="h-16 bg-white border-b border-omega-200 px-3 sm:px-4 md:px-6 flex items-center gap-3 md:gap-4 sticky top-0 z-20 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       {/* Linha fina com o gradiente da marca corporativa Omega */}
       <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-omega-brand via-omega-accent to-omega-950" />
 
@@ -90,7 +90,7 @@ export default function Header({ usuario, onSair, onMenu }) {
       </div>
 
       {/* Direita: Busca Operacional */}
-      <div className="hidden lg:flex items-center gap-2 w-72 ml-auto">
+      <div className="hidden xl:flex items-center gap-2 w-72 ml-auto">
         <div className="relative w-full">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-omega-400" />
           <input

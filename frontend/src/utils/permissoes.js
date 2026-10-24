@@ -6,7 +6,7 @@
 // Uso: desabilite botoes/formularios quando `podeEscrever` for false.
 // ============================================================================
 
-export const MODULOS_TRANSPORTE = ['inicio', 'obras', 'frota', 'pendencias-parte-diaria', 'telemetria'];
+export const MODULOS_TRANSPORTE = ['inicio', 'obras', 'frota', 'programacao-recursos', 'pendencias-parte-diaria', 'telemetria'];
 export const MODULOS_AMBIENTAIS = ['controle-ambiental', 'ecogestao'];
 
 export const SETOR_LABEL = {

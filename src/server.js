@@ -13,11 +13,12 @@ async function startServer() {
       console.error('[BOOT-PURGA] falha (boot segue normalmente):', e.message);
     }
 
-    const server = app.listen(config.port, () => {
+    const server = app.listen(config.port, config.host, () => {
       console.log(`\n========================================`);
       console.log(`  OMEGATRACK API`);
       console.log(`  Ambiente: ${config.nodeEnv}`);
       console.log(`  Porta: ${config.port}`);
+      console.log(`  Host: ${config.host}`);
       console.log(`  Acesse: http://localhost:${config.port}`);
       console.log(`========================================\n`);
     });

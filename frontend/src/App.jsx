@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './layouts/AppLayout.jsx';
 import HomePartesDiariasView from './views/HomePartesDiariasView.jsx';
 import ObrasView from './views/ObrasView.jsx';
+import ProgramacaoRecursosView from './views/ProgramacaoRecursosView.jsx';
 import DashboardView from './views/DashboardView.jsx';
 import MobDesmobView from './views/MobDesmobView.jsx';
 import GestaoPreditivaView from './views/GestaoPreditivaView.jsx';
@@ -45,6 +46,7 @@ export default function App() {
         <Route index element={<HomePartesDiariasView sessao={sessao} />} />
         <Route path="inicio" element={<HomePartesDiariasView sessao={sessao} />} />
         <Route path="obras" element={<RestritoAdmin operacional={operacional}><ObrasView sessao={sessao} /></RestritoAdmin>} />
+        <Route path="programacao-recursos" element={<RestritoAdmin operacional={operacional}><ProgramacaoRecursosView sessao={sessao} /></RestritoAdmin>} />
         <Route path="visao-geral" element={<RestritoAdmin operacional={operacional}><DashboardView /></RestritoAdmin>} />
         <Route path="executivo" element={<RestritoAdmin operacional={operacional}><DashboardExecutivoView /></RestritoAdmin>} />
         <Route path="frota" element={<RestritoAdmin operacional={operacional}><MobDesmobView sessao={sessao} /></RestritoAdmin>} />
