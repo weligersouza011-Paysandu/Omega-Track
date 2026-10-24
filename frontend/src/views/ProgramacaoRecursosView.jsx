@@ -285,7 +285,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
       const corpo = await resposta.json().catch(() => ({}));
       if (!resposta.ok) throw new Error(corpo.message || `Erro ao consultar a programação (${resposta.status})`);
       const { exportarProgramacaoPdf } = await import('../utils/exportarProgramacaoPdf.js');
-      exportarProgramacaoPdf(corpo.data);
+      await exportarProgramacaoPdf(corpo.data);
     } catch (falha) {
       setErroPdf(falha.message || 'Não foi possível gerar o PDF da programação.');
     } finally {
@@ -538,7 +538,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
           </div>
         ) : equipamentos.length === 0 ? (
           <div className="p-10 text-center text-sm text-omega-500">
-            Nenhum equipamento cadastrado. <Link to="/frota" className="text-omega-accent font-semibold hover:underline">Abrir frota</Link>
+            Nenhum equipamento mobilizado. <Link to="/frota" className="text-omega-accent font-semibold hover:underline">Abrir frota</Link>
           </div>
         ) : visiveis.length === 0 ? (
           <div className="p-10 text-center text-sm text-omega-500">Nenhum equipamento corresponde aos filtros.</div>
@@ -623,7 +623,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
       <p className="text-xs text-omega-500">
         Cada equipamento pode estar em uma obra por dia, com operador e supervisor. As escolhas só são gravadas no banco ao clicar em “Salvar programação”.
         Escolha “Sem programação” para liberar o dia. Clique no status do equipamento para registrar manutenção ou retorno.
-        O PDF inclui a programação salva de todos os equipamentos.
+        O PDF inclui a programação salva dos equipamentos mobilizados.
       </p>
 
       <Modal open={!!manutencaoModal} onClose={() => !salvandoManutencao && setManutencaoModal(null)}

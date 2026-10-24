@@ -60,18 +60,33 @@ function dataCompleta(valor) {
   }).format(new Date(`${valor}T12:00:00Z`));
 }
 
-function cabecalho(pdf, data, continuacao = false) {
+function cabecalho(pdf, data, continuacao = false, logoDataUrl = null) {
   preenchimento(pdf, COR.azulEscuro);
   pdf.rect(0, 0, LARGURA, continuacao ? 27 : 38, 'F');
-  preenchimento(pdf, COR.azul);
-  pdf.roundedRect(MARGEM, continuacao ? 6 : 10, 17, 17, 3, 3, 'F');
-  texto(pdf, 'OT', MARGEM + 8.5, continuacao ? 17 : 21, {
-    tamanho: 12, negrito: true, cor: COR.branco, alinhar: 'center',
-  });
-  texto(pdf, 'OMEGA TRACK', 39, continuacao ? 14 : 18, {
+  if (logoDataUrl) {
+    const caixa = { x: MARGEM, y: continuacao ? 5 : 8, largura: 51, altura: continuacao ? 17 : 22 };
+    preenchimento(pdf, COR.branco);
+    pdf.roundedRect(caixa.x, caixa.y, caixa.largura, caixa.altura, 2.5, 2.5, 'F');
+    const imagem = pdf.getImageProperties(logoDataUrl);
+    const escala = Math.min(47 / imagem.width, (caixa.altura - 3) / imagem.height);
+    const largura = imagem.width * escala;
+    const altura = imagem.height * escala;
+    pdf.addImage(logoDataUrl, 'PNG',
+      caixa.x + (caixa.largura - largura) / 2,
+      caixa.y + (caixa.altura - altura) / 2,
+      largura, altura);
+  } else {
+    preenchimento(pdf, COR.azul);
+    pdf.roundedRect(MARGEM, continuacao ? 6 : 10, 17, 17, 3, 3, 'F');
+    texto(pdf, 'OT', MARGEM + 8.5, continuacao ? 17 : 21, {
+      tamanho: 12, negrito: true, cor: COR.branco, alinhar: 'center',
+    });
+  }
+  const tituloX = logoDataUrl ? 74 : 39;
+  texto(pdf, 'OMEGA TRACK', tituloX, continuacao ? 14 : 18, {
     tamanho: continuacao ? 14 : 16, negrito: true, cor: COR.branco,
   });
-  texto(pdf, 'PROGRAMAÇÃO DE RECURSOS', 39, continuacao ? 20 : 26, {
+  texto(pdf, 'PROGRAMAÇÃO DE RECURSOS', tituloX, continuacao ? 20 : 26, {
     tamanho: 8, negrito: true, cor: [172, 194, 241],
   });
   preenchimento(pdf, [31, 48, 80]);
@@ -150,7 +165,7 @@ function distribuicao(pdf, equipamentos, obrasPorId) {
   });
 
   if (grupos.length === 0) {
-    texto(pdf, 'Nenhum equipamento cadastrado para esta data.', MARGEM + 5, y + 17, {
+    texto(pdf, 'Nenhum equipamento mobilizado para esta data.', MARGEM + 5, y + 17, {
       tamanho: 8, cor: COR.secundario,
     });
   } else {
@@ -266,7 +281,7 @@ function rodapes(pdf, emitidoEm) {
   }
 }
 
-export function criarProgramacaoPdf(dados, agora = new Date()) {
+export function criarProgramacaoPdf(dados, agora = new Date(), logoDataUrl = null) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dados?.data || '') || !Array.isArray(dados?.equipamentos)) {
     throw new Error('Os dados da programação estão incompletos para gerar o PDF.');
   }
@@ -283,7 +298,7 @@ export function criarProgramacaoPdf(dados, agora = new Date()) {
   const emManutencao = equipamentos.filter((item) => item.manutencaoNoDia).length;
   const livres = equipamentos.length - programados - emManutencao;
 
-  cabecalho(pdf, dados.data);
+  cabecalho(pdf, dados.data, false, logoDataUrl);
   texto(pdf, dataCompleta(dados.data), MARGEM, 43, { tamanho: 8.5, cor: COR.secundario });
   const larguraCartao = (LARGURA_CONTEUDO - 18) / 4;
   [
@@ -301,7 +316,7 @@ export function criarProgramacaoPdf(dados, agora = new Date()) {
   equipamentos.forEach((equipamento, indice) => {
     if (y + ALTURA_LINHA > LIMITE_TABELA) {
       pdf.addPage();
-      cabecalho(pdf, dados.data, true);
+      cabecalho(pdf, dados.data, true, logoDataUrl);
       tituloTabela(pdf, 33, equipamentos.length, true);
       y = cabecalhoTabela(pdf, 37);
     }
@@ -309,7 +324,7 @@ export function criarProgramacaoPdf(dados, agora = new Date()) {
     y += ALTURA_LINHA;
   });
   if (equipamentos.length === 0) {
-    texto(pdf, 'Nenhum equipamento cadastrado para esta data.', MARGEM + 3, y + 7, {
+    texto(pdf, 'Nenhum equipamento mobilizado para esta data.', MARGEM + 3, y + 7, {
       tamanho: 9, cor: COR.secundario,
     });
   }
@@ -322,7 +337,31 @@ export function criarProgramacaoPdf(dados, agora = new Date()) {
   return pdf;
 }
 
-export function exportarProgramacaoPdf(dados) {
-  const pdf = criarProgramacaoPdf(dados);
+let promessaLogoOmega;
+
+function carregarLogoOmega() {
+  if (!promessaLogoOmega) {
+    promessaLogoOmega = fetch('/logo/omega-horizontal.png')
+      .then((resposta) => {
+        if (!resposta.ok) throw new Error('Não foi possível carregar o logo da Omega para o PDF.');
+        return resposta.blob();
+      })
+      .then((arquivo) => new Promise((resolve, reject) => {
+        const leitor = new FileReader();
+        leitor.onload = () => resolve(leitor.result);
+        leitor.onerror = () => reject(new Error('Não foi possível ler o logo da Omega para o PDF.'));
+        leitor.readAsDataURL(arquivo);
+      }))
+      .catch((erro) => {
+        promessaLogoOmega = null;
+        throw erro;
+      });
+  }
+  return promessaLogoOmega;
+}
+
+export async function exportarProgramacaoPdf(dados) {
+  const logoDataUrl = await carregarLogoOmega();
+  const pdf = criarProgramacaoPdf(dados, new Date(), logoDataUrl);
   pdf.save(`OmegaTrack_Programacao_${dados.data}.pdf`);
 }
