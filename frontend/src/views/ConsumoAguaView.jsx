@@ -14,6 +14,7 @@ import {
   BarChart3,
   CalendarDays,
   CheckCircle2,
+  CheckSquare,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -29,6 +30,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Square,
   Trash2,
   Upload,
   Waves,
@@ -52,6 +54,7 @@ import {
 import Modal from '../components/Modal.jsx';
 import { authHeaders, lerSessao } from '../utils/sessao.js';
 import { formatarDataSemTimezone, hojeISO, paraInputData } from '../utils/datas.js';
+import { gerarModeloAgua } from '../utils/geradorPlanilhaModelo.js';
 
 const TAMANHO_MAXIMO_ARQUIVO = 25 * 1024 * 1024;
 const EXTENSOES_ACEITAS = /\.(xlsx|xls|csv)$/i;
@@ -306,6 +309,15 @@ function ModalImportacaoAgua({ onClose, onImportado }) {
         </div>
       ) : (
         <form id="form-importar-agua" onSubmit={importar} className="space-y-4">
+          <div className="flex justify-start">
+            <button
+              type="button"
+              onClick={gerarModeloAgua}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/40 bg-cyan-600/20 text-xs font-black text-cyan-300 hover:bg-cyan-600/40 transition-colors"
+            >
+              📥 Baixar Planilha Modelo (.xlsx)
+            </button>
+          </div>
           <div
             onDragOver={(e) => { e.preventDefault(); setArrastando(true); }}
             onDragLeave={() => setArrastando(false)}
@@ -580,6 +592,9 @@ export default function ConsumoAguaView() {
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(25);
 
+  // Seleção em lote
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [excluindoLote, setExcluindoLote] = useState(false);
   // Carrega meses com registros
   const carregarMeses = useCallback(async () => {
     try {
@@ -679,6 +694,47 @@ export default function ConsumoAguaView() {
     return registrosFiltrados.slice(inicioIndex, fimIndex);
   }, [registrosFiltrados, inicioIndex, fimIndex]);
 
+  // Seleção em lote
+  const todosIdsVisiveis = useMemo(() => registrosPaginados.map((r) => r.id), [registrosPaginados]);
+  const todosSelecionados = todosIdsVisiveis.length > 0 && todosIdsVisiveis.every((id) => selectedIds.includes(id));
+
+  function toggleSelecionarTodos() {
+    if (todosSelecionados) {
+      setSelectedIds((prev) => prev.filter((id) => !todosIdsVisiveis.includes(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...todosIdsVisiveis])]);
+    }
+  }
+
+  function toggleSelecionarItem(id) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  async function excluirLote() {
+    if (selectedIds.length === 0) return;
+    const confirmado = window.confirm(
+      `Tem certeza que deseja excluir ${selectedIds.length} ${selectedIds.length === 1 ? 'registro' : 'registros'} selecionado(s)? Esta ação não pode ser desfeita.`
+    );
+    if (!confirmado) return;
+    setExcluindoLote(true);
+    try {
+      const resp = await fetch('/api/ecogestao/agua/lote', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+      if (!resp.ok) throw new Error('Falha ao excluir registros.');
+      setSelectedIds([]);
+      await carregarDados(true);
+      carregarMeses();
+    } catch (e) {
+      alert(e.message || 'Erro ao excluir registros.');
+    } finally {
+      setExcluindoLote(false);
+    }
+  }
   // Dados para o Gráfico Donut de Pontos de Captação
   const dadosDonut = useMemo(() => {
     if (!resumo.distribuicao_por_ponto || resumo.distribuicao_por_ponto.length === 0) return [];
@@ -1163,11 +1219,44 @@ export default function ConsumoAguaView() {
           </span>
         </div>
 
+        {/* Barra de ações em lote */}
+        {selectedIds.length > 0 && (
+          <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 shadow-lg">
+            <div className="flex items-center gap-2.5 text-sm font-bold text-rose-300">
+              <CheckSquare size={16} className="text-rose-400" />
+              <span>{selectedIds.length} {selectedIds.length === 1 ? 'registro selecionado' : 'registros selecionados'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedIds([])}
+                className="px-3 py-1.5 rounded-lg border border-omega-700 bg-omega-800 text-xs font-bold text-omega-300 hover:bg-omega-700 transition-colors"
+              >
+                Limpar seleção
+              </button>
+              <button
+                type="button"
+                onClick={excluirLote}
+                disabled={excluindoLote}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/40 bg-rose-600/20 text-xs font-black text-rose-300 hover:bg-rose-600/40 transition-colors disabled:opacity-60"
+              >
+                {excluindoLote ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Excluir Selecionados
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tabela */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-omega-800 bg-omega-950/40 text-[10px] font-extrabold uppercase tracking-wider text-omega-400">
+                <th className="py-3 pl-4 pr-2 w-10">
+                  <button type="button" onClick={toggleSelecionarTodos} className="text-omega-400 hover:text-cyan-400 transition-colors">
+                    {todosSelecionados ? <CheckSquare size={15} className="text-cyan-400" /> : <Square size={15} />}
+                  </button>
+                </th>
                 <th className="py-3 px-4">Ano/Mês</th>
                 <th className="py-3 px-4">Data</th>
                 <th className="py-3 px-4">Ponto de Captação</th>
@@ -1180,24 +1269,32 @@ export default function ConsumoAguaView() {
             <tbody className="divide-y divide-omega-800/60">
               {carregando ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-omega-400">
+                  <td colSpan={8} className="py-12 text-center text-omega-400">
                     <Loader2 size={24} className="mx-auto mb-2 animate-spin text-cyan-400" />
                     Carregando medições de consumo de água...
                   </td>
                 </tr>
               ) : registrosPaginados.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-omega-400">
+                  <td colSpan={8} className="py-12 text-center text-omega-400">
                     <Waves size={28} className="mx-auto mb-2 opacity-30 text-omega-600" />
                     Nenhuma medição encontrada para os filtros selecionados.
                   </td>
                 </tr>
               ) : (
-                registrosPaginados.map((item) => (
+                registrosPaginados.map((item) => {
+                  const isSelecionado = selectedIds.includes(item.id);
+                  return (
                   <tr
                     key={item.id}
-                    className="hover:bg-omega-800/40 transition-colors duration-100 group"
+                    className={`transition-colors duration-100 group ${isSelecionado ? 'bg-cyan-900/20 border-l-2 border-cyan-500' : 'hover:bg-omega-800/40'}`}
                   >
+                    {/* Checkbox */}
+                    <td className="py-3 pl-4 pr-2 w-10">
+                      <button type="button" onClick={() => toggleSelecionarItem(item.id)} className="text-omega-500 hover:text-cyan-400 transition-colors">
+                        {isSelecionado ? <CheckSquare size={15} className="text-cyan-400" /> : <Square size={15} />}
+                      </button>
+                    </td>
                     {/* Ano/Mês */}
                     <td className="py-3 px-4 font-mono text-[11px] text-omega-400 whitespace-nowrap">
                       {item.ano_mes || '—'}
@@ -1257,7 +1354,8 @@ export default function ConsumoAguaView() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

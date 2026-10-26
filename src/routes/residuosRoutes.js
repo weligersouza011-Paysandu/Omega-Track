@@ -20,6 +20,7 @@ import {
   atualizarResiduo,
   excluirResiduo,
   limparMesResiduos,
+  excluirResiduosLote,
 } from '../controllers/residuosController.js';
 import { requerAdmin } from '../middleware/sessao.js';
 
@@ -60,6 +61,8 @@ function receberPlanilha(req, res, next) {
 router.get('/', requerAdmin, listarResiduos);
 router.get('/meses', requerAdmin, listarMesesResiduos);
 router.post('/importar', requerAdmin, receberPlanilha, importarResiduos);
+router.post('/excluir-lote', requerAdmin, excluirResiduosLote);
+router.delete('/lote', requerAdmin, excluirResiduosLote);
 router.post('/', requerAdmin, criarResiduo);
 router.put('/:id', requerAdmin, atualizarResiduo);
 router.delete('/mes/:mes_ano', requerAdmin, limparMesResiduos);

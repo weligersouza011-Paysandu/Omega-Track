@@ -18,6 +18,8 @@
 //     Exclusão de resíduo.
 //   DELETE /api/ecogestao/residuos/mes/:mes_ano
 //     Exclusão em lote de todos os resíduos de um determinado mês.
+//   POST /api/ecogestao/residuos/excluir-lote
+//     Exclusão em lote por array de IDs.
 // ============================================================================
 import XLSX from 'xlsx';
 import prisma from '../config/database.js';
@@ -899,5 +901,41 @@ export const limparMesResiduos = asyncHandler(async (req, res) => {
     sucesso: true,
     mensagem: `Foram excluidos ${resultado.count} registro(s) do mes ${mesFormatado}.`,
     excluidos: resultado.count,
+  });
+});
+
+/**
+ * DELETE /api/ecogestao/residuos/lote
+ * Exclusão em lote de registros de resíduos
+ */
+export const excluirResiduosLote = asyncHandler(async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || !ids.length) {
+    return res.status(400).json({
+      error: 'Dados invalidos',
+      message: 'Envie um array de IDs para exclusao no campo `ids`.',
+    });
+  }
+
+  const idsValidos = ids.map(String).filter(Boolean);
+  const resultado = await comRetryConexao(
+    () => prisma.residuo.deleteMany({
+      where: { id: { in: idsValidos } },
+    }),
+    3,
+    500,
+    'residuos:excluirLote'
+  );
+
+  await registrarLogAtividade(req, {
+    acao: 'EXCLUIR_RESIDUOS_LOTE',
+    modulo: 'EcoGestao',
+    detalhes: { total_solicitado: idsValidos.length, total_excluido: resultado.count },
+  }).catch(() => {});
+
+  return res.status(200).json({
+    sucesso: true,
+    total_excluido: resultado.count,
+    mensagem: `${resultado.count} ${resultado.count === 1 ? 'registro excluido' : 'registros excluidos'} com sucesso.`,
   });
 });

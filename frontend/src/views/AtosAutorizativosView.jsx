@@ -15,6 +15,7 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
+  CheckSquare,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -33,6 +34,7 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  Square,
   ShieldCheck,
   Trash2,
   Upload,
@@ -53,6 +55,7 @@ import {
 import Modal from '../components/Modal.jsx';
 import { authHeaders, lerSessao } from '../utils/sessao.js';
 import { formatarDataSemTimezone, hojeISO, paraInputData } from '../utils/datas.js';
+import { gerarModeloAtos } from '../utils/geradorPlanilhaModelo.js';
 
 const TAMANHO_MAXIMO_ARQUIVO = 25 * 1024 * 1024;
 const EXTENSOES_ACEITAS = /\.(xlsx|xls|csv)$/i;
@@ -316,6 +319,15 @@ function ModalImportacaoAtos({ onClose, onImportado }) {
         </div>
       ) : (
         <form id="form-importar-atos" onSubmit={importar} className="space-y-4">
+          <div className="flex justify-start">
+            <button
+              type="button"
+              onClick={gerarModeloAtos}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-600/20 text-xs font-black text-amber-300 hover:bg-amber-600/40 transition-colors"
+            >
+              📥 Baixar Planilha Modelo (.xlsx)
+            </button>
+          </div>
           <div
             onDragOver={(e) => { e.preventDefault(); setArrastando(true); }}
             onDragLeave={() => setArrastando(false)}
@@ -608,6 +620,9 @@ export default function AtosAutorizativosView() {
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(25);
 
+  // Seleção em lote
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [excluindoLote, setExcluindoLote] = useState(false);
   // Carrega lista de atos autorizativos
   const carregarDados = useCallback(async (isRefresh = false) => {
     if (isRefresh) setAtualizando(true);
@@ -669,6 +684,46 @@ export default function AtosAutorizativosView() {
     return registrosFiltrados.slice(inicioIndex, fimIndex);
   }, [registrosFiltrados, inicioIndex, fimIndex]);
 
+  // Seleção em lote
+  const todosIdsVisiveis = useMemo(() => registrosPaginados.map((r) => r.id), [registrosPaginados]);
+  const todosSelecionados = todosIdsVisiveis.length > 0 && todosIdsVisiveis.every((id) => selectedIds.includes(id));
+
+  function toggleSelecionarTodos() {
+    if (todosSelecionados) {
+      setSelectedIds((prev) => prev.filter((id) => !todosIdsVisiveis.includes(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...todosIdsVisiveis])]);
+    }
+  }
+
+  function toggleSelecionarItem(id) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  async function excluirLote() {
+    if (selectedIds.length === 0) return;
+    const confirmado = window.confirm(
+      `Tem certeza que deseja excluir ${selectedIds.length} ${selectedIds.length === 1 ? 'registro' : 'registros'} selecionado(s)? Esta ação não pode ser desfeita.`
+    );
+    if (!confirmado) return;
+    setExcluindoLote(true);
+    try {
+      const resp = await fetch('/api/ecogestao/atos/lote', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+      if (!resp.ok) throw new Error('Falha ao excluir registros.');
+      setSelectedIds([]);
+      await carregarDados(true);
+    } catch (e) {
+      alert(e.message || 'Erro ao excluir registros.');
+    } finally {
+      setExcluindoLote(false);
+    }
+  }
   // Dados para o Gráfico Donut de Farol
   const dadosDonutFarol = useMemo(() => {
     const total = resumo.total_licencas || 0;
@@ -1168,11 +1223,44 @@ export default function AtosAutorizativosView() {
           </span>
         </div>
 
+        {/* Barra de ações em lote */}
+        {selectedIds.length > 0 && (
+          <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 shadow-lg">
+            <div className="flex items-center gap-2.5 text-sm font-bold text-rose-300">
+              <CheckSquare size={16} className="text-rose-400" />
+              <span>{selectedIds.length} {selectedIds.length === 1 ? 'registro selecionado' : 'registros selecionados'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedIds([])}
+                className="px-3 py-1.5 rounded-lg border border-omega-700 bg-omega-800 text-xs font-bold text-omega-300 hover:bg-omega-700 transition-colors"
+              >
+                Limpar seleção
+              </button>
+              <button
+                type="button"
+                onClick={excluirLote}
+                disabled={excluindoLote}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/40 bg-rose-600/20 text-xs font-black text-rose-300 hover:bg-rose-600/40 transition-colors disabled:opacity-60"
+              >
+                {excluindoLote ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Excluir Selecionados
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tabela Responsiva */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-omega-800 bg-omega-950/40 text-[10px] font-extrabold uppercase tracking-wider text-omega-400">
+                <th className="py-3 pl-4 pr-2 w-10">
+                  <button type="button" onClick={toggleSelecionarTodos} className="text-omega-400 hover:text-amber-400 transition-colors">
+                    {todosSelecionados ? <CheckSquare size={15} className="text-amber-400" /> : <Square size={15} />}
+                  </button>
+                </th>
                 <th className="py-3 px-4">Descrição do Serviço / Fornecedor</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Licença / Alvará</th>
@@ -1184,14 +1272,14 @@ export default function AtosAutorizativosView() {
             <tbody className="divide-y divide-omega-800/60">
               {carregando ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-omega-400">
+                  <td colSpan={7} className="py-12 text-center text-omega-400">
                     <Loader2 size={24} className="mx-auto mb-2 animate-spin text-amber-400" />
                     Carregando atos autorizativos...
                   </td>
                 </tr>
               ) : registrosPaginados.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-omega-400">
+                  <td colSpan={7} className="py-12 text-center text-omega-400">
                     <FileCheck2 size={28} className="mx-auto mb-2 opacity-30 text-omega-600" />
                     Nenhuma licença encontrada para os filtros selecionados.
                   </td>
@@ -1202,12 +1290,19 @@ export default function AtosAutorizativosView() {
                   const isVencido = farol === 'Vencido';
                   const isAVencer = farol === 'A Vencer';
                   const isNormal = farol === 'Normal';
+                  const isSelecionado = selectedIds.includes(item.id);
 
                   return (
                     <tr
                       key={item.id}
-                      className="hover:bg-omega-800/40 transition-colors duration-100 group"
+                      className={`transition-colors duration-100 group ${isSelecionado ? 'bg-amber-900/20 border-l-2 border-amber-500' : 'hover:bg-omega-800/40'}`}
                     >
+                      {/* Checkbox */}
+                      <td className="py-3 pl-4 pr-2 w-10">
+                        <button type="button" onClick={() => toggleSelecionarItem(item.id)} className="text-omega-500 hover:text-amber-400 transition-colors">
+                          {isSelecionado ? <CheckSquare size={15} className="text-amber-400" /> : <Square size={15} />}
+                        </button>
+                      </td>
                       {/* Descrição do Serviço / Fornecedor */}
                       <td className="py-3 px-4 font-black text-white">
                         <div className="flex items-center gap-2">

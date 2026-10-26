@@ -17,6 +17,7 @@ import {
   Building,
   Calendar,
   CheckCircle2,
+  CheckSquare,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -42,6 +43,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Square,
   Trash2,
   Upload,
   Wind,
@@ -63,6 +65,7 @@ import {
 import Modal from '../components/Modal.jsx';
 import { authHeaders, lerSessao } from '../utils/sessao.js';
 import { formatarDataSemTimezone, hojeISO, paraInputData } from '../utils/datas.js';
+import { gerarModeloProdutosQuimicos } from '../utils/geradorPlanilhaModelo.js';
 
 const TAMANHO_MAXIMO_ARQUIVO = 25 * 1024 * 1024;
 const EXTENSOES_ACEITAS = /\.(xlsx|xls|csv)$/i;
@@ -181,6 +184,21 @@ function badgeStatusValidade(dataValidade) {
   };
 }
 
+function obterHeaders(isJson = false) {
+  const sessao = lerSessao();
+  const headers = {};
+  if (isJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (sessao?.token) {
+    headers.Authorization = `Bearer ${sessao.token}`;
+  }
+  if (sessao?.usuario?.matricula) {
+    headers['x-acting-matricula'] = sessao.usuario.matricula;
+  }
+  return headers;
+}
+
 export default function ProdutosQuimicosView() {
   const [produtos, setProdutos] = useState([]);
   const [resumo, setResumo] = useState({
@@ -217,6 +235,9 @@ export default function ProdutosQuimicosView() {
   const [totalRegistros, setTotalRegistros] = useState(0);
   const [totalPaginas, setTotalPaginas] = useState(1);
 
+  // Seleção em lote
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [excluindoLote, setExcluindoLote] = useState(false);
   // Modais
   const [modalImportarAberto, setModalImportarAberto] = useState(false);
   const [modalCadastroAberto, setModalCadastroAberto] = useState(false);
@@ -275,7 +296,7 @@ export default function ProdutosQuimicosView() {
       params.set('limite', String(limite));
 
       const resposta = await fetch(`/api/ecogestao/produtos-quimicos?${params.toString()}`, {
-        headers: authHeaders(),
+        headers: obterHeaders(false),
       });
 
       if (!resposta.ok) {
@@ -299,6 +320,46 @@ export default function ProdutosQuimicosView() {
     carregarProdutos();
   }, [carregarProdutos]);
 
+  // Seleção em lote
+  const todosIdsVisiveis = produtos.map((p) => p.id);
+  const todosSelecionados = todosIdsVisiveis.length > 0 && todosIdsVisiveis.every((id) => selectedIds.includes(id));
+
+  function toggleSelecionarTodos() {
+    if (todosSelecionados) {
+      setSelectedIds((prev) => prev.filter((id) => !todosIdsVisiveis.includes(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...todosIdsVisiveis])]);
+    }
+  }
+
+  function toggleSelecionarItem(id) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  async function excluirLote() {
+    if (selectedIds.length === 0) return;
+    const confirmado = window.confirm(
+      `Tem certeza que deseja excluir ${selectedIds.length} ${selectedIds.length === 1 ? 'produto' : 'produtos'} selecionado(s)? Esta ação não pode ser desfeita.`
+    );
+    if (!confirmado) return;
+    setExcluindoLote(true);
+    try {
+      const resp = await fetch('/api/ecogestao/produtos-quimicos/lote', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...obterHeaders(false) },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+      if (!resp.ok) throw new Error('Falha ao excluir produtos.');
+      setSelectedIds([]);
+      carregarProdutos();
+    } catch (e) {
+      alert(e.message || 'Erro ao excluir produtos.');
+    } finally {
+      setExcluindoLote(false);
+    }
+  }
   // Abrir Modal de Cadastro Manual
   const abrirCadastroNovo = () => {
     setProdutoEditando(null);
@@ -369,10 +430,7 @@ export default function ProdutosQuimicosView() {
 
       const res = await fetch(url, {
         method: metodo,
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(),
-        },
+        headers: obterHeaders(true),
         body: JSON.stringify(payload),
       });
 
@@ -396,7 +454,7 @@ export default function ProdutosQuimicosView() {
     try {
       const res = await fetch(`/api/ecogestao/produtos-quimicos/${produtoExcluindo.id}`, {
         method: 'DELETE',
-        headers: authHeaders(),
+        headers: obterHeaders(false),
       });
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
@@ -451,7 +509,7 @@ export default function ProdutosQuimicosView() {
 
       const res = await fetch('/api/ecogestao/produtos-quimicos/importar', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: obterHeaders(false),
         body: formData,
       });
 
@@ -920,11 +978,44 @@ export default function ProdutosQuimicosView() {
           </div>
         </div>
 
+        {/* Barra de ações em lote */}
+        {selectedIds.length > 0 && (
+          <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-rose-500/30 bg-rose-950/30 px-4 py-3 shadow-lg">
+            <div className="flex items-center gap-2.5 text-sm font-bold text-rose-300">
+              <CheckSquare size={16} className="text-rose-400" />
+              <span>{selectedIds.length} {selectedIds.length === 1 ? 'produto selecionado' : 'produtos selecionados'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedIds([])}
+                className="px-3 py-1.5 rounded-lg border border-omega-700 bg-omega-800 text-xs font-bold text-omega-300 hover:bg-omega-700 transition-colors"
+              >
+                Limpar seleção
+              </button>
+              <button
+                type="button"
+                onClick={excluirLote}
+                disabled={excluindoLote}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/40 bg-rose-600/20 text-xs font-black text-rose-300 hover:bg-rose-600/40 transition-colors disabled:opacity-60"
+              >
+                {excluindoLote ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Excluir Selecionados
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tabela com scroll horizontal responsivo */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-omega-950/60 text-[10px] font-bold uppercase tracking-wider text-omega-400 border-b border-omega-800">
               <tr>
+                <th className="py-3 pl-4 pr-2 w-10">
+                  <button type="button" onClick={toggleSelecionarTodos} className="text-omega-400 hover:text-fuchsia-400 transition-colors">
+                    {todosSelecionados ? <CheckSquare size={15} className="text-fuchsia-400" /> : <Square size={15} />}
+                  </button>
+                </th>
                 <th className="py-3 px-4">Nome do Produto</th>
                 <th className="py-3 px-3">FDS / FISPQ</th>
                 <th className="py-3 px-3">Marca / Fabricante</th>
@@ -939,21 +1030,21 @@ export default function ProdutosQuimicosView() {
             <tbody className="divide-y divide-omega-800/60">
               {carregando ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-omega-400">
+                  <td colSpan={10} className="py-12 text-center text-omega-400">
                     <Loader2 size={24} className="mx-auto mb-2 animate-spin text-fuchsia-400" />
                     Carregando produtos químicos...
                   </td>
                 </tr>
               ) : erro ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-rose-400">
+                  <td colSpan={10} className="py-8 text-center text-rose-400">
                     <AlertCircle size={20} className="mx-auto mb-1 text-rose-400" />
                     {erro}
                   </td>
                 </tr>
               ) : produtos.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-omega-400">
+                  <td colSpan={10} className="py-12 text-center text-omega-400">
                     <FlaskConical size={28} className="mx-auto mb-2 text-omega-600" />
                     Nenhum produto químico encontrado com os filtros atuais.
                   </td>
@@ -975,9 +1066,16 @@ export default function ProdutosQuimicosView() {
                   ].filter((r) => r.ativo);
 
                   const isPerigoso = prod.enquadramento_produto === 'PERIGOSO';
+                  const isSelecionado = selectedIds.includes(prod.id);
 
                   return (
-                    <tr key={prod.id} className="hover:bg-omega-800/30 transition-colors">
+                    <tr key={prod.id} className={`transition-colors ${isSelecionado ? 'bg-fuchsia-900/20 border-l-2 border-fuchsia-500' : 'hover:bg-omega-800/30'}`}>
+                      {/* Checkbox */}
+                      <td className="py-3 pl-4 pr-2 w-10">
+                        <button type="button" onClick={() => toggleSelecionarItem(prod.id)} className="text-omega-500 hover:text-fuchsia-400 transition-colors">
+                          {isSelecionado ? <CheckSquare size={15} className="text-fuchsia-400" /> : <Square size={15} />}
+                        </button>
+                      </td>
                       {/* Nome do Produto */}
                       <td className="py-3 px-4 font-bold text-white max-w-[220px]">
                         <div className="truncate" title={prod.nome_produto}>
@@ -1170,15 +1268,15 @@ export default function ProdutosQuimicosView() {
       {/* 6. MODAL DE CADASTRO / EDIÇÃO MANUAL                                 */}
       {/* ==================================================================== */}
       <Modal
-        aberto={modalCadastroAberto}
-        aoFechar={() => setModalCadastroAberto(false)}
-        titulo={produtoEditando ? 'Editar Produto Químico' : 'Cadastrar Novo Produto Químico'}
-        subtitulo={
+        open={modalCadastroAberto}
+        onClose={() => setModalCadastroAberto(false)}
+        title={produtoEditando ? 'Editar Produto Químico' : 'Cadastrar Novo Produto Químico'}
+        subtitle={
           produtoEditando
             ? 'Altere as especificações químicas, FISPQ e matrizes de perigo.'
             : 'Preencha os dados do produto químico para incluí-lo no inventário da EcoGestão.'
         }
-        largura="max-w-2xl"
+        size="lg"
       >
         <form onSubmit={salvarProduto} className="space-y-4">
           {erroForm && (
@@ -1391,11 +1489,11 @@ export default function ProdutosQuimicosView() {
       {/* 7. MODAL DE IMPORTAÇÃO (DRAG-AND-DROP)                                */}
       {/* ==================================================================== */}
       <Modal
-        aberto={modalImportarAberto}
-        aoFechar={() => setModalImportarAberto(false)}
-        titulo="Importar Planilha de Produtos Químicos"
-        subtitulo="Envie uma planilha nos formatos .xlsx, .xls ou .csv com as colunas de produtos, marcas, FISPQ e flags de risco."
-        largura="max-w-xl"
+        open={modalImportarAberto}
+        onClose={() => setModalImportarAberto(false)}
+        title="Importar Planilha de Produtos Químicos"
+        subtitle="Envie uma planilha nos formatos .xlsx, .xls ou .csv com as colunas de produtos, marcas, FISPQ e flags de risco."
+        size="md"
       >
         <div className="space-y-4">
           {erroUpload && (
@@ -1404,6 +1502,16 @@ export default function ProdutosQuimicosView() {
               <span>{erroUpload}</span>
             </div>
           )}
+
+          <div className="flex justify-start">
+            <button
+              type="button"
+              onClick={gerarModeloProdutosQuimicos}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fuchsia-500/40 bg-fuchsia-600/20 text-xs font-black text-fuchsia-300 hover:bg-fuchsia-600/40 transition-colors"
+            >
+              📥 Baixar Planilha Modelo (.xlsx)
+            </button>
+          </div>
 
           {/* Área de Drag and Drop */}
           <div
@@ -1511,11 +1619,11 @@ export default function ProdutosQuimicosView() {
       {/* 8. MODAL DE EXCLUSÃO                                                 */}
       {/* ==================================================================== */}
       <Modal
-        aberto={modalExcluirAberto}
-        aoFechar={() => setModalExcluirAberto(false)}
-        titulo="Excluir Produto Químico"
-        subtitulo="Esta ação removerá o produto do catálogo da EcoGestão permanentemente."
-        largura="max-w-md"
+        open={modalExcluirAberto}
+        onClose={() => setModalExcluirAberto(false)}
+        title="Excluir Produto Químico"
+        subtitle="Esta ação removerá o produto do catálogo da EcoGestão permanentemente."
+        size="sm"
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3.5 text-xs text-rose-300 flex items-start gap-2.5">

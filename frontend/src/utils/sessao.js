@@ -53,9 +53,10 @@ export async function verificarMatricula(matricula) {
 }
 
 export function authHeaders(sessao) {
+  const s = sessao || lerSessao();
   const h = { 'Content-Type': 'application/json' };
-  if (sessao?.token) h.Authorization = `Bearer ${sessao.token}`;
-  if (sessao?.usuario?.matricula) h['x-acting-matricula'] = sessao.usuario.matricula;
+  if (s?.token) h.Authorization = `Bearer ${s.token}`;
+  if (s?.usuario?.matricula) h['x-acting-matricula'] = s.usuario.matricula;
   return h;
 }
 

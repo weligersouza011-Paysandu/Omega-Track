@@ -729,3 +729,39 @@ export const excluirAto = asyncHandler(async (req, res) => {
     mensagem: 'Ato autorizativo excluído com sucesso.',
   });
 });
+
+// ============================================================================
+// 4. EXCLUSÃO EM LOTE (POST /api/ecogestao/atos/excluir-lote)
+// ============================================================================
+export const excluirAtosLote = asyncHandler(async (req, res) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({
+      error: 'IDs inválidos',
+      message: 'Envie um array "ids" com ao menos um ID para exclusão em lote.',
+    });
+  }
+
+  const idsValidos = ids.map(String).filter(Boolean);
+  const resultado = await comRetryConexao(
+    () => prisma.atoAutorizativo.deleteMany({
+      where: { id: { in: idsValidos } },
+    }),
+    3,
+    500,
+    'atos:excluirLote',
+  );
+
+  await registrarLogAtividade(req, {
+    acao: 'EXCLUIR_ATOS_LOTE',
+    modulo: 'EcoGestao',
+    detalhes: { total_solicitado: idsValidos.length, total_excluido: resultado.count },
+  }).catch(() => {});
+
+  return res.status(200).json({
+    sucesso: true,
+    total_excluido: resultado.count,
+    mensagem: `${resultado.count} ${resultado.count === 1 ? 'ato excluído' : 'atos excluídos'} com sucesso.`,
+  });
+});

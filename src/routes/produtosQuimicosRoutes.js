@@ -16,6 +16,7 @@ import {
   criarProdutoQuimico,
   atualizarProdutoQuimico,
   excluirProdutoQuimico,
+  excluirProdutosQuimicosLote,
 } from '../controllers/produtosQuimicosController.js';
 import { requerAdmin } from '../middleware/sessao.js';
 
@@ -55,6 +56,8 @@ function receberPlanilha(req, res, next) {
 // Endpoints da API
 router.get('/', requerAdmin, listarProdutosQuimicos);
 router.post('/importar', requerAdmin, receberPlanilha, importarProdutosQuimicos);
+router.post('/excluir-lote', requerAdmin, excluirProdutosQuimicosLote);
+router.delete('/lote', requerAdmin, excluirProdutosQuimicosLote);
 router.post('/', requerAdmin, criarProdutoQuimico);
 router.put('/:id', requerAdmin, atualizarProdutoQuimico);
 router.delete('/:id', requerAdmin, excluirProdutoQuimico);

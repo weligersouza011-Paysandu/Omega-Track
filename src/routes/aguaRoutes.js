@@ -20,6 +20,7 @@ import {
   atualizarConsumoAgua,
   excluirConsumoAgua,
   limparMesAgua,
+  excluirConsumoAguaLote,
 } from '../controllers/aguaController.js';
 import { requerAdmin } from '../middleware/sessao.js';
 
@@ -60,6 +61,8 @@ function receberPlanilha(req, res, next) {
 router.get('/', requerAdmin, listarConsumoAgua);
 router.get('/meses', requerAdmin, listarMesesAgua);
 router.post('/importar', requerAdmin, receberPlanilha, importarConsumoAgua);
+router.post('/excluir-lote', requerAdmin, excluirConsumoAguaLote);
+router.delete('/lote', requerAdmin, excluirConsumoAguaLote);
 router.post('/', requerAdmin, criarConsumoAgua);
 router.put('/:id', requerAdmin, atualizarConsumoAgua);
 router.delete('/mes/:ano_mes', requerAdmin, limparMesAgua);

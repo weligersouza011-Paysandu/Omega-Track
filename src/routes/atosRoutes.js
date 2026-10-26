@@ -16,6 +16,7 @@ import {
   criarAto,
   atualizarAto,
   excluirAto,
+  excluirAtosLote,
 } from '../controllers/atosController.js';
 import { requerAdmin } from '../middleware/sessao.js';
 
@@ -55,6 +56,8 @@ function receberPlanilha(req, res, next) {
 // Endpoints da API
 router.get('/', requerAdmin, listarAtos);
 router.post('/importar', requerAdmin, receberPlanilha, importarAtos);
+router.post('/excluir-lote', requerAdmin, excluirAtosLote);
+router.delete('/lote', requerAdmin, excluirAtosLote);
 router.post('/', requerAdmin, criarAto);
 router.put('/:id', requerAdmin, atualizarAto);
 router.delete('/:id', requerAdmin, excluirAto);

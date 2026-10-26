@@ -845,3 +845,39 @@ export const excluirProdutoQuimico = asyncHandler(async (req, res) => {
     message: 'Produto quimico excluido com sucesso.',
   });
 });
+
+// ============================================================================
+// 5. EXCLUSÃO EM LOTE (POST /api/ecogestao/produtos-quimicos/excluir-lote)
+// ============================================================================
+export const excluirProdutosQuimicosLote = asyncHandler(async (req, res) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({
+      error: 'IDs inválidos',
+      message: 'Envie um array "ids" com ao menos um ID para exclusão em lote.',
+    });
+  }
+
+  const idsValidos = ids.map(String).filter(Boolean);
+  const resultado = await comRetryConexao(
+    () => prisma.produtoQuimico.deleteMany({
+      where: { id: { in: idsValidos } },
+    }),
+    3,
+    500,
+    'produtos_quimicos:excluirLote',
+  );
+
+  await registrarLogAtividade(req, {
+    acao: 'EXCLUIR_PRODUTOS_QUIMICOS_LOTE',
+    modulo: 'ECOGESTAO',
+    detalhes: { total_solicitado: idsValidos.length, total_excluido: resultado.count },
+  }).catch(() => {});
+
+  return res.status(200).json({
+    sucesso: true,
+    total_excluido: resultado.count,
+    mensagem: `${resultado.count} ${resultado.count === 1 ? 'produto excluído' : 'produtos excluídos'} com sucesso.`,
+  });
+});
