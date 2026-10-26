@@ -13,6 +13,8 @@ import controleAmbientalRoutes from './controleAmbientalRoutes.js';
 import programacaoRecursosRoutes from './programacaoRecursosRoutes.js';
 import abastecimentoRoutes from './abastecimentoRoutes.js';
 import residuosRoutes from './residuosRoutes.js';
+import aguaRoutes from './aguaRoutes.js';
+import atosRoutes from './atosRoutes.js';
 
 const router = Router();
 
@@ -61,6 +63,8 @@ router.get('/', (req, res) => {
       fumaca_preta_medicao: 'POST /api/controle-ambiental/fumaca-preta { tag, data_medicao, observacao? } (Gestao/Meio Ambiente/Master; validade calculada em 6 meses)',
       abastecimentos: 'GET /api/abastecimentos?mes=AAAA-MM&placa=&tag=&tipo_combustivel= -> { dados, resumo (litros/CO2), paginacao }; GET /api/abastecimentos/meses; POST /api/abastecimentos/importar (multipart campo `arquivo` .xlsx/.xls/.csv; calcula CO2 e cruza PLACA -> TAG)',
       ecogestao_residuos: 'GET /api/ecogestao/residuos?mes_ano=YYYY/MM -> { dados, resumo (destinacao/tipo/MTRs), paginacao }; GET /api/ecogestao/residuos/meses; POST /api/ecogestao/residuos/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
+      ecogestao_agua: 'GET /api/ecogestao/agua?ano_mes=YYYY/MM -> { dados, resumo (total/média/pico/pontos), paginacao }; GET /api/ecogestao/agua/meses; POST /api/ecogestao/agua/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
+      ecogestao_atos: 'GET /api/ecogestao/atos?status=&farol=&busca= -> { dados, resumo (total/ativas/vencidas/a_vencer/normais/taxa_conformidade), paginacao }; POST /api/ecogestao/atos/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
     },
   });
 });
@@ -97,5 +101,9 @@ router.use('/controle-ambiental', controleAmbientalRoutes);
 router.use('/abastecimentos', abastecimentoRoutes);
 router.use('/ecogestao/residuos', residuosRoutes);
 router.use('/residuos', residuosRoutes);
+router.use('/ecogestao/agua', aguaRoutes);
+router.use('/agua', aguaRoutes);
+router.use('/ecogestao/atos', atosRoutes);
+router.use('/atos', atosRoutes);
 
 export default router;

@@ -3,7 +3,7 @@
 //
 // Sistema de abas superiores (tabs) para navegar entre os 4 pilares:
 //   1. Gestão de Resíduos (Ativo)
-//   2. Consumo de Água Potável (Em breve)
+//   2. Consumo de Água Potável (Ativo)
 //   3. Atos Autorizativos (Em breve)
 //   4. Tratamento de Produtos Químicos (Em breve)
 // ============================================================================
@@ -20,6 +20,7 @@ import {
   Info,
 } from 'lucide-react';
 import ResiduosView from './ResiduosView.jsx';
+import ConsumoAguaView from './ConsumoAguaView.jsx';
 
 const ABAS = [
   {
@@ -28,14 +29,15 @@ const ABAS = [
     icone: Recycle,
     ativo: true,
     descricao: 'Controle de MTR/MID, inventário volumétrico e destinações (CMD vs Externo).',
+    subtitulo: 'Operacional',
   },
   {
     id: 'agua',
     titulo: 'Consumo de Água Potável',
     icone: Droplets,
-    ativo: false,
-    badge: 'Em breve',
-    descricao: 'Monitoramento de captação, caminhões-pipa, hidrômetros e metas de consumo.',
+    ativo: true,
+    descricao: 'Monitoramento de captação, hidrômetros, média diária e picos de consumo (m³).',
+    subtitulo: 'Hidrometria',
   },
   {
     id: 'atos',
@@ -44,6 +46,7 @@ const ABAS = [
     ativo: false,
     badge: 'Em breve',
     descricao: 'Licenças de operação, outorgas de uso, prazos regulatórios e condicionantes.',
+    subtitulo: 'Planejamento ESG',
   },
   {
     id: 'quimicos',
@@ -52,6 +55,7 @@ const ABAS = [
     ativo: false,
     badge: 'Em breve',
     descricao: 'FISPQs, neutralização de efluentes, caixas separadoras de água e óleo (SAO).',
+    subtitulo: 'Planejamento ESG',
   },
 ];
 
@@ -70,6 +74,7 @@ export default function EcoGestaoView() {
           {ABAS.map((aba) => {
             const isSelecionada = abaAtiva === aba.id;
             const Icone = aba.icone;
+            const isAgua = aba.id === 'agua';
 
             return (
               <button
@@ -78,7 +83,9 @@ export default function EcoGestaoView() {
                 onClick={() => setAbaAtiva(aba.id)}
                 className={`relative flex items-center justify-between gap-2.5 rounded-xl px-3.5 py-3 text-left transition-all duration-150 ${
                   isSelecionada
-                    ? 'bg-emerald-500/15 text-white border border-emerald-500/40 shadow-sm'
+                    ? isAgua
+                      ? 'bg-cyan-500/15 text-white border border-cyan-500/40 shadow-sm'
+                      : 'bg-emerald-500/15 text-white border border-emerald-500/40 shadow-sm'
                     : 'text-omega-400 hover:text-omega-200 hover:bg-omega-800/40 border border-transparent'
                 }`}
               >
@@ -86,7 +93,9 @@ export default function EcoGestaoView() {
                   <span
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
                       isSelecionada
-                        ? 'bg-emerald-500 text-white shadow-sm'
+                        ? isAgua
+                          ? 'bg-cyan-500 text-white shadow-sm'
+                          : 'bg-emerald-500 text-white shadow-sm'
                         : 'bg-omega-800/80 text-omega-400'
                     }`}
                   >
@@ -97,7 +106,7 @@ export default function EcoGestaoView() {
                       {aba.titulo}
                     </div>
                     <div className="truncate text-[10px] text-omega-500 mt-0.5 hidden sm:block">
-                      {aba.id === 'residuos' ? 'Operacional' : 'Planejamento ESG'}
+                      {aba.subtitulo}
                     </div>
                   </div>
                 </div>
@@ -124,7 +133,9 @@ export default function EcoGestaoView() {
       {/* ==================================================================== */}
       {abaAtiva === 'residuos' && <ResiduosView />}
 
-      {abaAtiva !== 'residuos' && (
+      {abaAtiva === 'agua' && <ConsumoAguaView />}
+
+      {abaAtiva !== 'residuos' && abaAtiva !== 'agua' && (
         <div className="rounded-2xl border border-omega-800 bg-omega-900 p-8 shadow-card text-center space-y-6">
           <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mx-auto shadow-inner">
             <abaAtual.icone size={32} />

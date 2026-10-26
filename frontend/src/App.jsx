@@ -83,6 +83,8 @@ export default function App() {
         <Route path="ecogestao" element={<RestritoAdmin operacional={operacional}><EcoGestaoView /></RestritoAdmin>} />
         <Route path="ecogestao/residuos" element={<Navigate to="/ecogestao" replace />} />
         <Route path="residuos" element={<Navigate to="/ecogestao" replace />} />
+        <Route path="ecogestao/agua" element={<Navigate to="/ecogestao" replace />} />
+        <Route path="agua" element={<Navigate to="/ecogestao" replace />} />
         <Route path="usuarios" element={<RestritoAdmin operacional={operacional}><UsuariosView sessao={sessao} /></RestritoAdmin>} />
         <Route path="perfil" element={<RestritoAdmin operacional={operacional}><PerfilView sessao={sessao} /></RestritoAdmin>} />
       </Route>

@@ -449,6 +449,40 @@ model Residuo {
   @@map("residuos")
 }
 
+// Sub-módulo de Consumo de Água Potável (EcoGestão)
+model ConsumoAgua {
+  id                 String    @id @default(uuid())
+  data               DateTime
+  pontos_captacao    String    // Ex: ETA, ETA/HIDROMETRO
+  consumo_m3         Float     // Volume consumido em metros cúbicos (m³)
+  ultima_atualizacao DateTime? @default(now())
+  ano_mes            String    // Formato YYYY/MM para agrupamento e filtros
+  created_at         DateTime  @default(now())
+
+  @@index([ano_mes])
+  @@index([pontos_captacao])
+  @@map("consumo_agua")
+}
+
+// Sub-módulo de Atos Autorizativos / Licenças e Autorizações (EcoGestão)
+model AtoAutorizativo {
+  id                         String   @id @default(uuid())
+  descricao_do_tipo_de_servico String // Ex: POSTO PARAUAPEBAS LTDA, OMEGA SERVICE, CIPERPRAG
+  status                     String   @default("ATIVO") // Ex: ATIVO, INATIVO
+  licenca                    String   // Descrição da licença, alvará ou certificado (ex: ANP, LO, CFT, Alvará)
+  validade                   DateTime // Data de vencimento/validade
+  farol_de_vencimentos       String?  // Ex: "Vencido", "A Vencer", "Normal" (calculado ou importado)
+  created_at                 DateTime @default(now())
+  updated_at                 DateTime @updatedAt
+
+  @@index([status])
+  @@index([validade])
+  @@index([farol_de_vencimentos])
+  @@map("atos_autorizativos")
+}
+
+
+
 
 // Parâmetros de preventiva por categoria de veículo (modelo) e contrato.
 // Categoria gravada normalizada (MAIÚSCULAS); `contrato` NULL = regra global.
