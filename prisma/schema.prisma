@@ -481,6 +481,34 @@ model AtoAutorizativo {
   @@map("atos_autorizativos")
 }
 
+// Sub-módulo de Tratamento de Produtos Químicos (EcoGestão)
+model ProdutoQuimico {
+  id                    String    @id @default(uuid())
+  nome_produto          String    // Ex: BASE PROTETIVA, ACETILENO, OXI-GÁS
+  fds_fispq             String?   // Código/Link ou indicação de FISPQ/FDS (ex: OK, SIM, PENDENTE)
+  marca_produto         String?   // Ex: BADEN, TEK BOND, METAL CHEK, ESAB
+  substancias_composicao String?  // Ex: MISTURA, GASES, ÁLCOOL ETÍLICO
+  enquadramento_produto String    @default("PERIGOSO") // Ex: PERIGOSO, NÃO PERIGOSO
+  validade_produto      DateTime? // Data de validade do produto químico
+  local_armazenamento   String?   // Ex: ALMOXARIFADO, CONTAINER QUÍMICO, PÁTIO
+
+  // Matriz de Perigocidade (Flags)
+  inflamavel            Boolean   @default(false)
+  piroforico            Boolean   @default(false)
+  explosivo             Boolean   @default(false)
+  oxidante              Boolean   @default(false)
+  corrosivo             Boolean   @default(false)
+  toxico                Boolean   @default(false)
+  radioativo            Boolean   @default(false)
+
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+
+  @@index([enquadramento_produto])
+  @@index([validade_produto])
+  @@map("produtos_quimicos")
+}
+
 
 
 

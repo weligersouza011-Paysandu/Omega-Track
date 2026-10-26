@@ -88,6 +88,9 @@ export default function App() {
         <Route path="ecogestao/atos" element={<Navigate to="/ecogestao?aba=atos" replace />} />
         <Route path="atos" element={<Navigate to="/ecogestao?aba=atos" replace />} />
         <Route path="licencas" element={<Navigate to="/ecogestao?aba=atos" replace />} />
+        <Route path="ecogestao/quimicos" element={<Navigate to="/ecogestao?aba=quimicos" replace />} />
+        <Route path="quimicos" element={<Navigate to="/ecogestao?aba=quimicos" replace />} />
+        <Route path="produtos-quimicos" element={<Navigate to="/ecogestao?aba=quimicos" replace />} />
         <Route path="usuarios" element={<RestritoAdmin operacional={operacional}><UsuariosView sessao={sessao} /></RestritoAdmin>} />
         <Route path="perfil" element={<RestritoAdmin operacional={operacional}><PerfilView sessao={sessao} /></RestritoAdmin>} />
       </Route>

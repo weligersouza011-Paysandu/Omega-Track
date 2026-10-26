@@ -15,6 +15,7 @@ import abastecimentoRoutes from './abastecimentoRoutes.js';
 import residuosRoutes from './residuosRoutes.js';
 import aguaRoutes from './aguaRoutes.js';
 import atosRoutes from './atosRoutes.js';
+import produtosQuimicosRoutes from './produtosQuimicosRoutes.js';
 
 const router = Router();
 
@@ -65,6 +66,7 @@ router.get('/', (req, res) => {
       ecogestao_residuos: 'GET /api/ecogestao/residuos?mes_ano=YYYY/MM -> { dados, resumo (destinacao/tipo/MTRs), paginacao }; GET /api/ecogestao/residuos/meses; POST /api/ecogestao/residuos/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
       ecogestao_agua: 'GET /api/ecogestao/agua?ano_mes=YYYY/MM -> { dados, resumo (total/média/pico/pontos), paginacao }; GET /api/ecogestao/agua/meses; POST /api/ecogestao/agua/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
       ecogestao_atos: 'GET /api/ecogestao/atos?status=&farol=&busca= -> { dados, resumo (total/ativas/vencidas/a_vencer/normais/taxa_conformidade), paginacao }; POST /api/ecogestao/atos/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
+      ecogestao_produtos_quimicos: 'GET /api/ecogestao/produtos-quimicos?enquadramento=&local=&busca= -> { produtos, resumo (total/perigosos/matriz_perigos/por_local), paginacao }; POST /api/ecogestao/produtos-quimicos/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
     },
   });
 });
@@ -105,5 +107,7 @@ router.use('/ecogestao/agua', aguaRoutes);
 router.use('/agua', aguaRoutes);
 router.use('/ecogestao/atos', atosRoutes);
 router.use('/atos', atosRoutes);
+router.use('/ecogestao/produtos-quimicos', produtosQuimicosRoutes);
+router.use('/produtos-quimicos', produtosQuimicosRoutes);
 
 export default router;

@@ -23,6 +23,7 @@ import {
 import ResiduosView from './ResiduosView.jsx';
 import ConsumoAguaView from './ConsumoAguaView.jsx';
 import AtosAutorizativosView from './AtosAutorizativosView.jsx';
+import ProdutosQuimicosView from './ProdutosQuimicosView.jsx';
 
 const ABAS = [
   {
@@ -53,10 +54,9 @@ const ABAS = [
     id: 'quimicos',
     titulo: 'Tratamento de Produtos Químicos',
     icone: FlaskConical,
-    ativo: false,
-    badge: 'Em breve',
-    descricao: 'FISPQs, neutralização de efluentes, caixas separadoras de água e óleo (SAO).',
-    subtitulo: 'Planejamento ESG',
+    ativo: true,
+    descricao: 'Inventário químico, FDS/FISPQ, matriz de periculosidade, locais de armazenamento e validades.',
+    subtitulo: 'FISPQ & Riscos',
   },
 ];
 
@@ -93,6 +93,7 @@ export default function EcoGestaoView() {
             const Icone = aba.icone;
             const isAgua = aba.id === 'agua';
             const isAtos = aba.id === 'atos';
+            const isQuimicos = aba.id === 'quimicos';
 
             return (
               <button
@@ -105,6 +106,8 @@ export default function EcoGestaoView() {
                       ? 'bg-cyan-500/15 text-white border border-cyan-500/40 shadow-sm'
                       : isAtos
                       ? 'bg-amber-500/15 text-white border border-amber-500/40 shadow-sm'
+                      : isQuimicos
+                      ? 'bg-fuchsia-500/15 text-white border border-fuchsia-500/40 shadow-sm'
                       : 'bg-emerald-500/15 text-white border border-emerald-500/40 shadow-sm'
                     : 'text-omega-400 hover:text-omega-200 hover:bg-omega-800/40 border border-transparent'
                 }`}
@@ -117,6 +120,8 @@ export default function EcoGestaoView() {
                           ? 'bg-cyan-500 text-white shadow-sm'
                           : isAtos
                           ? 'bg-amber-500 text-white shadow-sm'
+                          : isQuimicos
+                          ? 'bg-fuchsia-500 text-white shadow-sm'
                           : 'bg-emerald-500 text-white shadow-sm'
                         : 'bg-omega-800/80 text-omega-400'
                     }`}
@@ -158,6 +163,8 @@ export default function EcoGestaoView() {
       {abaAtiva === 'agua' && <ConsumoAguaView />}
 
       {abaAtiva === 'atos' && <AtosAutorizativosView />}
+
+      {abaAtiva === 'quimicos' && <ProdutosQuimicosView />}
 
       {abaAtiva !== 'residuos' && abaAtiva !== 'agua' && abaAtiva !== 'atos' && (
         <div className="rounded-2xl border border-omega-800 bg-omega-900 p-8 shadow-card text-center space-y-6">
