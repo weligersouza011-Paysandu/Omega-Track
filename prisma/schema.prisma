@@ -432,6 +432,24 @@ model Abastecimento {
   @@map("abastecimentos")
 }
 
+// Sub-módulo de Gestão de Resíduos (EcoGestão)
+model Residuo {
+  id               String   @id @default(uuid())
+  data             DateTime
+  tipo_residuos    String   // Ex: SUCATA DE PAPEL E PAPELÃO, LIXO COMUM, LODO DE FOSSA SEPTICA, etc.
+  numero_mtr_mid   String?  // Número do MTR ou MID
+  destinacao       String   // Ex: CMD, EXTERNO
+  quantidade_kg_l  Float    // Quantidade em KG ou Litros
+  mes_ano          String   // Formato YYYY/MM para agrupamento em gráficos e filtros
+  created_at       DateTime @default(now())
+
+  @@index([mes_ano])
+  @@index([tipo_residuos])
+  @@index([destinacao])
+  @@map("residuos")
+}
+
+
 // Parâmetros de preventiva por categoria de veículo (modelo) e contrato.
 // Categoria gravada normalizada (MAIÚSCULAS); `contrato` NULL = regra global.
 model ParametroPreventiva {

@@ -12,6 +12,7 @@ import eficienciaRoutes from './eficienciaRoutes.js';
 import controleAmbientalRoutes from './controleAmbientalRoutes.js';
 import programacaoRecursosRoutes from './programacaoRecursosRoutes.js';
 import abastecimentoRoutes from './abastecimentoRoutes.js';
+import residuosRoutes from './residuosRoutes.js';
 
 const router = Router();
 
@@ -59,6 +60,7 @@ router.get('/', (req, res) => {
       fumaca_preta: 'GET /api/controle-ambiental/fumaca-preta (dashboard de conformidade: KPIs, cobertura e veiculos a diesel mobilizados)',
       fumaca_preta_medicao: 'POST /api/controle-ambiental/fumaca-preta { tag, data_medicao, observacao? } (Gestao/Meio Ambiente/Master; validade calculada em 6 meses)',
       abastecimentos: 'GET /api/abastecimentos?mes=AAAA-MM&placa=&tag=&tipo_combustivel= -> { dados, resumo (litros/CO2), paginacao }; GET /api/abastecimentos/meses; POST /api/abastecimentos/importar (multipart campo `arquivo` .xlsx/.xls/.csv; calcula CO2 e cruza PLACA -> TAG)',
+      ecogestao_residuos: 'GET /api/ecogestao/residuos?mes_ano=YYYY/MM -> { dados, resumo (destinacao/tipo/MTRs), paginacao }; GET /api/ecogestao/residuos/meses; POST /api/ecogestao/residuos/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
     },
   });
 });
@@ -93,5 +95,7 @@ router.use('/login', loginRoutes);
 router.use('/eficiencia', eficienciaRoutes);
 router.use('/controle-ambiental', controleAmbientalRoutes);
 router.use('/abastecimentos', abastecimentoRoutes);
+router.use('/ecogestao/residuos', residuosRoutes);
+router.use('/residuos', residuosRoutes);
 
 export default router;

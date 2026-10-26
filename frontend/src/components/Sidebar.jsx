@@ -28,7 +28,7 @@ const SECTIONS = [
         exact: true,
         theme: 'combustivel',
       },
-      { to: '/ecogestao', label: 'EcoGestao', icon: Sprout, exact: true },
+      { to: '/ecogestao', label: 'EcoGestão', icon: Sprout, exact: true },
     ],
   },
   {
