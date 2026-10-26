@@ -4,10 +4,11 @@
 // Sistema de abas superiores (tabs) para navegar entre os 4 pilares:
 //   1. Gestão de Resíduos (Ativo)
 //   2. Consumo de Água Potável (Ativo)
-//   3. Atos Autorizativos (Em breve)
+//   3. Atos Autorizativos (Ativo)
 //   4. Tratamento de Produtos Químicos (Em breve)
 // ============================================================================
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Recycle,
   Droplets,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import ResiduosView from './ResiduosView.jsx';
 import ConsumoAguaView from './ConsumoAguaView.jsx';
+import AtosAutorizativosView from './AtosAutorizativosView.jsx';
 
 const ABAS = [
   {
@@ -43,10 +45,9 @@ const ABAS = [
     id: 'atos',
     titulo: 'Atos Autorizativos',
     icone: FileCheck2,
-    ativo: false,
-    badge: 'Em breve',
-    descricao: 'Licenças de operação, outorgas de uso, prazos regulatórios e condicionantes.',
-    subtitulo: 'Planejamento ESG',
+    ativo: true,
+    descricao: 'Gestão e controle de vencimentos de alvarás, licenças ambientais, certificados e condicionantes.',
+    subtitulo: 'Licenças & Alvarás',
   },
   {
     id: 'quimicos',
@@ -60,7 +61,23 @@ const ABAS = [
 ];
 
 export default function EcoGestaoView() {
-  const [abaAtiva, setAbaAtiva] = useState('residuos');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const abaUrl = searchParams.get('aba');
+
+  const [abaAtiva, setAbaAtivaInterna] = useState(() => {
+    return ABAS.some((a) => a.id === abaUrl) ? abaUrl : 'residuos';
+  });
+
+  useEffect(() => {
+    if (abaUrl && ABAS.some((a) => a.id === abaUrl) && abaUrl !== abaAtiva) {
+      setAbaAtivaInterna(abaUrl);
+    }
+  }, [abaUrl]);
+
+  const setAbaAtiva = (novaAba) => {
+    setAbaAtivaInterna(novaAba);
+    setSearchParams({ aba: novaAba }, { replace: true });
+  };
 
   const abaAtual = ABAS.find((a) => a.id === abaAtiva) || ABAS[0];
 
@@ -75,6 +92,7 @@ export default function EcoGestaoView() {
             const isSelecionada = abaAtiva === aba.id;
             const Icone = aba.icone;
             const isAgua = aba.id === 'agua';
+            const isAtos = aba.id === 'atos';
 
             return (
               <button
@@ -85,6 +103,8 @@ export default function EcoGestaoView() {
                   isSelecionada
                     ? isAgua
                       ? 'bg-cyan-500/15 text-white border border-cyan-500/40 shadow-sm'
+                      : isAtos
+                      ? 'bg-amber-500/15 text-white border border-amber-500/40 shadow-sm'
                       : 'bg-emerald-500/15 text-white border border-emerald-500/40 shadow-sm'
                     : 'text-omega-400 hover:text-omega-200 hover:bg-omega-800/40 border border-transparent'
                 }`}
@@ -95,6 +115,8 @@ export default function EcoGestaoView() {
                       isSelecionada
                         ? isAgua
                           ? 'bg-cyan-500 text-white shadow-sm'
+                          : isAtos
+                          ? 'bg-amber-500 text-white shadow-sm'
                           : 'bg-emerald-500 text-white shadow-sm'
                         : 'bg-omega-800/80 text-omega-400'
                     }`}
@@ -135,7 +157,9 @@ export default function EcoGestaoView() {
 
       {abaAtiva === 'agua' && <ConsumoAguaView />}
 
-      {abaAtiva !== 'residuos' && abaAtiva !== 'agua' && (
+      {abaAtiva === 'atos' && <AtosAutorizativosView />}
+
+      {abaAtiva !== 'residuos' && abaAtiva !== 'agua' && abaAtiva !== 'atos' && (
         <div className="rounded-2xl border border-omega-800 bg-omega-900 p-8 shadow-card text-center space-y-6">
           <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mx-auto shadow-inner">
             <abaAtual.icone size={32} />
