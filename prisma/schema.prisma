@@ -41,7 +41,7 @@ model MobDesmob {
   partes_diarias       ParteDiaria[]
   monitoramento_fumaca MonitoramentoFumacaPreta?
   programacoes         ProgramacaoRecurso[]
-  manutencoes           ManutencaoRecurso[]
+  manutencoes          ManutencaoRecurso[]
 
   @@index([placa])
   @@index([status])
@@ -315,7 +315,7 @@ model Obra {
   updated_at      DateTime @default(now()) @updatedAt @db.Timestamp(6)
 
   partes_diarias ParteDiaria[]
-  programacoes    ProgramacaoRecurso[]
+  programacoes   ProgramacaoRecurso[]
 
   @@index([ativo])
   @@index([nome])
@@ -401,6 +401,35 @@ model PendenciaParteDiariaOperador {
   @@unique([tag, data])
   @@index([data])
   @@map("pendencias_parte_diaria_operador")
+}
+
+// Lançamentos do controle de combustível (operacional/ambiental, sem custos).
+// O vínculo com a frota é feito por `placa` (e `tag` preenchida no upload via
+// cruzamento com MobDesmob); não há FK para preservar o histórico do veículo.
+model Abastecimento {
+  id                  String   @id @default(uuid()) @db.Uuid
+  codigo_transacao    String?  @db.VarChar(100)
+  forma_pagamento     String?  @db.VarChar(50)
+  data_transacao      DateTime @db.Timestamp(6)
+  placa               String   @db.VarChar(20)
+  tag                 String?  @db.VarChar(50)
+  modelo_veiculo      String?  @db.VarChar(100)
+  nome_motorista      String?  @db.VarChar(255)
+  tipo_combustivel    String   @db.VarChar(100)
+  litros              Float
+  hodometro_horimetro Float?
+  km_rodados_horas    Float?
+  km_por_litro        Float?
+  emissao_co2_kg      Float?
+  estabelecimento     String?  @db.VarChar(255)
+  contrato            String?  @db.VarChar(100)
+  mes_referencia      String   @db.VarChar(7)
+  created_at          DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([placa])
+  @@index([mes_referencia])
+  @@index([tipo_combustivel])
+  @@map("abastecimentos")
 }
 
 // Parâmetros de preventiva por categoria de veículo (modelo) e contrato.

@@ -5,7 +5,7 @@
 import prisma from '../config/database.js';
 import { atuanteDaRequisicao } from '../middleware/sessao.js';
 
-export const MODULOS_AUDITORIA = ['Frota', 'Eficiencia', 'ParteDiaria', 'Usuarios'];
+export const MODULOS_AUDITORIA = ['Frota', 'Eficiencia', 'ParteDiaria', 'Combustivel', 'Usuarios'];
 
 function limparDetalhes(detalhes) {
   if (detalhes === undefined || detalhes === null) return null;

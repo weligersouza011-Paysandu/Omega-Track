@@ -12,6 +12,7 @@ import FarolDocumentosView from './views/FarolDocumentosView.jsx';
 import GestaoEficienciaView from './views/GestaoEficienciaView.jsx';
 import TelemetriaView from './views/TelemetriaView.jsx';
 import ControleAmbientalView from './views/ControleAmbientalView.jsx';
+import ControleCombustivelView from './views/ControleCombustivelView.jsx';
 import EcoGestaoView from './views/EcoGestaoView.jsx';
 import UsuariosView from './views/UsuariosView.jsx';
 import PerfilView from './views/PerfilView.jsx';
@@ -78,6 +79,7 @@ export default function App() {
         <Route path="pendencias-parte-diaria" element={<Navigate to="/inicio" replace />} />
         <Route path="telemetria" element={<RestritoAdmin operacional={operacional}><TelemetriaView /></RestritoAdmin>} />
         <Route path="controle-ambiental" element={<RestritoAdmin operacional={operacional}><ControleAmbientalView /></RestritoAdmin>} />
+        <Route path="controle-combustivel" element={<RestritoAdmin operacional={operacional}><ControleCombustivelView /></RestritoAdmin>} />
         <Route path="ecogestao" element={<RestritoAdmin operacional={operacional}><EcoGestaoView /></RestritoAdmin>} />
         <Route path="usuarios" element={<RestritoAdmin operacional={operacional}><UsuariosView sessao={sessao} /></RestritoAdmin>} />
         <Route path="perfil" element={<RestritoAdmin operacional={operacional}><PerfilView sessao={sessao} /></RestritoAdmin>} />

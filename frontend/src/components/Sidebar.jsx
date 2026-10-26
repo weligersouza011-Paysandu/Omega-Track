@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Building2, Truck, CalendarDays, Gauge, TrendingUp, ShieldAlert, Leaf, Sprout, Users, ChevronLeft, Menu } from 'lucide-react';
+import { Home, Building2, Truck, CalendarDays, Gauge, TrendingUp, ShieldAlert, Leaf, Fuel, Sprout, Users, ChevronLeft, Menu } from 'lucide-react';
 import { ehOperacional } from '../utils/permissoes.js';
 
 const SECTIONS = [
@@ -21,6 +21,13 @@ const SECTIONS = [
     theme: 'eco',
     itens: [
       { to: '/controle-ambiental', label: 'Controle Ambiental da Frota', icon: Leaf, exact: true },
+      {
+        to: '/controle-combustivel',
+        label: 'Controle de Combustível & ESG',
+        icon: Fuel,
+        exact: true,
+        theme: 'combustivel',
+      },
       { to: '/ecogestao', label: 'EcoGestao', icon: Sprout, exact: true },
     ],
   },
@@ -43,7 +50,16 @@ const THEMES = {
   },
   eco: {
     active: 'bg-emerald-500 text-white shadow-sm',
-    idle: 'text-omega-700 hover:bg-emerald-50 hover:text-emerald-800',
+    idle: 'text-omega-700 hover:bg-emerald-500/10 hover:text-emerald-800',
+    iconIdle: 'text-emerald-500',
+    header: 'text-emerald-600',
+    bar: 'bg-emerald-300',
+  },
+  // O módulo de Combustível usa o azul corporativo no estado ativo, seguindo
+  // o padrão da navegação principal, sem perder a identidade verde de Meio Ambiente.
+  combustivel: {
+    active: 'bg-omega-accent text-white shadow-sm',
+    idle: 'text-omega-700 hover:bg-emerald-500/10 hover:text-emerald-800',
     iconIdle: 'text-emerald-500',
     header: 'text-emerald-600',
     bar: 'bg-emerald-300',
@@ -125,25 +141,28 @@ export default function Sidebar({ open, onToggle, usuario }) {
               </div>
             )}
             <div className="space-y-1 pb-2">
-              {sec.itens.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.exact}
-                  title={item.label}
-                  className={({ isActive }) => itemClasses(isActive, open, sec.theme)}
-                >
-                  {({ isActive }) => (
-                    <>
-                      <item.icon
-                        size={20}
-                        className={'shrink-0 ' + (isActive ? 'text-white' : THEMES[sec.theme].iconIdle)}
-                      />
-                      {open && <span className="truncate">{item.label}</span>}
-                    </>
-                  )}
-                </NavLink>
-              ))}
+              {sec.itens.map((item) => {
+                const temaItem = item.theme || sec.theme;
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.exact}
+                    title={item.label}
+                    className={({ isActive }) => itemClasses(isActive, open, temaItem)}
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <item.icon
+                          size={20}
+                          className={'shrink-0 ' + (isActive ? 'text-white' : THEMES[temaItem].iconIdle)}
+                        />
+                        {open && <span className="truncate">{item.label}</span>}
+                      </>
+                    )}
+                  </NavLink>
+                );
+              })}
             </div>
           </div>
         ))}
