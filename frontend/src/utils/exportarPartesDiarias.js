@@ -11,15 +11,15 @@ export function criarPlanilhaPartesDiarias(partes, filtros) {
     views: [{ state: 'frozen', ySplit: 4, showGridLines: false }],
     pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   });
-  aba.columns = [{ width: 25 }, { width: 52 }, { width: 24 }, { width: 17 }];
-  aba.mergeCells('A1:D1');
+  aba.columns = [{ width: 25 }, { width: 52 }, { width: 24 }, { width: 17 }, { width: 48 }];
+  aba.mergeCells('A1:E1');
   const titulo = aba.getCell('A1');
   titulo.value = 'OMEGA TRACK • PARTES DIÁRIAS';
   titulo.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
   titulo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
   titulo.alignment = { vertical: 'middle' };
   aba.getRow(1).height = 34;
-  aba.mergeCells('A2:D2');
+  aba.mergeCells('A2:E2');
   const extras = [
     filtros.status && filtros.status !== 'todos' ? `Status: ${filtros.status}` : '',
     filtros.assinatura && filtros.assinatura !== 'todos' ? `Assinatura: ${filtros.assinatura}` : '',
@@ -33,12 +33,13 @@ export function criarPlanilhaPartesDiarias(partes, filtros) {
   aba.addTable({
     name: 'PartesDiarias', ref: 'A4', headerRow: true,
     style: { theme: 'TableStyleMedium2', showRowStripes: true },
-    columns: ['Matrícula do operador', 'Nome do operador', 'TAG do veículo', 'Data']
+    columns: ['Matrícula do operador', 'Nome do operador', 'TAG do veículo', 'Data', 'Nome da obra']
       .map((name) => ({ name, filterButton: true })),
     rows: partes.map((parte) => {
       const dia = extrairPartesData(parte.data);
       return [String(parte.operador ?? ''), String(parte.funcionario ?? ''), String(parte.tag ?? ''),
-        dia ? new Date(Date.UTC(Number(dia.ano), Number(dia.mes) - 1, Number(dia.dia))) : null];
+        dia ? new Date(Date.UTC(Number(dia.ano), Number(dia.mes) - 1, Number(dia.dia))) : null,
+        String(parte.obra || parte.obra_ref?.nome || '')];
     }),
   });
   aba.getRow(4).height = 28;
@@ -57,9 +58,11 @@ export function criarPlanilhaPartesDiarias(partes, filtros) {
     if (String(registro.getCell(2).value).length > 48) registro.height = 36;
     registro.getCell(3).numFmt = '@';
     registro.getCell(4).numFmt = 'dd/mm/yyyy';
+    registro.getCell(5).alignment = { vertical: 'middle', wrapText: true };
+    registro.height = Math.max(registro.height, Math.ceil(String(registro.getCell(5).value || '').length / 44) * 16 + 6);
   }
   aba.pageSetup.printTitlesRow = '1:4';
-  aba.pageSetup.printArea = `A1:D${partes.length + 4}`;
+  aba.pageSetup.printArea = `A1:E${partes.length + 4}`;
   return planilha;
 }
 
