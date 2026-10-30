@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Search, Eye, Pencil, Trash2, X, RefreshCw, AlertTriangle,
-  CheckCircle2, ClipboardList, Filter, FileText, Loader2, ChevronDown, CalendarClock,
+  CheckCircle2, ClipboardList, Filter, FileText, Loader2, ChevronDown, CalendarClock, FileSpreadsheet,
 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
@@ -10,7 +10,8 @@ import RelatorioParteDiariaPreview from '../components/RelatorioParteDiariaPrevi
 import PendenciasParteDiariaView from './PendenciasParteDiariaView.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { podeVerTodasPartes, ehMaster } from '../utils/permissoes.js';
-import { formatarDataSemTimezone as formatarData, paraInputData } from '../utils/datas.js';
+import { formatarDataSemTimezone as formatarData } from '../utils/datas.js';
+import { carregarPartesDoDia, filtrarPartesDiarias, pertenceAoUsuario } from '../utils/partesDiarias.js';
 
 function normalizar(v) {
   return String(v || '').trim().toUpperCase();
@@ -55,20 +56,6 @@ function StatusDaParte({ parte, direita = false }) {
   );
 }
 
-// Registro pertence ao usuario logado? (matricula no campo operador
-// ou nome no campo funcionario — cobre os dois formatos de lancamento).
-function pertenceAoUsuario(p, usuario) {
-  if (!usuario) return false;
-  const mat = normalizar(usuario.matricula);
-  const nome = normalizar(usuario.nome);
-  const operador = normalizar(p?.operador);
-  const funcionario = normalizar(p?.funcionario);
-  if (mat && operador === mat) return true;
-  if (mat && funcionario.includes(mat)) return true;
-  if (nome && funcionario && (funcionario === nome || funcionario.includes(nome) || nome.includes(funcionario))) return true;
-  return false;
-}
-
 export default function HomePartesDiariasView({ sessao }) {
   const usuario = sessao?.usuario || null;
   const visaoTotal = podeVerTodasPartes(usuario);
@@ -90,6 +77,8 @@ export default function HomePartesDiariasView({ sessao }) {
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroAssinatura, setFiltroAssinatura] = useState('todos');
   const [filtroData, setFiltroData] = useState('');
+  const [exportando, setExportando] = useState(false);
+  const consultaAtual = useRef(0);
 
   const [detalhe, setDetalhe] = useState(null);
   // Formulario completo (modelo Omega Service):
@@ -110,6 +99,7 @@ export default function HomePartesDiariasView({ sessao }) {
   }, [toast]);
 
   const fetchPartesDiarias = async (opcoes = {}) => {
+    const consulta = ++consultaAtual.current;
     const paginaSolicitada = Number(opcoes?.pagina) > 0 ? Number(opcoes.pagina) : 1;
     const anexar = opcoes?.anexar === true;
     if (anexar) setCarregandoMais(true); else setCarregando(true);
@@ -123,6 +113,10 @@ export default function HomePartesDiariasView({ sessao }) {
       // Otimizacao: operacional ja pede so os proprios ao backend.
       // O filtro client-side abaixo reaplica a regra por seguranca.
       if (!visaoTotal && usuario?.matricula) params.set('operador', String(usuario.matricula));
+      if (filtroData) {
+        params.set('data_inicio', filtroData);
+        params.set('data_fim', filtroData);
+      }
       const resp = await fetch(`/api/partes-diarias?${params.toString()}`, {
         headers: {
           ...authHeaders(sessao),
@@ -132,6 +126,7 @@ export default function HomePartesDiariasView({ sessao }) {
       });
       if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
       const corpo = await resp.json();
+      if (consulta !== consultaAtual.current) return [];
       const lista = Array.isArray(corpo?.data) ? corpo.data : [];
       // anexar=true: novas paginas sao somadas ao historico ja em tela
       // (nenhuma data anterior e removida ao carregar mais).
@@ -143,10 +138,14 @@ export default function HomePartesDiariasView({ sessao }) {
       });
       return lista;
     } catch {
+      if (consulta !== consultaAtual.current) return [];
       setErro('Não foi possível carregar as Partes Diárias. Verifique se o backend está no ar.');
       return [];
     } finally {
-      if (anexar) setCarregandoMais(false); else setCarregando(false);
+      if (consulta === consultaAtual.current) {
+        setCarregandoMais(false);
+        setCarregando(false);
+      }
     }
   };
 
@@ -165,6 +164,11 @@ export default function HomePartesDiariasView({ sessao }) {
 
   useEffect(() => {
     carregar();
+    return () => { consultaAtual.current += 1; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroData]);
+
+  useEffect(() => {
     carregarVeiculos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -172,24 +176,35 @@ export default function HomePartesDiariasView({ sessao }) {
   // Regra de visibilidade por perfil (CRITICO):
   // ADM / Gestao / Transporte (ADMINISTRADOR) veem tudo;
   // Operacional ve apenas os proprios lancamentos.
-  const visiveis = useMemo(() => {
-    const base = visaoTotal ? partes : partes.filter((p) => pertenceAoUsuario(p, usuario));
-    const q = busca.trim().toUpperCase();
-    return base.filter((p) => {
-      if (filtroStatus !== 'todos' && (p.status_aprovacao || p.status) !== filtroStatus) return false;
-      if (filtroAssinatura !== 'todos' && p.status_assinatura !== filtroAssinatura) return false;
-      if (filtroData && paraInputData(p.data) !== filtroData) return false;
-      if (!q) return true;
-      const placa = p.veiculo?.placa || p.placa || '';
-      return [p.tag, placa, p.funcionario, p.operador, p.obra, p.lideranca, p.id_relatorio]
-        .some((v) => String(v || '').toUpperCase().includes(q));
-    });
-  }, [partes, visaoTotal, usuario, busca, filtroStatus, filtroAssinatura, filtroData]);
+  const visiveis = useMemo(() => filtrarPartesDiarias(partes, usuario, {
+    busca, status: filtroStatus, assinatura: filtroAssinatura, data: filtroData,
+  }), [partes, usuario, busca, filtroStatus, filtroAssinatura, filtroData]);
+
+  const exportarExcel = async () => {
+    if (!filtroData || exportando) return;
+    setExportando(true);
+    const filtros = { busca, status: filtroStatus, assinatura: filtroAssinatura, data: filtroData };
+    try {
+      const registros = await carregarPartesDoDia(sessao, filtros);
+      if (registros.length === 0) {
+        setToast('Nenhuma Parte Diária encontrada para o dia e os filtros selecionados.');
+        return;
+      }
+      const { exportarPartesDiariasExcel } = await import('../utils/exportarPartesDiarias.js');
+      await exportarPartesDiariasExcel(registros, filtros);
+      setToast(`Excel de ${formatarData(filtros.data)} exportado com ${registros.length} registro(s).`);
+    } catch (e) {
+      setToast(`Falha ao exportar Excel: ${e.message}`);
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const statusDisponiveis = useMemo(() => {
     const set = new Set(partes.map((p) => p.status_aprovacao || p.status).filter(Boolean));
+    if (filtroStatus !== 'todos') set.add(filtroStatus);
     return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [partes]);
+  }, [partes, filtroStatus]);
 
   const placaPorTag = useMemo(() => {
     const map = new Map();
@@ -374,12 +389,21 @@ export default function HomePartesDiariasView({ sessao }) {
 
       {/* Tabela */}
       <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-omega-100 bg-omega-50/50 flex items-center gap-2">
+        <div className="px-4 py-3 border-b border-omega-100 bg-omega-50/50 flex flex-wrap items-center gap-2">
           <Filter size={14} className="text-omega-500" />
           <span className="text-sm font-bold text-omega-900">Partes Diárias</span>
           <span className="text-[11px] text-omega-500 ml-auto">
             {visiveis.length}{paginacao.total > visiveis.length ? ` de ${paginacao.total}` : ''} registro(s){!visaoTotal ? ' • meus lançamentos' : ''}
           </span>
+          {filtroData && (
+            <button type="button" onClick={exportarExcel}
+              disabled={exportando || carregando || !!erro}
+              className="btn-secondary !py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              title={`Exportar todos os registros de ${formatarData(filtroData)} que correspondem aos filtros`}>
+              {exportando ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
+              {exportando ? 'Exportando...' : 'Exportar Excel'}
+            </button>
+          )}
         </div>
 
         {carregando ? (
