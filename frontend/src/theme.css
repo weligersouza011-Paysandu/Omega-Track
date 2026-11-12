@@ -156,6 +156,66 @@ html.dark .app-layout .theme-logo {
   border-color: #475569;
 }
 
+/* Superfícies brancas translúcidas e gradientes claros (ex.: cabeçalho e
+   seções expansíveis da Parte Diária) não podem virar cinza claro no escuro. */
+html.dark .app-layout :is([class~="bg-white/50"], [class~="bg-white/60"]) {
+  background-color: #0b1220;
+}
+
+html.dark .app-layout [class~="!bg-white/90"] {
+  background-color: var(--theme-surface) !important;
+}
+
+html.dark .app-layout [class~="from-white"] {
+  --tw-gradient-from: var(--theme-surface) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(15 23 42 / 0) var(--tw-gradient-to-position);
+}
+
+html.dark .app-layout [class~="to-omega-50/60"] {
+  --tw-gradient-to: #0b1220 var(--tw-gradient-to-position);
+}
+
+html.dark .app-layout :is([class~="bg-sky-50/60"], [class~="bg-sky-50/70"]) {
+  background-color: rgb(56 189 248 / 10%);
+}
+
+html.dark .app-layout :is([class~="text-sky-800"], [class~="!text-sky-800"]) {
+  color: #7dd3fc !important;
+}
+
+html.dark .app-layout [class~="text-omega-red-600"] {
+  color: #fb7185;
+}
+
+html.dark .app-layout [class~="border-omega-900/20"] {
+  border-color: var(--theme-border);
+}
+
+/* Campos travados (ex.: operador autor) usam !bg-slate-100 no tema claro. */
+html.dark .app-layout [class~="!bg-slate-100"] {
+  background-color: var(--theme-raised) !important;
+}
+
+html.dark .app-layout :is([class~="!text-slate-800"], [class~="!text-slate-900"]) {
+  color: var(--theme-text) !important;
+}
+
+html.dark .app-layout [class~="!border-slate-300"] {
+  border-color: #475569 !important;
+}
+
+/* Quadro de assinatura: fundo escuro com tinta clara (ver utils/assinaturaCanvas.js). */
+html.dark .app-layout .theme-assinatura-quadro {
+  background-color: #0b1220;
+  border-color: #475569;
+}
+
+/* Imagens de assinatura são salvas com tinta preta: exibir sempre sobre papel branco. */
+html.dark .app-layout .theme-paper {
+  background-color: #fff !important;
+  border-color: #475569;
+}
+
 html.dark .app-layout .theme-toggle {
   background-color: #1e293b;
   border-color: #475569;

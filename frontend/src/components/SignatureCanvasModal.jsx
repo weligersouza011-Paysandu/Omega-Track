@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PenTool, Eraser, Check, X, Loader2 } from 'lucide-react';
 import Modal from './Modal.jsx';
+import { corTintaTela, exportarAssinaturaPng } from '../utils/assinaturaCanvas.js';
 
 export default function SignatureCanvasModal({
   open,
@@ -33,7 +34,7 @@ export default function SignatureCanvasModal({
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = 2.5;
-    ctx.strokeStyle = '#0f172a'; // Tinta azul-escura/preta profissional
+    ctx.strokeStyle = corTintaTela();
 
     setTemTracos(false);
   }, [open]);
@@ -64,7 +65,9 @@ export default function SignatureCanvasModal({
     const ctx = canvas.getContext('2d');
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, 1.25, 0, Math.PI * 2);
-    ctx.fillStyle = '#0f172a';
+    const tinta = corTintaTela();
+    ctx.fillStyle = tinta;
+    ctx.strokeStyle = tinta;
     ctx.fill();
     setTemTracos(true);
   };
@@ -105,7 +108,7 @@ export default function SignatureCanvasModal({
     const canvas = canvasRef.current;
     if (!canvas || !temTracos) return;
     // Exporta imagem em formato PNG transparente
-    const dataUrl = canvas.toDataURL('image/png');
+    const dataUrl = exportarAssinaturaPng(canvas);
     onSalvar(dataUrl);
   };
 
@@ -157,7 +160,7 @@ export default function SignatureCanvasModal({
       <div className="space-y-3">
         <p className="text-xs text-omega-500">{subtitulo}</p>
 
-        <div className="relative rounded-2xl border-2 border-dashed border-omega-200 bg-white shadow-inner p-1 overflow-hidden select-none">
+        <div className="relative rounded-2xl border-2 border-dashed border-omega-200 bg-white shadow-inner p-1 theme-assinatura-quadro overflow-hidden select-none">
           <canvas
             ref={canvasRef}
             onPointerDown={iniciarDesenho}

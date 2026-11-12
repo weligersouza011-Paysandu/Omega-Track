@@ -12,6 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import Modal from "./Modal.jsx";
+import { corTintaTela, exportarAssinaturaPng } from "../utils/assinaturaCanvas.js";
 import { authHeaders, lerSessao } from "../utils/sessao.js";
 
 const LIMITE_FOTO_BYTES = 10 * 1024 * 1024;
@@ -146,7 +147,7 @@ export default function ModalAssinaturaDigital({
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.lineWidth = 2.5;
-      ctx.strokeStyle = "#0f172a";
+      ctx.strokeStyle = corTintaTela();
       setTemTracos(false);
     }, 80);
     return () => clearTimeout(id);
@@ -170,7 +171,9 @@ export default function ModalAssinaturaDigital({
     const ctx = canvas.getContext("2d");
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, 1.25, 0, Math.PI * 2);
-    ctx.fillStyle = "#0f172a";
+    const tinta = corTintaTela();
+    ctx.fillStyle = tinta;
+    ctx.strokeStyle = tinta;
     ctx.fill();
     setTemTracos(true);
   };
@@ -226,7 +229,7 @@ export default function ModalAssinaturaDigital({
   const confirmarCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas || !temTracos) return;
-    onConfirmar({ modo: "canvas", dataUrl: canvas.toDataURL("image/png"), salvarNoPerfil });
+    onConfirmar({ modo: "canvas", dataUrl: exportarAssinaturaPng(canvas), salvarNoPerfil });
   };
   const confirmarFoto = () => {
     if (!foto?.dataUrl) return;
@@ -340,7 +343,7 @@ export default function ModalAssinaturaDigital({
                       : "Nenhuma assinatura salva no perfil — desenhe ou anexe uma foto."}
                 </div>
                 {temAssinaturaCadastrada ? (
-                  <div className="mt-2 rounded-lg bg-white border border-emerald-200 p-1.5 inline-block">
+                  <div className="mt-2 rounded-lg bg-white theme-paper border border-emerald-200 p-1.5 inline-block">
                     <img src={assinaturaPerfil} alt="Assinatura salva no perfil" className="max-h-10 max-w-[140px] object-contain" />
                   </div>
                 ) : null}
@@ -373,7 +376,7 @@ export default function ModalAssinaturaDigital({
           <div className="space-y-3">
             <p className="text-xs text-omega-500">Sua assinatura salva será registrada neste relatório:</p>
             <div className="rounded-2xl border border-emerald-200 bg-white shadow-sm p-5 flex flex-col items-center gap-3">
-              <img src={assinaturaPerfil} alt={`Assinatura de ${usuario?.nome || "usuário"}`} className="max-h-24 max-w-[260px] object-contain" />
+              <img src={assinaturaPerfil} alt={`Assinatura de ${usuario?.nome || "usuário"}`} className="max-h-24 max-w-[260px] object-contain theme-paper rounded-lg p-1" />
               <div className="text-center">
                 <div className="text-sm font-bold text-omega-900">{usuario?.nome}</div>
                 {usuario?.matricula && <div className="text-xs text-omega-400 font-mono">Matr. {usuario.matricula}</div>}
@@ -389,7 +392,7 @@ export default function ModalAssinaturaDigital({
         {tela === "canvas" && (
           <div className="space-y-3">
             <p className="text-xs text-omega-500">Desenhe sua assinatura no quadro abaixo:</p>
-            <div className="relative rounded-2xl border-2 border-dashed border-omega-200 bg-white shadow-inner p-1 overflow-hidden select-none">
+            <div className="relative rounded-2xl border-2 border-dashed border-omega-200 bg-white shadow-inner p-1 theme-assinatura-quadro overflow-hidden select-none">
               <canvas
                 ref={canvasRef}
                 onPointerDown={iniciarDesenho}

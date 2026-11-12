@@ -2195,7 +2195,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                         <div className="space-y-2">
                           {/* Preview da assinatura digital */}
                           {imagemAssinatura(a) ? (
-                            <div className="rounded-lg bg-white border border-omega-200 p-1.5 flex items-center justify-center min-h-[48px]">
+                            <div className="rounded-lg bg-white theme-paper border border-omega-200 p-1.5 flex items-center justify-center min-h-[48px]">
                               <img src={imagemAssinatura(a)} alt={`Assinatura de ${a.nome}`} className="max-h-10 max-w-full object-contain" />
                             </div>
                           ) : (
@@ -2258,7 +2258,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                           {a ? (
                             <>
                               {imagemAssinatura(a)
-                                ? <img src={imagemAssinatura(a)} alt={a.nome} className="max-h-8 max-w-full object-contain mb-0.5" />
+                                ? <img src={imagemAssinatura(a)} alt={a.nome} className="max-h-8 max-w-full object-contain mb-0.5 theme-paper rounded px-1" />
                                 : <CheckCircle2 size={14} className="text-status-verde" />
                               }
                               <div className="font-bold text-omega-900 truncate w-full">{a.nome}</div>

@@ -1100,7 +1100,7 @@ export default function UsuariosView({ sessao }) {
             </label>
             {modalEdicao?.assinatura_url ? (
               <div className="rounded-xl border border-omega-200 bg-omega-50/50 p-3 flex items-center justify-between gap-3">
-                <div className="bg-white rounded-lg p-2 border border-omega-200 shadow-sm max-w-[200px]">
+                <div className="bg-white theme-paper rounded-lg p-2 border border-omega-200 shadow-sm max-w-[200px]">
                   <img src={modalEdicao.assinatura_url} alt="Assinatura" className="max-h-14 w-auto object-contain mx-auto" />
                 </div>
                 <div className="flex items-center gap-1.5">

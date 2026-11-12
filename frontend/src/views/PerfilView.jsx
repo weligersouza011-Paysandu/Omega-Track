@@ -185,7 +185,7 @@ export default function PerfilView({ sessao }) {
         {(usuario.assinatura_padrao || usuario.assinatura_url) ? (
           <div className="space-y-3">
             <div className="rounded-xl border border-omega-200 bg-omega-50/50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="bg-white rounded-lg p-2.5 border border-omega-200/80 shadow-sm inline-block max-w-[260px]">
+              <div className="bg-white theme-paper rounded-lg p-2.5 border border-omega-200/80 shadow-sm inline-block max-w-[260px]">
                 <img
                   src={usuario.assinatura_padrao || usuario.assinatura_url}
                   alt={`Assinatura de ${usuario.nome}`}
