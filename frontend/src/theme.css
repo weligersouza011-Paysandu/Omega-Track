@@ -347,3 +347,15 @@ html:not(.dark) .theme-login .theme-toggle:hover { color: #2563eb; border-color:
     transition: background-color 260ms ease, border-color 260ms ease, color 260ms ease, box-shadow 260ms ease;
   }
 }
+
+/* Mapa da Telemetria (Leaflet) no tema escuro: tiles escurecidos e popups legíveis. */
+html.dark .mapa-telemetria .leaflet-tile-pane {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+}
+html.dark .mapa-telemetria .leaflet-popup-content-wrapper,
+html.dark .mapa-telemetria .leaflet-popup-tip,
+html.dark .mapa-telemetria .leaflet-tooltip {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-color: #334155;
+}

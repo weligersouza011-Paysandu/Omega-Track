@@ -368,12 +368,12 @@ export const importarTelemetria = asyncHandler(async (req, res) => {
       : null,
     importados: 0,
     duplicados_ignorados: 0,
-    amostra: eventos.slice(0, 20).map(({ parou_em_15_min, chave_unica, ...e }) => e),
+    amostra: eventos.slice(0, 20).map(({ chave_unica, ...e }) => e),
   };
   if (!sim(opcoes.confirmar)) return res.status(200).json(resultado);
 
   const prazo = prazoPadrao();
-  const registros = eventos.map(({ parou_em_15_min, ...e }) => ({
+  const registros = eventos.map((e) => ({
     ...e,
     // Dentro da tolerância não há conduta a tratar: nasce sem prazo.
     prazo_tratativa: e.severidade === 'NORMAL' ? null : prazo,

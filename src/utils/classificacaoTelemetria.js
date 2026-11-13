@@ -121,7 +121,10 @@ export function classificarTexto(textoOriginal) {
   if (/sensor de fadiga: cadastro/.test(t)) return null;
 
   if (/sem parada obrigatoria/.test(t) && /fadiga/.test(t)) return { evento: EVENTOS.FADIGA_SEM_PARADA };
-  if (/fadiga|sonolencia|\bsono\b|bocejo|olhos? fechad|microsono/.test(t)) return { evento: EVENTOS.FADIGA };
+  // Só a fadiga DETECTADA pelo sensor é fadiga real (ou o rótulo da tela/planilha modelo).
+  // Outros textos de fadiga (cadastro, alertas de análise) não viram evento.
+  if (/fadiga detectada/.test(t) || t === 'fadiga / sono' || t === 'fadiga') return { evento: EVENTOS.FADIGA };
+  if (/fadiga|sonolencia|\bsono\b|bocejo|olhos? fechad|microsono/.test(t)) return null;
   if (/velocidade acima do limite|excedeu velocidade|excesso de velocidade|alerta de velocidade maxima/.test(t)) {
     const duracao = t.match(/excedeu velocidade maxima: (\d+) s/);
     return { evento: EVENTOS.VELOCIDADE, ...(duracao ? { duracao_s: Number(duracao[1]) } : {}) };
@@ -188,3 +191,127 @@ export function medidaRecomendada(evento, severidade, ocorrencia) {
   return linha[indice] || SEM_MEDIDA;
 }
 
+
+// ============================================================================
+// FADIGA DETECTADA — consistência e matriz (Anexo I, "Eventos de Fadiga")
+// ============================================================================
+
+/** Gatilho do detector para veículos rodoviários (PGS-007245, item 7.1: 1,5 s e 10 km/h). */
+export const VELOCIDADE_MINIMA_FADIGA_KMH = 10;
+/** Detecções do mesmo veículo dentro desta janela formam uma única ocorrência. */
+export const JANELA_FADIGA_MIN = 15;
+
+/** Farol de cada ocorrência de fadiga. */
+export const CLASSIFICACAO_FADIGA = Object.freeze({
+  PARADO: 'VEICULO_PARADO', // abaixo do gatilho: motorista dormindo com o veículo parado; não conta na matriz
+  ANALISE: 'EM_ANALISE', // em movimento e isolada: a Central valida pelo vídeo
+  CONFIRMADA: 'CONFIRMADA', // em movimento e repetida em até 15 min, ou confirmada pela Central: Crítico N3
+  DESCARTADA: 'DESCARTADA', // descartada pela Central (falso positivo, uso como benefício etc.)
+});
+
+/** Linhas da matriz de "Eventos de Fadiga" do Anexo I. */
+export const LINHAS_MATRIZ_FADIGA = Object.freeze({
+  FADIGA_VERDADEIRA: 'FADIGA_VERDADEIRA',
+  PRONTIDAO: 'PRONTIDAO',
+  SEM_PARADA: 'SEM_PARADA',
+});
+
+const COMITE_FADIGA = 'Aplicar Comitê Pela Vida (PNR-000267 – Gestão de Condutas para SSMA)';
+
+/** Texto do Anexo I por linha (e elegibilidade ao teste de Prontidão) e recorrência (1º, 2º, 3º ou mais). */
+export const MATRIZ_FADIGA = Object.freeze({
+  FADIGA_VERDADEIRA: {
+    titulo: 'Evento de fadiga verdadeira classificada e comunicada pela Central',
+    elegivel: [
+      'Reativação por no mínimo 15 minutos + reteste através da ferramenta Prontidão',
+      'Reativação por no mínimo 15 minutos + reteste do Prontidão + encaminhamento à medicina para avaliação de saúde e/ou acolhimento',
+      'Reativação por no mínimo 15 minutos + reteste do Prontidão + encaminhamento à medicina para avaliação de saúde e/ou acolhimento',
+    ],
+    nao_elegivel: [
+      'Reativação por no mínimo 15 minutos + conversa formal com o líder',
+      'Conversa formal com o líder + encaminhamento à medicina para avaliação de saúde',
+      'Conversa formal com o líder + encaminhamento à medicina para avaliação de saúde',
+    ],
+  },
+  PRONTIDAO: {
+    titulo: 'Não conformidade no Processo de Prontidão (empregados elegíveis, Anexo IV do PNR-000257)',
+    medidas: ['Empregado / gestor: advertência verbal', 'Empregado / gestor: advertência escrita', COMITE_FADIGA],
+  },
+  SEM_PARADA: {
+    titulo: 'Motorista não realizou a parada obrigatória até 15 minutos após a fadiga verdadeira',
+    medidas: ['Advertência escrita', 'Suspensão de RAC', COMITE_FADIGA],
+  },
+});
+
+export const NOTAS_MATRIZ_FADIGA = [
+  'Fica a critério do líder e/ou da medicina afastar o empregado das atividades de risco caso seja necessário.',
+  'O não atendimento à parada obrigatória após fadiga verdadeira caracteriza risco grave e iminente e exige tratativa rigorosa e imediata.',
+];
+
+/**
+ * Medida do Anexo I para a linha da matriz de fadiga e a N-ésima ocorrência no mês.
+ * Na fadiga verdadeira a medida depende de o empregado ser elegível ao teste de Prontidão.
+ */
+export function medidaFadiga(linha, ocorrencia, elegivel = true) {
+  const item = MATRIZ_FADIGA[linha];
+  if (!item) return null;
+  const indice = Math.min(Math.max(Number(ocorrencia) || 1, 1), 3) - 1;
+  if (linha === LINHAS_MATRIZ_FADIGA.FADIGA_VERDADEIRA) {
+    return (elegivel ? item.elegivel : item.nao_elegivel)[indice];
+  }
+  return item.medidas[indice];
+}
+
+export function emMovimentoFadiga(deteccao) {
+  return Number(deteccao.valor) >= VELOCIDADE_MINIMA_FADIGA_KMH;
+}
+
+/**
+ * Agrupa as detecções de "fadiga detectada" em ocorrências e dá o farol de cada uma:
+ *  - abaixo de 10 km/h: VEICULO_PARADO (não conta na matriz);
+ *  - em movimento: detecções do mesmo veículo a até 15 min uma da outra formam uma ocorrência;
+ *    2 ou mais -> CONFIRMADA; 1 só -> EM_ANALISE;
+ *  - a validação da Central (validacao_fadiga = CONFIRMADA | DESCARTADA) prevalece.
+ * Entrada: eventos { id, tag_placa, motorista, data_hora, valor, validacao_fadiga? }.
+ */
+export function agruparOcorrenciasFadiga(deteccoes) {
+  const ordenadas = [...deteccoes].sort((a, b) =>
+    String(a.tag_placa).localeCompare(String(b.tag_placa)) || new Date(a.data_hora) - new Date(b.data_hora));
+  const janelaMs = JANELA_FADIGA_MIN * 60 * 1000;
+  const grupos = [];
+  let atual = null;
+  for (const d of ordenadas) {
+    const movendo = emMovimentoFadiga(d);
+    const ultima = atual?.deteccoes[atual.deteccoes.length - 1];
+    if (atual && movendo && atual.movimento && atual.tag_placa === d.tag_placa
+      && new Date(d.data_hora) - new Date(ultima.data_hora) <= janelaMs) {
+      atual.deteccoes.push(d);
+      continue;
+    }
+    atual = { tag_placa: d.tag_placa, movimento: movendo, deteccoes: [d] };
+    grupos.push(atual);
+  }
+  return grupos
+    .map((g) => {
+      const automatica = !g.movimento
+        ? CLASSIFICACAO_FADIGA.PARADO
+        : g.deteccoes.length >= 2 ? CLASSIFICACAO_FADIGA.CONFIRMADA : CLASSIFICACAO_FADIGA.ANALISE;
+      // A validação da Central em qualquer detecção vale para a ocorrência toda.
+      const manual = g.deteccoes.map((d) => d.validacao_fadiga).find(Boolean) || null;
+      const primeira = g.deteccoes[0];
+      return {
+        chave: primeira.id,
+        tag_placa: g.tag_placa,
+        motorista: primeira.motorista || null,
+        inicio: primeira.data_hora,
+        fim: g.deteccoes[g.deteccoes.length - 1].data_hora,
+        velocidade_max: Math.max(...g.deteccoes.map((d) => Number(d.valor) || 0)),
+        em_movimento: g.movimento,
+        classificacao_automatica: automatica,
+        classificacao: manual || automatica,
+        validada_manualmente: Boolean(manual),
+        deteccoes: g.deteccoes,
+      };
+    })
+    .sort((a, b) => new Date(a.inicio) - new Date(b.inicio));
+}

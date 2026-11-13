@@ -88,7 +88,7 @@ test('planilha: excesso com duração, fadiga sem parada e TAG pela placa', () =
   assert.equal(excesso.tag, 'CA-0123');
   assert.equal(excesso.latitude, -6.05);
 
-  assert.deepEqual(fadiga, { total: 1, sem_parada: 1, indeterminadas: 0 });
+  assert.deepEqual(fadiga, { total: 1, veiculo_parado: 0, sem_parada: 1, indeterminadas: 0 });
   const semParada = eventos.find((e) => e.evento === EVENTOS.FADIGA_SEM_PARADA);
   assert.equal(semParada.origem, 'DERIVADO');
   assert.equal(semParada.data_hora.toISOString(), '2026-11-03T12:15:00.000Z');

@@ -55,6 +55,8 @@ const COLUNAS = {
   duracao: ['duracao vel. excedida - s', 'duracao', 'duracao (s)'],
   origem: ['nome da origem', 'origem'],
   severidade: ['severidade', 'severidade informada'],
+  latitude: ['latitude', 'lat'],
+  longitude: ['longitude', 'long', 'lng', 'lon'],
 };
 
 /** Severidade informada na planilha (modelo) -> valor gravado; vazio/inválido = calcula pelo Anexo I. */
@@ -118,6 +120,20 @@ function dataDaCelula(valor, fusoMin = FUSO_PADRAO_MIN) {
 }
 
 /** Latitude e longitude do link do Google Maps (…?q=-6.055961,-50.127773). */
+/**
+ * Coordenadas do evento, na ordem: link do Google Maps, colunas LATITUDE/LONGITUDE,
+ * ou LOCALIZAÇÃO escrita como "lat, long" (planilha modelo).
+ */
+function coordenadasDaLinha(link, latitude, longitude, localizacao) {
+  const doLink = coordenadasDoLink(link);
+  if (doLink.latitude !== null) return doLink;
+  const lat = numero(latitude);
+  const lng = numero(longitude);
+  if (lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { latitude: lat, longitude: lng };
+  const m = String(localizacao || '').trim().match(/^(-?\d{1,2}(?:\.\d+)?)\s*[,;]\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  return m ? { latitude: Number(m[1]), longitude: Number(m[2]) } : { latitude: null, longitude: null };
+}
+
 function coordenadasDoLink(link) {
   const m = String(link || '').match(/[?&]q=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/);
   return m ? { latitude: Number(m[1]), longitude: Number(m[2]) } : { latitude: null, longitude: null };
@@ -233,7 +249,7 @@ function extrairEventos(
   const eventos = [];
   const chaves = new Set();
   const ultimoExcesso = new Map();
-  const fadiga = { total: 0, sem_parada: 0, indeterminadas: 0 };
+  const fadiga = { total: 0, veiculo_parado: 0, sem_parada: 0, indeterminadas: 0 };
 
   for (const c of candidatos) {
     if (c.tipo.auxiliar === 'DURACAO_VELOCIDADE') {
@@ -271,7 +287,7 @@ function extrairEventos(
       percentual_excesso: avaliacao.percentual_excesso,
       duracao_s: c.tipo.duracao_s ?? (numero(valor(c.linha, 'duracao')) !== null ? Math.round(numero(valor(c.linha, 'duracao'))) : null),
       cerca: texto(valor(c.linha, 'cerca'))?.slice(0, 60) ?? null,
-      ...coordenadasDoLink(link),
+      ...coordenadasDaLinha(link, valor(c.linha, 'latitude'), valor(c.linha, 'longitude'), valor(c.linha, 'endereco')),
       link_mapa: link?.slice(0, 500) ?? null,
       evento_original: c.eventoOriginal.slice(0, 500),
       origem: 'IMPORTACAO',
@@ -285,6 +301,12 @@ function extrairEventos(
 
     if (evento.evento === EVENTOS.FADIGA) {
       fadiga.total += 1;
+      // Com o veículo parado (abaixo do gatilho de 10 km/h) não há parada obrigatória a apurar.
+      if (!regras.emMovimentoFadiga(evento)) {
+        fadiga.veiculo_parado += 1;
+        evento.parou_em_15_min = null;
+        continue;
+      }
       const parou = parouAposFadiga(leiturasPorPlaca.get(c.placa), c.dataHora.getTime());
       evento.parou_em_15_min = parou;
       if (parou === null) fadiga.indeterminadas += 1;
@@ -301,6 +323,7 @@ function extrairEventos(
           valor: null,
           evento_original: original,
           origem: 'DERIVADO',
+          parou_em_15_min: false,
           chave_unica: chaveUnica(c.placa, dataHora, original),
         });
       }

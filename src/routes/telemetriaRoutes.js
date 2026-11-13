@@ -4,6 +4,11 @@
 // Endpoints protegidos por autenticação administrativa (requerAdmin):
 //   GET    /               -> Eventos com filtros (busca, horas, evento, severidade, status, tag, inicio, fim)
 //   GET    /resumo         -> KPIs, Top 5 de veículos, alerta de risco do dia e % de fadiga sem parada
+//   GET    /fadiga         -> Ocorrências de fadiga detectada com farol, recorrência e medida (Anexo I)
+//   PATCH  /fadiga/validacao -> { ids, decisao: CONFIRMADA|DESCARTADA|AUTOMATICA, motivo? }
+//   GET    /motoristas/historico?motorista= -> Histórico do condutor (eventos, fadiga, planos)
+//   GET    /matriz-fadiga  -> Matriz de Eventos de Fadiga do Anexo I e critérios
+//   GET/POST /planos | PATCH/DELETE /planos/:id -> Planos de ação
 //   POST   /importar       -> Planilha da plataforma (multipart, campo `arquivo`; confirmar=true grava)
 //   POST   /               -> Lançamento manual de evento
 //   PATCH  /:id/tratativa  -> { status_tratativa, medida_aplicada?, observacao? }
@@ -21,6 +26,16 @@ import {
   excluirEventoTelemetria,
   excluirEventosTelemetriaLote,
 } from '../controllers/telemetriaController.js';
+import {
+  analiseFadiga,
+  validarFadiga,
+  historicoMotorista,
+  matrizFadiga,
+  listarPlanos,
+  criarPlano,
+  atualizarPlano,
+  excluirPlano,
+} from '../controllers/telemetriaFadigaController.js';
 import { requerAdmin } from '../middleware/sessao.js';
 
 const router = Router();
@@ -55,6 +70,16 @@ function receberPlanilha(req, res, next) {
 
 router.get('/', requerAdmin, listarEventosTelemetria);
 router.get('/resumo', requerAdmin, resumoTelemetria);
+
+// Fadiga detectada (farol, ocorrências, mapa) e planos de ação do Anexo I.
+router.get('/fadiga', requerAdmin, analiseFadiga);
+router.patch('/fadiga/validacao', requerAdmin, validarFadiga);
+router.get('/motoristas/historico', requerAdmin, historicoMotorista);
+router.get('/matriz-fadiga', requerAdmin, matrizFadiga);
+router.get('/planos', requerAdmin, listarPlanos);
+router.post('/planos', requerAdmin, criarPlano);
+router.patch('/planos/:id', requerAdmin, atualizarPlano);
+router.delete('/planos/:id', requerAdmin, excluirPlano);
 router.post('/importar', requerAdmin, receberPlanilha, importarTelemetria);
 router.post('/excluir-lote', requerAdmin, excluirEventosTelemetriaLote);
 router.delete('/lote', requerAdmin, excluirEventosTelemetriaLote);

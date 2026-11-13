@@ -20,7 +20,7 @@ function atende(registro, where = {}) {
     }
     return Object.entries(condicao).every(([op, alvo]) => {
       switch (op) {
-        case 'in': return alvo.includes(valor);
+        case 'in': return alvo.map(valorDe).includes(valorDe(valor));
         case 'not': return alvo !== null && typeof alvo === 'object' ? !atende({ v: valor }, { v: alvo }) : valor !== alvo;
         case 'contains': {
           const texto = String(valor ?? '');
@@ -113,6 +113,11 @@ export function criarPrismaEmMemoria({ veiculos = [], administradores = [] } = {
       Object.assign(e, data, { updated_at: new Date() });
       return { ...e };
     },
+    async updateMany({ where, data }) {
+      const alvo = eventos.filter((e) => atende(e, where));
+      alvo.forEach((e) => Object.assign(e, data, { updated_at: new Date() }));
+      return { count: alvo.length };
+    },
     async deleteMany({ where }) {
       const antes = eventos.length;
       const manter = eventos.filter((e) => !atende(e, where));
@@ -121,12 +126,47 @@ export function criarPrismaEmMemoria({ veiculos = [], administradores = [] } = {
     },
   };
 
+  const planos = [];
+  const planoAcaoTelemetria = {
+    async create({ data }) {
+      const agora = new Date();
+      const plano = {
+        tipo: 'FADIGA', tag_placa: null, elegivel_prontidao: null, analise: null, acoes: [], responsavel: null,
+        prazo: null, status: 'ABERTO', conclusao: null, concluido_em: null, criado_por: null,
+        ...data, id: randomUUID(), created_at: agora, updated_at: agora,
+      };
+      planos.push(plano);
+      return { ...plano };
+    },
+    async findMany({ where, orderBy, take, select } = {}) {
+      return ordenar(planos.filter((p) => atende(p, where)), orderBy).slice(0, take).map((p) => selecionar(p, select));
+    },
+    async findUnique({ where }) {
+      const p = planos.find((x) => x.id === where.id);
+      return p ? { ...p } : null;
+    },
+    async update({ where, data }) {
+      const p = planos.find((x) => x.id === where.id);
+      if (!p) throw Object.assign(new Error('not found'), { name: 'PrismaClientKnownRequestError', code: 'P2025' });
+      Object.assign(p, data, { updated_at: new Date() });
+      return { ...p };
+    },
+    async deleteMany({ where }) {
+      const antes = planos.length;
+      const manter = planos.filter((p) => !atende(p, where));
+      planos.splice(0, planos.length, ...manter);
+      return { count: antes - planos.length };
+    },
+  };
+
   const usuarios = administradores.map((u) => ({ tipo: 'ADMINISTRADOR', setor: 'GESTAO', nivel: 'MASTER', ...u }));
 
   return {
     eventos,
     logs,
+    planos,
     eventoTelemetria,
+    planoAcaoTelemetria,
     mobDesmob: { async findMany() { return veiculos.map((v) => ({ ...v })); } },
     usuario: {
       async findUnique({ where }) { return usuarios.find((u) => u.id === where.id) || null; },

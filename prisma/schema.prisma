@@ -545,9 +545,21 @@ model EventoTelemetria {
   tratado_por          String?   @db.VarChar(255)
   tratado_em           DateTime? @db.Timestamp(6)
 
+  // Fadiga detectada: parada obrigatória apurada nas posições (null = veículo parado ou sem dados)
+  // e validação da Central (CONFIRMADA | DESCARTADA), que prevalece sobre o farol automático.
+  parou_em_15_min      Boolean?
+  validacao_fadiga     String?   @db.VarChar(20)
+  validacao_motivo     String?   @db.Text
+  validado_por         String?   @db.VarChar(255)
+  validado_em          DateTime? @db.Timestamp(6)
+
+  plano_acao_id        String?   @db.Uuid
+  plano_acao           PlanoAcaoTelemetria? @relation(fields: [plano_acao_id], references: [id], onDelete: SetNull)
+
   created_at           DateTime  @default(now()) @db.Timestamp(6)
   updated_at           DateTime  @updatedAt @db.Timestamp(6)
 
+  @@index([plano_acao_id])
   @@index([tag_placa])
   @@index([tag])
   @@index([evento])
@@ -556,6 +568,35 @@ model EventoTelemetria {
   @@index([motorista, evento, data_hora])
   @@index([status_tratativa, prazo_tratativa])
   @@map("eventos_telemetria")
+}
+
+// Plano de ação de Telemetria & Fadiga: montado sobre um conjunto de eventos de
+// um condutor, com a medida da Matriz de Avaliação de Condutas (Anexo I).
+model PlanoAcaoTelemetria {
+  id                  String    @id @default(uuid()) @db.Uuid
+  tipo                String    @default("FADIGA") @db.VarChar(20) // FADIGA (VELOCIDADE na próxima fase)
+  motorista           String    @db.VarChar(255)
+  tag_placa           String?   @db.VarChar(60)
+  linha_matriz        String    @db.VarChar(30) // FADIGA_VERDADEIRA | PRONTIDAO | SEM_PARADA
+  nivel_recorrencia   Int       @default(1) // 1, 2 ou 3 (= 3 ou mais) ocorrências no mês
+  elegivel_prontidao  Boolean? // Fadiga verdadeira: empregado elegível ao teste de Prontidão?
+  medida_matriz       String    @db.Text // Medida do Anexo I (editável)
+  analise             String?   @db.Text // Análise / causa do conjunto de eventos
+  acoes               Json      @default("[]") // [{ descricao, responsavel, prazo, concluida }]
+  responsavel         String?   @db.VarChar(255)
+  prazo               DateTime? @db.Date // Padrão: 15 dias (PGS-007245, item 7.4)
+  status              String    @default("ABERTO") @db.VarChar(20) // ABERTO | EM_ANDAMENTO | CONCLUIDO | CANCELADO
+  conclusao           String?   @db.Text
+  concluido_em        DateTime? @db.Timestamp(6)
+  criado_por          String?   @db.VarChar(255)
+  created_at          DateTime  @default(now()) @db.Timestamp(6)
+  updated_at          DateTime  @updatedAt @db.Timestamp(6)
+
+  eventos             EventoTelemetria[]
+
+  @@index([motorista])
+  @@index([status])
+  @@map("planos_acao_telemetria")
 }
 
 

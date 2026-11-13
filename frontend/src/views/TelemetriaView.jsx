@@ -30,6 +30,7 @@ import {
   Upload,
   Search,
   Zap,
+  LayoutDashboard,
 } from 'lucide-react';
 import StatCard from '../components/StatCard.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
@@ -37,6 +38,14 @@ import Modal from '../components/Modal.jsx';
 import { lerSessao } from '../utils/sessao.js';
 import { podeEscrever } from '../utils/permissoes.js';
 import { gerarModeloTelemetria } from '../utils/gerarModeloTelemetria.js';
+import { formatarDataHora, lerJson, obterHeaders } from '../utils/telemetriaApi.js';
+import FadigaDetectadaTab from '../components/telemetria/FadigaDetectadaTab.jsx';
+
+const ABAS = [
+  { id: 'geral', label: 'Visão Geral', icone: LayoutDashboard },
+  { id: 'fadiga', label: 'Fadiga Detectada', icone: Moon },
+  { id: 'velocidade', label: 'Excesso de Velocidade', icone: Gauge },
+];
 
 // Pílulas da tela -> eventos gravados (Fadiga inclui a parada obrigatória não cumprida).
 const TIPOS = [
@@ -66,21 +75,6 @@ const POR_PAGINA = 50;
 /** Plataforma de rastreamento aberta pelo botão "Abrir Tracker". */
 const URL_TRACKER = import.meta.env.VITE_TRACKER_URL || '';
 
-function obterHeaders(json = false) {
-  const sessao = lerSessao();
-  const headers = {};
-  if (json) headers['Content-Type'] = 'application/json';
-  if (sessao?.token) headers.Authorization = `Bearer ${sessao.token}`;
-  if (sessao?.usuario?.matricula) headers['x-acting-matricula'] = sessao.usuario.matricula;
-  return headers;
-}
-
-async function lerJson(resposta, padrao) {
-  const dados = await resposta.json().catch(() => ({}));
-  if (!resposta.ok) throw new Error(dados.message || dados.error || `${padrao} (${resposta.status}).`);
-  return dados;
-}
-
 function paramsDosFiltros(filtros, extras = {}) {
   const params = new URLSearchParams();
   Object.entries({ ...filtros, ...extras }).forEach(([chave, valor]) => {
@@ -90,12 +84,6 @@ function paramsDosFiltros(filtros, extras = {}) {
   return params.toString();
 }
 
-function formatarDataHora(valor) {
-  if (!valor) return '—';
-  const data = new Date(valor);
-  if (Number.isNaN(data.getTime())) return '—';
-  return data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
 
 /** Variação contra a janela anterior para o StatCard: menos eventos = melhoria (verde). */
 function tendencia(atual, anterior) {
@@ -427,6 +415,7 @@ export default function TelemetriaView() {
   const [excluindoLote, setExcluindoLote] = useState(false);
   const [exportando, setExportando] = useState(false);
   const [importarAberto, setImportarAberto] = useState(false);
+  const [aba, setAba] = useState('geral');
   const [versao, setVersao] = useState(0);
 
   useEffect(() => {
@@ -588,6 +577,40 @@ export default function TelemetriaView() {
         </div>
       </div>
 
+      <div className="flex gap-1 overflow-x-auto border-b border-omega-200" role="tablist">
+        {ABAS.map(({ id, label, icone: Icone }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={aba === id}
+            onClick={() => setAba(id)}
+            className={`-mb-px flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-bold transition ${
+              aba === id ? 'border-omega-red-600 text-omega-900' : 'border-transparent text-omega-500 hover:text-omega-800'
+            }`}
+          >
+            <Icone size={16} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {aba === 'fadiga' && <FadigaDetectadaTab horas={periodoAtual.horas} busca="" podeGerenciar={podeGerenciar} />}
+
+      {aba === 'velocidade' && (
+        <div className="card flex flex-col items-start gap-3 p-6">
+          <h3 className="font-bold text-omega-900">Excesso de Velocidade — próxima etapa</h3>
+          <p className="max-w-2xl text-sm text-omega-600">
+            A análise de velocidade (faixas do Anexo I: &gt;7% Moderado, &gt;20% Significativo, &gt;50% ou &gt;120 km/h Crítico),
+            recorrência por condutor e planos de ação seguem o mesmo modelo da aba Fadiga e entram na próxima fase.
+            Por enquanto, os eventos estão na Visão Geral.
+          </p>
+          <button type="button" className="btn-secondary" onClick={() => { setFiltroTipo('Excesso de Velocidade'); setAba('geral'); }}>
+            <Gauge size={16} /> Ver eventos de velocidade na Visão Geral
+          </button>
+        </div>
+      )}
+
+      {aba === 'geral' && (<>
       {erro && (
         <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-status-vermelho">
           <AlertCircle size={16} className="shrink-0" />
@@ -890,6 +913,7 @@ export default function TelemetriaView() {
           </div>
         </div>
       </div>
+      </>)}
 
       <ModalImportar aberto={importarAberto} onFechar={() => setImportarAberto(false)} onImportado={atualizar} />
     </div>

@@ -39,7 +39,7 @@ const INSTRUCOES = [
   ['EVENTO', 'Excesso de Velocidade | Arrancada Brusca | Freada de Emergência | Fadiga / Sono | Uso de Celular (ou o texto da plataforma). Obrigatório.'],
   ['VALOR REGISTRADO', 'Velocidade registrada em km/h (0 quando não se aplica).'],
   ['VELOCIDADE LIMITE', 'Limite da via ou cerca em km/h (0 quando não se aplica).'],
-  ['LOCALIZAÇÃO', 'Endereço, trecho ou coordenadas.'],
+  ['LOCALIZAÇÃO', 'Endereço ou trecho. Para aparecer no mapa, use coordenadas "lat, long" (ex.: -6.0559, -50.1277) ou acrescente as colunas LATITUDE e LONGITUDE.'],
   ['SEVERIDADE', 'NORMAL | MODERADO | GRAVE | CRITICO. Em branco: calculada pelo Anexo I do PGS-007245 (velocidade: >7% Moderado, >20% Grave, >50% ou >120 km/h Crítico).'],
   ['', ''],
   ['Observação', 'Linhas repetidas (mesma placa, data/hora e evento) não são importadas duas vezes.'],
