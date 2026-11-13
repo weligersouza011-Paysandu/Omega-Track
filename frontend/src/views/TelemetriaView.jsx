@@ -40,6 +40,7 @@ import { podeEscrever } from '../utils/permissoes.js';
 import { gerarModeloTelemetria } from '../utils/gerarModeloTelemetria.js';
 import { formatarDataHora, lerJson, obterHeaders } from '../utils/telemetriaApi.js';
 import FadigaDetectadaTab from '../components/telemetria/FadigaDetectadaTab.jsx';
+import VelocidadeTab from '../components/telemetria/VelocidadeTab.jsx';
 
 const ABAS = [
   { id: 'geral', label: 'Visão Geral', icone: LayoutDashboard },
@@ -596,19 +597,7 @@ export default function TelemetriaView() {
 
       {aba === 'fadiga' && <FadigaDetectadaTab horas={periodoAtual.horas} busca="" podeGerenciar={podeGerenciar} />}
 
-      {aba === 'velocidade' && (
-        <div className="card flex flex-col items-start gap-3 p-6">
-          <h3 className="font-bold text-omega-900">Excesso de Velocidade — próxima etapa</h3>
-          <p className="max-w-2xl text-sm text-omega-600">
-            A análise de velocidade (faixas do Anexo I: &gt;7% Moderado, &gt;20% Significativo, &gt;50% ou &gt;120 km/h Crítico),
-            recorrência por condutor e planos de ação seguem o mesmo modelo da aba Fadiga e entram na próxima fase.
-            Por enquanto, os eventos estão na Visão Geral.
-          </p>
-          <button type="button" className="btn-secondary" onClick={() => { setFiltroTipo('Excesso de Velocidade'); setAba('geral'); }}>
-            <Gauge size={16} /> Ver eventos de velocidade na Visão Geral
-          </button>
-        </div>
-      )}
+      {aba === 'velocidade' && <VelocidadeTab horas={periodoAtual.horas} podeGerenciar={podeGerenciar} />}
 
       {aba === 'geral' && (<>
       {erro && (
@@ -640,9 +629,11 @@ export default function TelemetriaView() {
           value={kpis.fadiga}
           icon={Moon}
           iconBg="bg-status-amarelo"
-          sub={resumo?.fadiga?.sem_parada_obrigatoria
-            ? `${resumo.fadiga.sem_parada_obrigatoria} sem parada obrigatoria`
-            : 'Sinais de sono e paradas excedidas'}
+          sub={[
+            'Em movimento',
+            resumo?.fadiga?.sem_parada_obrigatoria ? `${resumo.fadiga.sem_parada_obrigatoria} sem parada obrigatoria` : null,
+            kpis.fadiga_veiculo_parado ? `+${kpis.fadiga_veiculo_parado} com veiculo parado (fora da matriz)` : null,
+          ].filter(Boolean).join(' · ')}
           {...tendencia(kpis.fadiga, anterior?.fadiga)}
         />
         <StatCard

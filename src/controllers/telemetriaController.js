@@ -206,13 +206,18 @@ export const listarEventosTelemetria = asyncHandler(async (req, res) => {
 });
 
 async function contarCartoes(where) {
-  const [total, graves, fadiga, velocidade] = await comRetry(() => prisma.$transaction([
+  // Casos de fadiga = fadiga detectada com o veículo em movimento (>= 10 km/h, gatilho do PGS).
+  // Detecções com o veículo parado ficam à parte: não entram na Matriz de Condutas.
+  const [total, graves, fadiga, fadigaParado, velocidade] = await comRetry(() => prisma.$transaction([
     prisma.eventoTelemetria.count({ where }),
     prisma.eventoTelemetria.count({ where: { ...where, severidade: { in: ['GRAVE', 'CRITICO'] } } }),
-    prisma.eventoTelemetria.count({ where: { ...where, evento: { in: [EVENTOS.FADIGA, EVENTOS.FADIGA_SEM_PARADA] } } }),
+    prisma.eventoTelemetria.count({ where: { ...where, evento: EVENTOS.FADIGA, valor: { gte: regras.VELOCIDADE_MINIMA_FADIGA_KMH } } }),
+    prisma.eventoTelemetria.count({
+      where: { AND: [where, { evento: EVENTOS.FADIGA, OR: [{ valor: null }, { valor: { lt: regras.VELOCIDADE_MINIMA_FADIGA_KMH } }] }] },
+    }),
     prisma.eventoTelemetria.count({ where: { ...where, evento: EVENTOS.VELOCIDADE } }),
   ]), 'kpis');
-  return { total, graves, fadiga, velocidade };
+  return { total, graves, fadiga, fadiga_veiculo_parado: fadigaParado, velocidade };
 }
 
 /** Top 5 de veículos com mais infrações (eventos com conduta), com quantas são graves/críticas. */
@@ -320,6 +325,49 @@ async function carregarVeiculosPorPlaca() {
   return mapa;
 }
 
+/**
+ * Reimportar a planilha corrige o que já está gravado (createMany pula os duplicados):
+ *  - atualiza a parada obrigatória apurada (parou_em_15_min) das fadigas da planilha;
+ *  - remove "Fadiga sem Parada Obrigatória" derivados, no período e veículos da planilha,
+ *    que a apuração atual não gera mais (ex.: fadiga com o veículo parado).
+ * Devolve quantos registros foram ajustados.
+ */
+export async function reconciliarFadiga(registros) {
+  const fadigas = registros.filter((r) => r.evento === EVENTOS.FADIGA);
+  if (!fadigas.length) return { parada_atualizada: 0, sem_parada_removidos: 0 };
+
+  let paradaAtualizada = 0;
+  for (const valor of [true, false, null]) {
+    const chaves = fadigas.filter((f) => (f.parou_em_15_min ?? null) === valor).map((f) => f.chave_unica);
+    if (!chaves.length) continue;
+    // Só o que muda (NULL precisa de condição explícita: NOT (col = true) não pega NULL no SQL).
+    const diferente = valor === null
+      ? { parou_em_15_min: { not: null } }
+      : { OR: [{ parou_em_15_min: null }, { parou_em_15_min: !valor }] };
+    const { count } = await comRetry(() => prisma.eventoTelemetria.updateMany({
+      where: { AND: [{ chave_unica: { in: chaves } }, diferente] },
+      data: { parou_em_15_min: valor },
+    }), 'reconciliar-parada');
+    paradaAtualizada += count;
+  }
+
+  const derivadosAtuais = registros
+    .filter((r) => r.evento === EVENTOS.FADIGA_SEM_PARADA && r.origem === 'DERIVADO')
+    .map((r) => r.chave_unica);
+  const tempos = fadigas.map((f) => f.data_hora.getTime());
+  const { count: removidos } = await comRetry(() => prisma.eventoTelemetria.deleteMany({
+    where: {
+      evento: EVENTOS.FADIGA_SEM_PARADA,
+      origem: 'DERIVADO',
+      tag_placa: { in: [...new Set(fadigas.map((f) => f.tag_placa))] },
+      data_hora: { gte: new Date(Math.min(...tempos)), lte: new Date(Math.max(...tempos) + 15 * 60 * 1000) },
+      chave_unica: { notIn: derivadosAtuais },
+    },
+  }), 'reconciliar-derivados');
+
+  return { parada_atualizada: paradaAtualizada, sem_parada_removidos: removidos };
+}
+
 function sim(valor) {
   return valor === true || ['true', '1', 'sim'].includes(String(valor ?? '').toLowerCase());
 }
@@ -388,16 +436,19 @@ export const importarTelemetria = asyncHandler(async (req, res) => {
     importados += count;
   }
 
+  const corrigidos = await reconciliarFadiga(registros);
+
   await registrarLogAtividade(req, {
     acao: 'IMPORTAR_TELEMETRIA',
     modulo: MODULO_AUDITORIA,
-    detalhes: { arquivo: req.file.originalname, total_eventos: registros.length, importados },
+    detalhes: { arquivo: req.file.originalname, total_eventos: registros.length, importados, corrigidos },
   }).catch(() => {});
 
   return res.status(200).json({
     ...resultado,
     confirmado: true,
     importados,
+    corrigidos,
     duplicados_ignorados: registros.length - importados,
   });
 });

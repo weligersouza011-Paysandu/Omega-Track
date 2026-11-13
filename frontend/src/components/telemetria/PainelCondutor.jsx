@@ -5,7 +5,10 @@ import { AlertCircle, ClipboardList, Loader2, MapPin, Truck } from 'lucide-react
 import Modal from '../Modal.jsx';
 import BadgeStatus from '../BadgeStatus.jsx';
 import {
+  FAIXA_VELOCIDADE,
   FAROL_FADIGA,
+  FAROL_VELOCIDADE,
+  formatarDuracao,
   ROTULO_LINHA_MATRIZ,
   STATUS_PLANO,
   apiTelemetria,
@@ -26,7 +29,8 @@ export function SeloFarol({ classificacao, manual }) {
   );
 }
 
-export default function PainelCondutor({ motorista, aberto, onFechar, onCriarPlano, onAbrirPlano, versao, podeGerenciar }) {
+/** `tipoPrincipal`: aba que abriu o painel (FADIGA | VELOCIDADE) — define a aba inicial e o plano sugerido. */
+export default function PainelCondutor({ motorista, aberto, onFechar, onCriarPlano, onAbrirPlano, versao, podeGerenciar, tipoPrincipal = 'FADIGA' }) {
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState(null);
   const [carregando, setCarregando] = useState(false);
@@ -50,10 +54,12 @@ export default function PainelCondutor({ motorista, aberto, onFechar, onCriarPla
   }, [aberto, carregar, versao]);
 
   useEffect(() => {
-    if (aberto) setAba('fadiga');
-  }, [aberto, motorista]);
+    if (aberto) setAba(tipoPrincipal === 'VELOCIDADE' ? 'velocidade' : 'fadiga');
+  }, [aberto, motorista, tipoPrincipal]);
 
-  const confirmadasSemPlano = (dados?.ocorrencias_fadiga || []).filter((o) => o.classificacao === 'CONFIRMADA' && !o.plano_acao_id);
+  const fonte = tipoPrincipal === 'VELOCIDADE' ? dados?.ocorrencias_velocidade : dados?.ocorrencias_fadiga;
+  const confirmadasSemPlano = (fonte || []).filter((o) => o.classificacao === 'CONFIRMADA' && !o.plano_acao_id);
+  const rotuloPlano = tipoPrincipal === 'VELOCIDADE' ? 'excesso(s) confirmado(s)' : 'fadiga(s) confirmada(s)';
 
   return (
     <Modal open={aberto} onClose={onFechar} title={motorista || 'Condutor'} subtitle="Histórico de telemetria do condutor em todos os períodos importados." size="xl">
@@ -77,10 +83,10 @@ export default function PainelCondutor({ motorista, aberto, onFechar, onCriarPla
                 type="button"
                 className="btn-omega-red text-xs"
                 disabled={!confirmadasSemPlano.length}
-                title={confirmadasSemPlano.length ? '' : 'Nenhuma fadiga confirmada sem plano de ação'}
+                title={confirmadasSemPlano.length ? '' : `Nenhum(a) ${rotuloPlano} sem plano de ação`}
                 onClick={() => onCriarPlano(confirmadasSemPlano)}
               >
-                <ClipboardList size={14} /> Plano de ação ({confirmadasSemPlano.length} confirmada(s) sem plano)
+                <ClipboardList size={14} /> Plano de ação ({confirmadasSemPlano.length} {rotuloPlano} sem plano)
               </button>
             )}
           </div>
@@ -94,7 +100,8 @@ export default function PainelCondutor({ motorista, aberto, onFechar, onCriarPla
                   <th className="px-2 py-2 text-center">Em análise</th>
                   <th className="px-2 py-2 text-center">Veículo parado</th>
                   <th className="px-2 py-2 text-center">Sem parada obrig.</th>
-                  <th className="px-2 py-2 text-center">Excesso de velocidade</th>
+                  <th className="px-2 py-2 text-center">Velocidade confirmada</th>
+                  <th className="px-2 py-2 text-center">Velocidade abaixo de 10 s</th>
                   <th className="px-2 py-2 text-center">Outros</th>
                 </tr>
               </thead>
@@ -108,7 +115,15 @@ export default function PainelCondutor({ motorista, aberto, onFechar, onCriarPla
                     <td className="px-2 py-1.5 text-center">{m.fadiga_em_analise}</td>
                     <td className="px-2 py-1.5 text-center text-omega-500">{m.fadiga_veiculo_parado}</td>
                     <td className="px-2 py-1.5 text-center">{m.sem_parada}</td>
-                    <td className="px-2 py-1.5 text-center">{m.velocidade}{m.velocidade_grave ? <span className="text-status-vermelho"> ({m.velocidade_grave} graves)</span> : ''}</td>
+                    <td className="px-2 py-1.5 text-center">
+                      <span className="font-bold">{m.velocidade}</span>
+                      {m.velocidade > 0 && (
+                        <span className="block text-[10px] text-omega-500">
+                          {[m.velocidade_moderado && `${m.velocidade_moderado} mod.`, m.velocidade_grave && `${m.velocidade_grave} signif.`, m.velocidade_critico && `${m.velocidade_critico} crít.`].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-center text-omega-500">{m.velocidade_abaixo_gatilho}</td>
                     <td className="px-2 py-1.5 text-center">{m.outros}</td>
                   </tr>
                 ))}
@@ -117,7 +132,7 @@ export default function PainelCondutor({ motorista, aberto, onFechar, onCriarPla
           </div>
 
           <div className="flex gap-2">
-            {[['fadiga', `Fadiga (${dados.ocorrencias_fadiga.length})`], ['outros', `Outros eventos (${dados.outros_eventos.length})`], ['planos', `Planos (${dados.planos.length})`]].map(([id, rotulo]) => (
+            {[['fadiga', `Fadiga (${dados.ocorrencias_fadiga.length})`], ['velocidade', `Velocidade (${(dados.ocorrencias_velocidade || []).length})`], ['outros', `Outros eventos (${dados.outros_eventos.length})`], ['planos', `Planos (${dados.planos.length})`]].map(([id, rotulo]) => (
               <button
                 key={id}
                 type="button"
@@ -163,6 +178,37 @@ export default function PainelCondutor({ motorista, aberto, onFechar, onCriarPla
               ))}
               {!dados.ocorrencias_fadiga.length && <li className="text-xs text-omega-500">Nenhuma fadiga detectada para este condutor.</li>}
             </ol>
+          )}
+
+          {aba === 'velocidade' && (
+            <div className="max-h-[380px] overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="text-left font-semibold uppercase tracking-wider text-omega-500">
+                  <tr><th className="py-1.5 pr-3">Data / hora</th><th className="py-1.5 pr-3">Farol</th><th className="py-1.5 pr-3">Pior ponto</th><th className="py-1.5 pr-3">Duração</th><th className="py-1.5 pr-3">Faixa · recorrência</th><th className="py-1.5">Local</th></tr>
+                </thead>
+                <tbody className="divide-y divide-omega-100">
+                  {(dados.ocorrencias_velocidade || []).map((o) => (
+                    <tr key={o.chave} className="align-top">
+                      <td className="whitespace-nowrap py-1.5 pr-3 text-omega-700">{formatarDataHora(o.inicio)}{o.linhas.length > 1 ? <span className="block text-[10px] text-omega-400">{o.linhas.length} linhas</span> : null}</td>
+                      <td className="py-1.5 pr-3">
+                        <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ring-1 ring-inset ${FAROL_VELOCIDADE[o.classificacao]?.classe}`}>
+                          {FAROL_VELOCIDADE[o.classificacao]?.curto}{o.validada_manualmente ? ' (Central)' : ''}
+                        </span>
+                        {o.plano_acao_id && <span className="mt-0.5 block text-[10px] font-bold text-blue-700">Em plano</span>}
+                      </td>
+                      <td className="whitespace-nowrap py-1.5 pr-3 tabular-nums">{Math.round(o.velocidade)} / {Math.round(o.limite)} km/h <span className="text-omega-500">(+{o.percentual_excesso}%)</span></td>
+                      <td className="whitespace-nowrap py-1.5 pr-3">{formatarDuracao(o.duracao_total_s)}</td>
+                      <td className="py-1.5 pr-3">
+                        <span className="font-semibold" style={{ color: FAIXA_VELOCIDADE[o.faixa]?.cor }}>{FAIXA_VELOCIDADE[o.faixa]?.label}</span>
+                        {o.ocorrencia_no_mes ? <span className="block text-[10px] text-omega-600">{ordinal(o.ocorrencia_no_mes)} no mês · {o.medida}</span> : null}
+                      </td>
+                      <td className="py-1.5 text-omega-500">{o.cerca ? `${o.cerca} · ` : ''}{o.localizacao || '—'}</td>
+                    </tr>
+                  ))}
+                  {!(dados.ocorrencias_velocidade || []).length && <tr><td colSpan={6} className="py-4 text-center text-omega-500">Nenhum excesso acima da tolerância.</td></tr>}
+                </tbody>
+              </table>
+            </div>
           )}
 
           {aba === 'outros' && (

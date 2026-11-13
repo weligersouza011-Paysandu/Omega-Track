@@ -46,7 +46,7 @@ export const MATRIZ = {
   [EVENTOS.VELOCIDADE]: {
     MODERADO: ['Advertência verbal', 'Advertência escrita', COMITE],
     GRAVE: ['Advertência escrita', 'Suspensão de RAC', COMITE],
-    CRITICO: [null, null, COMITE],
+    CRITICO: [COMITE, COMITE, COMITE], // células 01 e 02 em vermelho, unidas ao Comitê
   },
   [EVENTOS.FADIGA]: {
     CRITICO: [
@@ -59,11 +59,11 @@ export const MATRIZ = {
   [EVENTOS.PRONTIDAO]: {
     CRITICO: ['Empregado / gestor: advertência verbal', 'Empregado / gestor: advertência escrita', COMITE],
   },
-  [EVENTOS.COMPORTAMENTO_INSEGURO]: { MODERADO: ['Advertência verbal', 'Advertência escrita', null] },
+  [EVENTOS.COMPORTAMENTO_INSEGURO]: { MODERADO: ['Advertência verbal', 'Advertência escrita', COMITE] },
   // Arrancada e freada bruscas não têm linha própria: entram como condição/comportamento inseguro.
-  [EVENTOS.ARRANCADA]: { MODERADO: ['Advertência verbal', 'Advertência escrita', null] },
-  [EVENTOS.FREADA]: { MODERADO: ['Advertência verbal', 'Advertência escrita', null] },
-  [EVENTOS.CINTO_PASSAGEIRO]: { CRITICO: ['Advertência escrita', 'Advertência escrita', null] },
+  [EVENTOS.ARRANCADA]: { MODERADO: ['Advertência verbal', 'Advertência escrita', COMITE] },
+  [EVENTOS.FREADA]: { MODERADO: ['Advertência verbal', 'Advertência escrita', COMITE] },
+  [EVENTOS.CINTO_PASSAGEIRO]: { CRITICO: ['Advertência escrita', 'Advertência escrita', COMITE] },
   [EVENTOS.CINTO_MOTORISTA]: { CRITICO: [COMITE, COMITE, COMITE] },
   [EVENTOS.PASSAGEM_NIVEL]: { CRITICO: [COMITE, COMITE, COMITE] },
   [EVENTOS.AREA_PROIBIDA]: { CRITICO: [COMITE, COMITE, COMITE] },
@@ -311,6 +311,96 @@ export function agruparOcorrenciasFadiga(deteccoes) {
         classificacao: manual || automatica,
         validada_manualmente: Boolean(manual),
         deteccoes: g.deteccoes,
+      };
+    })
+    .sort((a, b) => new Date(a.inicio) - new Date(b.inicio));
+}
+
+// ============================================================================
+// EXCESSO DE VELOCIDADE — ocorrências e matriz (Anexo I, "Velocidade")
+// ============================================================================
+
+/** Linhas da plataforma do mesmo veículo a até 2 min uma da outra = um único excesso. */
+export const JANELA_VELOCIDADE_MIN = 2;
+/** Gatilho do evento de velocidade (PGS-007245, item 7.1: 10 segundos acima do limite). */
+export const DURACAO_MINIMA_VELOCIDADE_S = 10;
+
+/** Farol de cada ocorrência de excesso de velocidade. */
+export const CLASSIFICACAO_VELOCIDADE = Object.freeze({
+  TOLERANCIA: 'TOLERANCIA', // até 7% acima do limite: sem conduta
+  ABAIXO_GATILHO: 'ABAIXO_GATILHO', // faixa com conduta, mas abaixo de 10 s (ou sem duração): a Central valida
+  CONFIRMADA: 'CONFIRMADA', // >= 10 s acima do limite, Crítico (qualquer duração) ou confirmada pela Central
+  DESCARTADA: 'DESCARTADA', // descartada pela Central
+});
+
+/** Linhas da matriz de "Velocidade" do Anexo I (a severidade do evento define a linha). */
+export const MATRIZ_VELOCIDADE = Object.freeze({
+  MODERADO: { titulo: 'Excesso de velocidade (>7% e ≤20%)', severidade: 'Moderado', classificacao: 'N5', medidas: MATRIZ[EVENTOS.VELOCIDADE].MODERADO },
+  GRAVE: { titulo: 'Excesso de velocidade (>20% e ≤50%)', severidade: 'Significativo', classificacao: 'N3', medidas: MATRIZ[EVENTOS.VELOCIDADE].GRAVE },
+  CRITICO: { titulo: 'Excesso de velocidade (>50% e/ou >120 km/h)', severidade: 'Crítico', classificacao: 'N3', medidas: MATRIZ[EVENTOS.VELOCIDADE].CRITICO },
+});
+
+const PESO_SEVERIDADE = { NORMAL: 0, MODERADO: 1, GRAVE: 2, CRITICO: 3 };
+
+/**
+ * Agrupa as linhas de excesso de velocidade em ocorrências (mesmo veículo, até 2 min entre
+ * linhas). A ocorrência vale pelo pior ponto (maior severidade e, nela, maior % acima do
+ * limite) e pela soma das durações. Farol:
+ *  - pior ponto até 7%: TOLERANCIA;
+ *  - Crítico: CONFIRMADA em qualquer duração (nunca é descartado pelo tempo);
+ *  - Moderado/Significativo com soma >= 10 s: CONFIRMADA; abaixo disso ou sem duração: ABAIXO_GATILHO;
+ *  - a validação da Central (validacao_fadiga = CONFIRMADA | DESCARTADA) prevalece.
+ */
+export function agruparOcorrenciasVelocidade(linhas) {
+  const ordenadas = [...linhas].sort((a, b) =>
+    String(a.tag_placa).localeCompare(String(b.tag_placa)) || new Date(a.data_hora) - new Date(b.data_hora));
+  const janelaMs = JANELA_VELOCIDADE_MIN * 60 * 1000;
+  const grupos = [];
+  let atual = null;
+  for (const l of ordenadas) {
+    const ultima = atual?.linhas[atual.linhas.length - 1];
+    if (atual && atual.tag_placa === l.tag_placa && new Date(l.data_hora) - new Date(ultima.data_hora) <= janelaMs) {
+      atual.linhas.push(l);
+    } else {
+      atual = { tag_placa: l.tag_placa, linhas: [l] };
+      grupos.push(atual);
+    }
+  }
+  return grupos
+    .map((g) => {
+      const pior = g.linhas.reduce((m, l) => {
+        const pesoL = PESO_SEVERIDADE[l.severidade] ?? 0;
+        const pesoM = PESO_SEVERIDADE[m.severidade] ?? 0;
+        if (pesoL !== pesoM) return pesoL > pesoM ? l : m;
+        return (l.percentual_excesso ?? -1) > (m.percentual_excesso ?? -1) ? l : m;
+      });
+      const duracoes = g.linhas.map((l) => l.duracao_s).filter((d) => d !== null && d !== undefined);
+      const duracaoTotal = duracoes.length ? duracoes.reduce((s, d) => s + d, 0) : null;
+      const faixa = pior.severidade || 'NORMAL';
+      let automatica;
+      if (faixa === 'NORMAL') automatica = CLASSIFICACAO_VELOCIDADE.TOLERANCIA;
+      else if (faixa === 'CRITICO') automatica = CLASSIFICACAO_VELOCIDADE.CONFIRMADA;
+      else automatica = duracaoTotal !== null && duracaoTotal >= DURACAO_MINIMA_VELOCIDADE_S
+        ? CLASSIFICACAO_VELOCIDADE.CONFIRMADA : CLASSIFICACAO_VELOCIDADE.ABAIXO_GATILHO;
+      // Validação manual só vale para faixas com conduta (tolerância não entra na matriz).
+      const manual = faixa === 'NORMAL' ? null : g.linhas.map((l) => l.validacao_fadiga).find(Boolean) || null;
+      const primeira = g.linhas[0];
+      return {
+        chave: primeira.id,
+        tag_placa: g.tag_placa,
+        motorista: g.linhas.find((l) => l.motorista)?.motorista || null,
+        inicio: primeira.data_hora,
+        fim: g.linhas[g.linhas.length - 1].data_hora,
+        faixa,
+        velocidade: pior.valor,
+        limite: pior.limite,
+        percentual_excesso: pior.percentual_excesso,
+        duracao_total_s: duracaoTotal,
+        classificacao_automatica: automatica,
+        classificacao: manual || automatica,
+        validada_manualmente: Boolean(manual),
+        pior,
+        linhas: g.linhas,
       };
     })
     .sort((a, b) => new Date(a.inicio) - new Date(b.inicio));

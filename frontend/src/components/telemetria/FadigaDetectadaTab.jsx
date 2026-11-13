@@ -17,7 +17,7 @@ import {
   Users,
 } from 'lucide-react';
 import StatCard from '../StatCard.jsx';
-import MapaFadiga from './MapaFadiga.jsx';
+import MapaFadiga from './MapaOcorrencias.jsx';
 import ModalPlanoAcao from './ModalPlanoAcao.jsx';
 import PainelCondutor, { SeloFarol } from './PainelCondutor.jsx';
 import {
@@ -184,7 +184,7 @@ export default function FadigaDetectadaTab({ horas, busca, podeGerenciar }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 min-[1700px]:grid-cols-6">
         <StatCard title="Detecções" value={k?.deteccoes ?? 0} icon={Moon} iconBg="bg-omega-900" sub={`${k?.ocorrencias ?? 0} ocorrência(s)`} />
         <StatCard title="Fadiga confirmada" value={porClasse.CONFIRMADA ?? 0} icon={OctagonAlert} iconBg="bg-status-vermelho" sub="Crítico · N3" />
         <StatCard title="Em análise" value={porClasse.EM_ANALISE ?? 0} icon={ShieldAlert} iconBg="bg-status-amarelo" sub="Validar pelo vídeo" />

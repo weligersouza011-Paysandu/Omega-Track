@@ -58,7 +58,7 @@ test('medida recomendada por recorrência no mês', () => {
   assert.equal(regras.medidaRecomendada(EVENTOS.VELOCIDADE, 'MODERADO', 1), 'Advertência verbal');
   assert.equal(regras.medidaRecomendada(EVENTOS.VELOCIDADE, 'GRAVE', 2), 'Suspensão de RAC');
   assert.match(regras.medidaRecomendada(EVENTOS.VELOCIDADE, 'MODERADO', 5), /Comitê Pela Vida/);
-  assert.match(regras.medidaRecomendada(EVENTOS.VELOCIDADE, 'CRITICO', 1), /SSO local/, 'célula vazia na matriz');
+  assert.match(regras.medidaRecomendada(EVENTOS.VELOCIDADE, 'CRITICO', 1), /Comitê Pela Vida/, 'Crítico: Comitê já no 1º evento');
   assert.equal(regras.medidaRecomendada(EVENTOS.VELOCIDADE, 'NORMAL', 1), null);
 });
 

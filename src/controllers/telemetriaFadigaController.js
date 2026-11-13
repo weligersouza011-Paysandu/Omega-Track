@@ -29,7 +29,12 @@ import {
   VELOCIDADE_MINIMA_FADIGA_KMH,
   agruparOcorrenciasFadiga,
   medidaFadiga,
+  medidaRecomendada,
 } from '../utils/classificacaoTelemetria.js';
+import { analisarOcorrenciasVelocidade, resumirOcorrenciaVelocidade } from './telemetriaVelocidadeController.js';
+
+/** Linhas da matriz de velocidade aceitas nos planos (VELOCIDADE_ + severidade do Anexo I). */
+const LINHAS_MATRIZ_VELOCIDADE = ['VELOCIDADE_MODERADO', 'VELOCIDADE_GRAVE', 'VELOCIDADE_CRITICO'];
 
 const MODULO_AUDITORIA = 'TELEMETRIA';
 const FUSO_MS = -3 * 60 * 60 * 1000;
@@ -222,24 +227,37 @@ export const historicoMotorista = asyncHandler(async (req, res) => {
     comRetry(() => prisma.eventoTelemetria.findMany({
       where: { motorista },
       orderBy: [{ data_hora: 'desc' }, { id: 'asc' }],
-      take: 1000,
+      take: 5000,
     }), 'historico'),
     comRetry(() => prisma.planoAcaoTelemetria.findMany({ where: { motorista }, orderBy: { created_at: 'desc' } }), 'historico-planos'),
   ]);
 
   const deteccoes = eventos.filter((e) => e.evento === EVENTOS.FADIGA);
   const ocorrencias = analisarOcorrencias(deteccoes).map(semDeteccoes).reverse();
+  // Excesso de velocidade por ocorrência (linhas a até 2 min), não por linha da plataforma.
+  const ocorrenciasVelocidade = analisarOcorrenciasVelocidade(eventos.filter((e) => e.evento === EVENTOS.VELOCIDADE))
+    .filter((o) => o.faixa !== 'NORMAL')
+    .map(resumirOcorrenciaVelocidade)
+    .reverse();
 
   const meses = new Map();
   const mes = (ref) => {
     if (!meses.has(ref)) {
       meses.set(ref, {
         mes: ref, fadiga_confirmada: 0, fadiga_em_analise: 0, fadiga_veiculo_parado: 0, fadiga_descartada: 0,
-        sem_parada: 0, velocidade: 0, velocidade_grave: 0, outros: 0,
+        sem_parada: 0, velocidade: 0, velocidade_moderado: 0, velocidade_grave: 0, velocidade_critico: 0,
+        velocidade_abaixo_gatilho: 0, outros: 0,
       });
     }
     return meses.get(ref);
   };
+  for (const o of ocorrenciasVelocidade) {
+    const m = mes(mesLocal(o.inicio));
+    if (o.classificacao === 'ABAIXO_GATILHO') m.velocidade_abaixo_gatilho += 1;
+    if (o.classificacao !== 'CONFIRMADA') continue;
+    m.velocidade += 1;
+    m[`velocidade_${o.faixa.toLowerCase()}`] += 1;
+  }
   for (const o of ocorrencias) {
     const m = mes(mesLocal(o.inicio));
     if (o.classificacao === CLASSIFICACAO_FADIGA.CONFIRMADA) m.fadiga_confirmada += 1;
@@ -249,14 +267,8 @@ export const historicoMotorista = asyncHandler(async (req, res) => {
     if (o.classificacao === CLASSIFICACAO_FADIGA.CONFIRMADA && o.sem_parada) m.sem_parada += 1;
   }
   for (const e of eventos) {
-    if (e.evento === EVENTOS.FADIGA || e.evento === EVENTOS.FADIGA_SEM_PARADA) continue;
-    const m = mes(mesLocal(e.data_hora));
-    if (e.evento === EVENTOS.VELOCIDADE) {
-      m.velocidade += 1;
-      if (['GRAVE', 'CRITICO'].includes(e.severidade)) m.velocidade_grave += 1;
-    } else {
-      m.outros += 1;
-    }
+    if ([EVENTOS.FADIGA, EVENTOS.FADIGA_SEM_PARADA, EVENTOS.VELOCIDADE].includes(e.evento)) continue;
+    mes(mesLocal(e.data_hora)).outros += 1;
   }
 
   return res.status(200).json({
@@ -265,7 +277,8 @@ export const historicoMotorista = asyncHandler(async (req, res) => {
     total_eventos: eventos.length,
     resumo_mensal: [...meses.values()].sort((a, b) => b.mes.localeCompare(a.mes)),
     ocorrencias_fadiga: ocorrencias,
-    outros_eventos: eventos.filter((e) => e.evento !== EVENTOS.FADIGA).slice(0, 200),
+    ocorrencias_velocidade: ocorrenciasVelocidade,
+    outros_eventos: eventos.filter((e) => ![EVENTOS.FADIGA, EVENTOS.VELOCIDADE].includes(e.evento)).slice(0, 200),
     planos,
   });
 });
@@ -338,12 +351,19 @@ export const criarPlano = asyncHandler(async (req, res) => {
   const dados = req.body || {};
   const motorista = texto(dados.motorista, 255);
   if (!motorista) throw erroHttp(400, 'Informe o condutor ("motorista") do plano de acao.');
+  const tipo = String(dados.tipo || 'FADIGA').toUpperCase();
+  if (!['FADIGA', 'VELOCIDADE'].includes(tipo)) throw erroHttp(400, 'Tipo de plano invalido. Aceitos: FADIGA, VELOCIDADE.');
   const linha = String(dados.linha_matriz || '').toUpperCase();
-  if (!Object.values(LINHAS_MATRIZ_FADIGA).includes(linha)) {
-    throw erroHttp(400, `Linha da matriz invalida. Aceitas: ${Object.values(LINHAS_MATRIZ_FADIGA).join(', ')}.`);
+  const linhasAceitas = tipo === 'VELOCIDADE' ? LINHAS_MATRIZ_VELOCIDADE : Object.values(LINHAS_MATRIZ_FADIGA);
+  if (!linhasAceitas.includes(linha)) {
+    throw erroHttp(400, `Linha da matriz invalida. Aceitas: ${linhasAceitas.join(', ')}.`);
   }
   const nivel = Math.min(Math.max(parseInt(dados.nivel_recorrencia, 10) || 1, 1), 3);
-  const elegivel = dados.elegivel_prontidao === undefined || dados.elegivel_prontidao === null ? null : Boolean(dados.elegivel_prontidao);
+  const elegivel = tipo === 'FADIGA' && dados.elegivel_prontidao !== undefined && dados.elegivel_prontidao !== null
+    ? Boolean(dados.elegivel_prontidao) : null;
+  const medidaPadrao = tipo === 'VELOCIDADE'
+    ? medidaRecomendada(EVENTOS.VELOCIDADE, linha.replace('VELOCIDADE_', ''), nivel)
+    : medidaFadiga(linha, nivel, elegivel !== false);
   const ids = dados.eventos_ids?.length ? idsValidos(dados.eventos_ids, 'eventos_ids') : [];
 
   if (ids.length) {
@@ -357,13 +377,13 @@ export const criarPlano = asyncHandler(async (req, res) => {
 
   const plano = await comRetry(() => prisma.planoAcaoTelemetria.create({
     data: {
-      tipo: 'FADIGA',
+      tipo,
       motorista,
       tag_placa: texto(dados.tag_placa, 60),
       linha_matriz: linha,
       nivel_recorrencia: nivel,
       elegivel_prontidao: elegivel,
-      medida_matriz: texto(dados.medida_matriz, 4000) || medidaFadiga(linha, nivel, elegivel !== false),
+      medida_matriz: texto(dados.medida_matriz, 4000) || medidaPadrao,
       analise: texto(dados.analise, 10000),
       acoes: lerAcoes(dados.acoes) || [],
       responsavel: texto(dados.responsavel, 255),

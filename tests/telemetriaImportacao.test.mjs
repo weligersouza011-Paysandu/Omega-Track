@@ -122,7 +122,7 @@ test('fluxo completo: confirmar, reimportar sem duplicar, filtrar por tipo e ler
     { total: resumo.kpis.total, graves: resumo.kpis.graves, fadiga: resumo.kpis.fadiga, velocidade: resumo.kpis.velocidade },
     { total: 5, graves: 3, fadiga: 0, velocidade: 2 },
   );
-  assert.deepEqual(resumo.kpis.anterior, { total: 1, graves: 1, fadiga: 1, velocidade: 0 });
+  assert.deepEqual(resumo.kpis.anterior, { total: 1, graves: 1, fadiga: 0, fadiga_veiculo_parado: 1, velocidade: 0 }, 'fadiga com o veículo parado fica à parte');
   assert.equal(resumo.top_veiculos[0].placa, 'QVN4G02');
   assert.equal(resumo.top_veiculos[0].graves, 1);
 });

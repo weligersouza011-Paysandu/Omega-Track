@@ -14,13 +14,17 @@ const valorDe = (v) => (v instanceof Date ? v.getTime() : v);
 function atende(registro, where = {}) {
   return Object.entries(where).every(([campo, condicao]) => {
     if (campo === 'OR') return condicao.some((c) => atende(registro, c));
-    const valor = registro[campo];
+    if (campo === 'AND') return condicao.every((c) => atende(registro, c));
+    if (campo === 'NOT') return !atende(registro, condicao);
+    // Campo ausente = NULL (como no banco).
+    const valor = registro[campo] ?? null;
     if (condicao === null || typeof condicao !== 'object' || condicao instanceof Date) {
       return valorDe(valor) === valorDe(condicao);
     }
     return Object.entries(condicao).every(([op, alvo]) => {
       switch (op) {
         case 'in': return alvo.map(valorDe).includes(valorDe(valor));
+        case 'notIn': return valor !== null && !alvo.map(valorDe).includes(valorDe(valor));
         case 'not': return alvo !== null && typeof alvo === 'object' ? !atende({ v: valor }, { v: alvo }) : valor !== alvo;
         case 'contains': {
           const texto = String(valor ?? '');

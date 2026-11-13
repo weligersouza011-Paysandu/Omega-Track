@@ -1,5 +1,7 @@
-// Plano de ação de fadiga (criação a partir de ocorrências selecionadas, ou edição),
-// com a medida da Matriz de Avaliação de Condutas — Anexo I do PGS-007245.
+// Plano de ação de telemetria (fadiga ou excesso de velocidade), criado a partir de
+// ocorrências selecionadas de um condutor ou editado, com a medida da Matriz de
+// Avaliação de Condutas — Anexo I do PGS-007245. `matriz` traz as linhas do tipo
+// (fadiga: FADIGA_VERDADEIRA/PRONTIDAO/SEM_PARADA; velocidade: VELOCIDADE_<FAIXA>).
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckSquare, Loader2, Plus, RotateCcw, Square, Trash2 } from 'lucide-react';
 import Modal from '../Modal.jsx';
@@ -9,6 +11,7 @@ import {
   apiTelemetria,
   dataMaisDias,
   formatarDataHora,
+  formatarDuracao,
   ordinal,
 } from '../../utils/telemetriaApi.js';
 
@@ -35,7 +38,7 @@ function LinhaMatriz({ matriz, linha, nivel, elegivel }) {
         <thead className="bg-teal-700 text-white">
           <tr>
             <th className="px-2 py-1.5 text-left font-bold">
-              {linha === 'FADIGA_VERDADEIRA' ? 'Empregado' : 'Crítico · N3'}
+              {linha === 'FADIGA_VERDADEIRA' ? 'Empregado' : `${item.severidade || 'Crítico'} · ${item.classificacao || 'N3'}`}
             </th>
             {COLUNAS.map((c) => <th key={c} className="px-2 py-1.5 text-center font-bold">{c}</th>)}
           </tr>
@@ -69,15 +72,25 @@ export default function ModalPlanoAcao({ aberto, onFechar, onSalvo, matriz, cont
   const plano = contexto?.plano || null;
   const ocorrencias = contexto?.ocorrencias || [];
   const edicao = Boolean(plano);
+  const tipo = plano?.tipo || contexto?.tipo || 'FADIGA';
+  const velocidade = tipo === 'VELOCIDADE';
+  const linhasDoTipo = Object.keys(ROTULO_LINHA_MATRIZ).filter((l) => l.startsWith('VELOCIDADE_') === velocidade);
 
-  // Recorrência no mês conforme a linha: fadiga confirmada conta as ocorrências de fadiga;
-  // "sem parada" conta só as paradas obrigatórias não cumpridas; Prontidão não vem da telemetria.
+  // Recorrência no mês conforme a linha. Fadiga: ocorrências confirmadas; "sem parada": só as
+  // paradas não cumpridas; Prontidão não vem da telemetria. Velocidade: cada faixa tem a sua contagem.
   const nivelPara = useMemo(() => (linha) => {
-    const campo = linha === 'SEM_PARADA' ? 'sem_parada_no_mes' : linha === 'FADIGA_VERDADEIRA' ? 'ocorrencia_no_mes' : null;
-    if (!campo) return 1;
-    return Math.min(Math.max(...ocorrencias.map((o) => o[campo] || 0), 1), 3);
+    let lista = ocorrencias;
+    let campo = 'ocorrencia_no_mes';
+    if (linha === 'SEM_PARADA') campo = 'sem_parada_no_mes';
+    else if (linha === 'PRONTIDAO') return 1;
+    else if (linha.startsWith('VELOCIDADE_')) lista = ocorrencias.filter((o) => `VELOCIDADE_${o.faixa}` === linha);
+    return Math.min(Math.max(...lista.map((o) => o[campo] || 0), 1), 3);
   }, [ocorrencias]);
-  const linhaSugerida = ocorrencias.some((o) => o.sem_parada) ? 'SEM_PARADA' : 'FADIGA_VERDADEIRA';
+  const PESO = { MODERADO: 1, GRAVE: 2, CRITICO: 3 };
+  const piorFaixa = ocorrencias.reduce((m, o) => ((PESO[o.faixa] || 0) > (PESO[m] || 0) ? o.faixa : m), 'MODERADO');
+  const linhaSugerida = velocidade
+    ? `VELOCIDADE_${piorFaixa}`
+    : ocorrencias.some((o) => o.sem_parada) ? 'SEM_PARADA' : 'FADIGA_VERDADEIRA';
   const nivelSugerido = nivelPara(linhaSugerida);
 
   const [form, setForm] = useState(null);
@@ -146,6 +159,7 @@ export default function ModalPlanoAcao({ aberto, onFechar, onSalvo, matriz, cont
           erro: 'Falha ao criar o plano',
           corpo: {
             ...corpo,
+            tipo,
             motorista: contexto.motorista,
             tag_placa: contexto.tag_placa,
             linha_matriz: form.linha_matriz,
@@ -167,7 +181,7 @@ export default function ModalPlanoAcao({ aberto, onFechar, onSalvo, matriz, cont
     <Modal
       open={aberto}
       onClose={() => !salvando && onFechar()}
-      title={edicao ? 'Plano de Ação — Fadiga' : 'Novo Plano de Ação — Fadiga'}
+      title={`${edicao ? 'Plano de Ação' : 'Novo Plano de Ação'} — ${velocidade ? 'Excesso de Velocidade' : 'Fadiga'}`}
       subtitle={`${contexto.motorista}${contexto.tag_placa ? ` · ${contexto.tag_placa}` : ''} — medida conforme a Matriz de Avaliação de Condutas (Anexo I, PGS-007245).`}
       size="lg"
     >
@@ -184,7 +198,14 @@ export default function ModalPlanoAcao({ aberto, onFechar, onSalvo, matriz, cont
             <ul className="space-y-0.5">
               {ocorrencias.map((o) => (
                 <li key={o.chave}>
-                  {formatarDataHora(o.inicio)} · {o.deteccoes.length} detecção(ões) · até {Math.round(o.velocidade_max)} km/h
+                  {velocidade ? (
+                    <>
+                      {formatarDataHora(o.inicio)} · {Math.round(o.velocidade)} / {Math.round(o.limite)} km/h (+{o.percentual_excesso}%)
+                      {' '}· {formatarDuracao(o.duracao_total_s)} · {ROTULO_LINHA_MATRIZ[`VELOCIDADE_${o.faixa}`]?.replace('Velocidade — ', '')}
+                    </>
+                  ) : (
+                    <>{formatarDataHora(o.inicio)} · {o.deteccoes.length} detecção(ões) · até {Math.round(o.velocidade_max)} km/h</>
+                  )}
                   {o.ocorrencia_no_mes ? ` · ${ordinal(o.ocorrencia_no_mes)} no mês` : ''}
                   {o.sem_parada ? ' · sem parada obrigatória' : ''}
                 </li>
@@ -196,7 +217,7 @@ export default function ModalPlanoAcao({ aberto, onFechar, onSalvo, matriz, cont
         <div>
           <span className="label">Linha da matriz</span>
           <div className="grid gap-2 sm:grid-cols-3">
-            {Object.entries(ROTULO_LINHA_MATRIZ).map(([id, rotulo]) => (
+            {linhasDoTipo.map((id) => [id, ROTULO_LINHA_MATRIZ[id]]).map(([id, rotulo]) => (
               <button
                 key={id}
                 type="button"
@@ -267,7 +288,9 @@ export default function ModalPlanoAcao({ aberto, onFechar, onSalvo, matriz, cont
           <span className="label">Análise do conjunto de eventos</span>
           <textarea
             className="input min-h-[70px]"
-            placeholder="Ex.: fadigas no fim do turno, após jornada estendida; condutor relata noite mal dormida..."
+            placeholder={velocidade
+              ? 'Ex.: excessos repetidos na mesma cerca no fim do turno; avaliar sinalização do trecho e conversa com o condutor...'
+              : 'Ex.: fadigas no fim do turno, após jornada estendida; condutor relata noite mal dormida...'}
             value={form.analise}
             onChange={(e) => atualizar('analise', e.target.value)}
           />

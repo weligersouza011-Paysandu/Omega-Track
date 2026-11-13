@@ -8,7 +8,10 @@
 //   PATCH  /fadiga/validacao -> { ids, decisao: CONFIRMADA|DESCARTADA|AUTOMATICA, motivo? }
 //   GET    /motoristas/historico?motorista= -> Histórico do condutor (eventos, fadiga, planos)
 //   GET    /matriz-fadiga  -> Matriz de Eventos de Fadiga do Anexo I e critérios
-//   GET/POST /planos | PATCH/DELETE /planos/:id -> Planos de ação
+//   GET    /velocidade     -> Ocorrências de excesso de velocidade com farol, faixa e medida (Anexo I)
+//   PATCH  /velocidade/validacao -> { ids, decisao: CONFIRMADA|DESCARTADA|AUTOMATICA, motivo? }
+//   GET    /matriz-velocidade -> Matriz de Velocidade do Anexo I e critérios
+//   GET/POST /planos | PATCH/DELETE /planos/:id -> Planos de ação (tipo FADIGA ou VELOCIDADE)
 //   POST   /importar       -> Planilha da plataforma (multipart, campo `arquivo`; confirmar=true grava)
 //   POST   /               -> Lançamento manual de evento
 //   PATCH  /:id/tratativa  -> { status_tratativa, medida_aplicada?, observacao? }
@@ -36,6 +39,7 @@ import {
   atualizarPlano,
   excluirPlano,
 } from '../controllers/telemetriaFadigaController.js';
+import { analiseVelocidade, validarVelocidade, matrizVelocidade } from '../controllers/telemetriaVelocidadeController.js';
 import { requerAdmin } from '../middleware/sessao.js';
 
 const router = Router();
@@ -76,6 +80,10 @@ router.get('/fadiga', requerAdmin, analiseFadiga);
 router.patch('/fadiga/validacao', requerAdmin, validarFadiga);
 router.get('/motoristas/historico', requerAdmin, historicoMotorista);
 router.get('/matriz-fadiga', requerAdmin, matrizFadiga);
+// Excesso de velocidade (ocorrências, farol do gatilho de 10 s, faixas do Anexo I).
+router.get('/velocidade', requerAdmin, analiseVelocidade);
+router.patch('/velocidade/validacao', requerAdmin, validarVelocidade);
+router.get('/matriz-velocidade', requerAdmin, matrizVelocidade);
 router.get('/planos', requerAdmin, listarPlanos);
 router.post('/planos', requerAdmin, criarPlano);
 router.patch('/planos/:id', requerAdmin, atualizarPlano);

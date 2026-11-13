@@ -95,8 +95,8 @@ test('fluxo da fadiga: farol, recorrência, validação, histórico e plano de a
   const historico = (await api(`/motoristas/historico?motorista=${encodeURIComponent('RAIMUNDO LIMA')}`)).corpo;
   assert.equal(historico.total_eventos, 2);
   assert.deepEqual(
-    { confirmada: historico.resumo_mensal[0].fadiga_confirmada, velocidade: historico.resumo_mensal[0].velocidade },
-    { confirmada: 1, velocidade: 1 },
+    { confirmada: historico.resumo_mensal[0].fadiga_confirmada, velocidade: historico.resumo_mensal[0].velocidade, abaixo: historico.resumo_mensal[0].velocidade_abaixo_gatilho },
+    { confirmada: 1, velocidade: 0, abaixo: 1 },
   );
 
   // Plano de ação sobre a 2ª ocorrência do Eude (não elegível ao Prontidão)
@@ -130,4 +130,43 @@ test('fluxo da fadiga: farol, recorrência, validação, histórico e plano de a
   // Excluir o plano desvincula os eventos
   assert.equal((await api(`/planos/${id}`, { method: 'DELETE' })).status, 200);
   assert.ok(banco.eventos.every((e) => !e.plano_acao_id));
+});
+
+test('reimportar corrige o que foi gravado com a regra antiga (sem parada indevido e parada vazia)', async () => {
+  const cab = ['Nome da Origem', 'Data Equipamento', 'Data GPS', 'Placa', 'Cerca', 'Duração Vel. Excedida - s', 'Velocidade', 'Limite Km/h', 'Motorista', 'Endereço', 'Google Maps Link', 'Evento'];
+  const l = (data, vel, ev = 'Sensor de fadiga: Fadiga detectada') => ['x.xlsx', data, data, 'RRD0B94', '', '', vel, 80, 'CONDUTOR TESTE', 'pa-160', 'https://www.google.com/maps/?t=k&q=-6.05,-50.12', ev];
+  const planilha = () => {
+    const livro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cab,
+      l('12/11/2026 10:00', 0), l('12/11/2026 10:20', 30, 'Posição'), // parada: fadiga com o veículo parado
+      l('12/11/2026 15:00', 60), l('12/11/2026 15:16', 62, 'Posição'), l('12/11/2026 15:20', 58, 'Posição'), // seguiu rodando
+    ]), 'Telemetria');
+    return XLSX.write(livro, { type: 'buffer', bookType: 'xlsx' });
+  };
+  const enviar = async () => {
+    const f = new FormData();
+    f.append('arquivo', new Blob([planilha()]), 'plataforma.xlsx');
+    f.append('confirmar', 'true');
+    return fetch(`${base}/importar`, { method: 'POST', headers: AUTH, body: f }).then((r) => r.json());
+  };
+
+  const primeira = await enviar();
+  assert.equal(primeira.importados, 3, '2 fadigas + 1 sem parada (só a em movimento)');
+
+  // Simula o estado gravado pela regra antiga: parada vazia e um "sem parada" para a fadiga parada.
+  const doTeste = (e) => e.tag_placa === 'RRD0B94';
+  banco.eventos.filter((e) => doTeste(e) && e.evento === 'Fadiga / Sono').forEach((e) => { e.parou_em_15_min = null; });
+  const fadigaParada = banco.eventos.find((e) => doTeste(e) && e.valor === 0);
+  banco.eventos.push({
+    ...fadigaParada, id: '11111111-1111-4111-8111-111111111111', evento: 'Fadiga sem Parada Obrigatória', origem: 'DERIVADO',
+    valor: null, data_hora: new Date(fadigaParada.data_hora.getTime() + 15 * 60000), chave_unica: 'regra-antiga',
+  });
+
+  const segunda = await enviar();
+  assert.equal(segunda.importados, 0);
+  assert.deepEqual(segunda.corrigidos, { parada_atualizada: 1, sem_parada_removidos: 1 });
+  const eventos = banco.eventos.filter(doTeste);
+  assert.equal(eventos.filter((e) => e.evento === 'Fadiga sem Parada Obrigatória').length, 1);
+  assert.equal(eventos.find((e) => e.valor === 60).parou_em_15_min, false);
+  assert.equal(eventos.find((e) => e.valor === 0).parou_em_15_min ?? null, null);
 });

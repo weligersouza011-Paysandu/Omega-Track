@@ -95,11 +95,51 @@ export const STATUS_PLANO = {
   CANCELADO: { label: 'Cancelado', classe: 'bg-slate-100 text-slate-500 ring-slate-500/20' },
 };
 
+/** Farol do excesso de velocidade (ocorrência = linhas do mesmo veículo a até 2 min). */
+export const FAROL_VELOCIDADE = {
+  CONFIRMADA: {
+    label: 'Excesso confirmado', curto: 'Confirmado', cor: '#EF4444',
+    classe: 'bg-red-50 text-status-vermelho ring-red-600/25',
+    descricao: '10 s ou mais acima do limite (gatilho do PGS, item 7.1), Crítico em qualquer duração, ou confirmado pela Central.',
+  },
+  ABAIXO_GATILHO: {
+    label: 'Abaixo do gatilho', curto: 'Abaixo de 10 s', cor: '#EAB308',
+    classe: 'bg-amber-50 text-status-amarelo ring-amber-600/25',
+    descricao: 'Acima de 7%, mas menos de 10 s (ou sem duração). A Central confirma ou descarta.',
+  },
+  TOLERANCIA: {
+    label: 'Tolerância', curto: 'Até 7%', cor: '#94A3B8',
+    classe: 'bg-slate-100 text-slate-600 ring-slate-500/25',
+    descricao: 'Até 7% acima do limite. Sem conduta a avaliar.',
+  },
+  DESCARTADA: {
+    label: 'Descartado', curto: 'Descartado', cor: '#475569',
+    classe: 'bg-slate-100 text-slate-500 ring-slate-500/25 line-through',
+    descricao: 'Descartado pela Central (ex.: veículo de emergência, uso como benefício comprovado).',
+  },
+};
+
+/** Faixas do Anexo I (GRAVE = "Significativo"). */
+export const FAIXA_VELOCIDADE = {
+  MODERADO: { label: 'Moderado', faixa: '>7% e ≤20%', classificacao: 'N5', cor: '#F59E0B' },
+  GRAVE: { label: 'Significativo', faixa: '>20% e ≤50%', classificacao: 'N3', cor: '#F97316' },
+  CRITICO: { label: 'Crítico', faixa: '>50% e/ou >120 km/h', classificacao: 'N3', cor: '#DC2626' },
+  NORMAL: { label: 'Tolerância', faixa: '≤7%', classificacao: null, cor: '#94A3B8' },
+};
+
 export const ROTULO_LINHA_MATRIZ = {
   FADIGA_VERDADEIRA: 'Fadiga verdadeira',
   PRONTIDAO: 'Não conformidade na Prontidão',
   SEM_PARADA: 'Sem parada obrigatória em 15 min',
+  VELOCIDADE_MODERADO: 'Velocidade — Moderado (>7% e ≤20%)',
+  VELOCIDADE_GRAVE: 'Velocidade — Significativo (>20% e ≤50%)',
+  VELOCIDADE_CRITICO: 'Velocidade — Crítico (>50% e/ou >120 km/h)',
 };
+
+export function formatarDuracao(segundos) {
+  if (segundos === null || segundos === undefined) return 'sem duração';
+  return segundos >= 60 ? `${Math.floor(segundos / 60)} min ${segundos % 60} s` : `${segundos} s`;
+}
 
 export function ordinal(n) {
   if (!n) return '—';
