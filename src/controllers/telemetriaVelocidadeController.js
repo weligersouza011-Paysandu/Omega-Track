@@ -14,7 +14,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 import { erroHttp } from '../services/telemetriaPlanilhaService.js';
-import { montarFiltro } from './telemetriaController.js';
+import { lerSemanasOuErro, montarFiltro } from './telemetriaController.js';
 import {
   CLASSIFICACAO_VELOCIDADE,
   DURACAO_MINIMA_VELOCIDADE_S,
@@ -101,10 +101,14 @@ async function planosPorId(ids) {
 
 export const analiseVelocidade = asyncHandler(async (req, res) => {
   const agora = new Date();
-  const { classificacao, faixa, evento, severidade, ...filtros } = req.query;
+  const { classificacao, faixa, evento, severidade, semanas, ...filtros } = req.query;
   const where = { ...montarFiltro(filtros, agora), evento: EVENTOS.VELOCIDADE };
   const intervalo = where.data_hora;
   if (intervalo?.gte) where.data_hora = { ...intervalo, gte: inicioDoMesDe(intervalo.gte) };
+  // Semanas selecionadas: lê desde o início do mês da primeira (a recorrência é mensal) e
+  // depois mostra só as ocorrências que começam dentro das semanas escolhidas.
+  const selecao = lerSemanasOuErro(semanas);
+  if (selecao) where.data_hora = { gte: inicioDoMesDe(selecao.inicio), lt: selecao.fim };
 
   const linhas = await comRetry(() => prisma.eventoTelemetria.findMany({
     where, select: CAMPOS_LINHA, orderBy: [{ data_hora: 'asc' }, { id: 'asc' }], take: 20000,
@@ -112,6 +116,7 @@ export const analiseVelocidade = asyncHandler(async (req, res) => {
 
   let ocorrencias = analisarOcorrenciasVelocidade(linhas);
   if (intervalo?.gte) ocorrencias = ocorrencias.filter((o) => new Date(o.fim) >= intervalo.gte);
+  if (selecao) ocorrencias = ocorrencias.filter((o) => selecao.contem(o.inicio));
 
   const filtroClass = String(classificacao || '').toUpperCase().split(',').filter(Boolean);
   const filtroFaixa = String(faixa || '').toUpperCase().split(',').filter(Boolean);

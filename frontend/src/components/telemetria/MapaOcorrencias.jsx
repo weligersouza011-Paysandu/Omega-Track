@@ -1,7 +1,7 @@
 // Mapa das ocorrências de telemetria (fadiga ou velocidade). Cor = farol (ou faixa, via corDe).
 // Clique no ponto abre o histórico do condutor.
 import { useEffect, useMemo } from 'react';
-import { CircleMarker, MapContainer, Popup, TileLayer, Tooltip, useMap } from 'react-leaflet';
+import { CircleMarker, LayerGroup, LayersControl, MapContainer, Popup, TileLayer, Tooltip, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { MapPin } from 'lucide-react';
 import { FAROL_FADIGA, formatarDataHora } from '../../utils/telemetriaApi.js';
@@ -48,10 +48,34 @@ export default function MapaOcorrencias({
         scrollWheelZoom
         className="mapa-telemetria z-0 h-[380px] w-full rounded-xl"
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        {/* Satélite por padrão (com nomes de vias e lugares por cima); "Mapa" mostra as ruas. */}
+        <LayersControl position="topright">
+          <LayersControl.BaseLayer checked name="Satélite">
+            <LayerGroup>
+              <TileLayer
+                attribution="Imagens &copy; Esri, Maxar, Earthstar Geographics e comunidade GIS"
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                maxZoom={19}
+              />
+              <TileLayer
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+                maxZoom={19}
+              />
+              <TileLayer
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+                maxZoom={19}
+                opacity={0.7}
+              />
+            </LayerGroup>
+          </LayersControl.BaseLayer>
+          <LayersControl.BaseLayer name="Mapa">
+            <TileLayer
+              className="tiles-mapa"
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+          </LayersControl.BaseLayer>
+        </LayersControl>
         <Enquadrar pontos={pontos} />
         {desenhadas.map((o) => {
           const farol = farois[o.classificacao] || Object.values(farois)[0];
@@ -63,8 +87,9 @@ export default function MapaOcorrencias({
               center={[o.latitude, o.longitude]}
               radius={confirmada ? 10 : 7}
               pathOptions={{
-                color: '#0F172A',
-                weight: 1.5,
+                // Contorno branco: contrasta com a imagem de satélite.
+                color: '#FFFFFF',
+                weight: 2,
                 fillColor: cor,
                 fillOpacity: o.classificacao === 'DESCARTADA' ? 0.35 : 0.9,
                 dashArray: o.classificacao === 'DESCARTADA' ? '3 3' : null,

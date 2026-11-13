@@ -116,7 +116,7 @@ function BarrasHora({ porHora }) {
   );
 }
 
-export default function VelocidadeTab({ horas, podeGerenciar }) {
+export default function VelocidadeTab({ semanas, podeGerenciar, pronto = true }) {
   const [dados, setDados] = useState(null);
   const [planos, setPlanos] = useState([]);
   const [matriz, setMatriz] = useState(null);
@@ -137,7 +137,7 @@ export default function VelocidadeTab({ horas, podeGerenciar }) {
     setErro(null);
     try {
       const params = new URLSearchParams();
-      if (horas) params.set('horas', String(horas));
+      if (semanas) params.set('semanas', semanas);
       const [analise, listaPlanos] = await Promise.all([
         apiTelemetria(`/velocidade?${params}`, { erro: 'Falha ao carregar a analise de velocidade' }),
         apiTelemetria('/planos?tipo=VELOCIDADE', { erro: 'Falha ao carregar os planos de acao' }),
@@ -149,10 +149,10 @@ export default function VelocidadeTab({ horas, podeGerenciar }) {
     } finally {
       setCarregando(false);
     }
-  }, [horas]);
+  }, [semanas]);
 
-  useEffect(() => { carregar(); }, [carregar, versao]);
-  useEffect(() => { setSelecionadas([]); setLimiteLista(100); }, [horas, farol, faixa]);
+  useEffect(() => { if (pronto) carregar(); }, [carregar, versao, pronto]);
+  useEffect(() => { setSelecionadas([]); setLimiteLista(100); }, [semanas, farol, faixa]);
   useEffect(() => {
     apiTelemetria('/matriz-velocidade').then((r) => setMatriz(r.matriz)).catch(() => {});
   }, []);
@@ -429,7 +429,7 @@ export default function VelocidadeTab({ horas, podeGerenciar }) {
                   </tr>
                 );
               })}
-              {!carregando && !visiveis.length && <tr><td colSpan={10} className="py-10 text-center text-omega-500">Nenhuma ocorrência no filtro atual. Amplie o período no topo da tela.</td></tr>}
+              {!carregando && !visiveis.length && <tr><td colSpan={10} className="py-10 text-center text-omega-500">Nenhuma ocorrência no filtro atual. Selecione outras semanas no topo da tela.</td></tr>}
               {carregando && !visiveis.length && <tr><td colSpan={10} className="py-10 text-center"><Loader2 className="mx-auto animate-spin text-omega-400" /></td></tr>}
             </tbody>
           </table>

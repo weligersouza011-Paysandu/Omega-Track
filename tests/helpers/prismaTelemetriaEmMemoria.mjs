@@ -98,6 +98,14 @@ export function criarPrismaEmMemoria({ veiculos = [], administradores = [] } = {
       const e = eventos.find((x) => x.id === where.id);
       return e ? { ...e } : null;
     },
+    async aggregate({ where, _min = {}, _max = {} } = {}) {
+      const lista = eventos.filter((e) => atende(e, where));
+      const extremo = (campos, fn) => Object.fromEntries(Object.keys(campos).map((c) => {
+        const valores = lista.map((e) => e[c]).filter((v) => v !== null && v !== undefined);
+        return [c, valores.length ? valores.reduce((a, b) => (fn(valorDe(b), valorDe(a)) ? b : a)) : null];
+      }));
+      return { _count: { _all: lista.length }, _min: extremo(_min, (b, a) => b < a), _max: extremo(_max, (b, a) => b > a) };
+    },
     async count({ where } = {}) {
       return eventos.filter((e) => atende(e, where)).length;
     },

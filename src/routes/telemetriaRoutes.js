@@ -3,6 +3,8 @@
 //
 // Endpoints protegidos por autenticação administrativa (requerAdmin):
 //   GET    /               -> Eventos com filtros (busca, horas, evento, severidade, status, tag, inicio, fim)
+//   GET    /semanas        -> Semanas do ano (ISO) com registro; padrão = as duas mais recentes
+//   (todas as listagens aceitam ?semanas=AAAA-SS,AAAA-SS)
 //   GET    /resumo         -> KPIs, Top 5 de veículos, alerta de risco do dia e % de fadiga sem parada
 //   GET    /fadiga         -> Ocorrências de fadiga detectada com farol, recorrência e medida (Anexo I)
 //   PATCH  /fadiga/validacao -> { ids, decisao: CONFIRMADA|DESCARTADA|AUTOMATICA, motivo? }
@@ -28,6 +30,7 @@ import {
   registrarTratativaTelemetria,
   excluirEventoTelemetria,
   excluirEventosTelemetriaLote,
+  listarSemanasTelemetria,
 } from '../controllers/telemetriaController.js';
 import {
   analiseFadiga,
@@ -74,6 +77,7 @@ function receberPlanilha(req, res, next) {
 
 router.get('/', requerAdmin, listarEventosTelemetria);
 router.get('/resumo', requerAdmin, resumoTelemetria);
+router.get('/semanas', requerAdmin, listarSemanasTelemetria);
 
 // Fadiga detectada (farol, ocorrências, mapa) e planos de ação do Anexo I.
 router.get('/fadiga', requerAdmin, analiseFadiga);

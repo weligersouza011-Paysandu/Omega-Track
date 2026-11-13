@@ -118,6 +118,11 @@ test('fluxo completo: confirmar, reimportar sem duplicar, filtrar por tipo e ler
   assert.equal((await obter('?severidade=GRAVE,CRITICO')).paginacao.total, 4);
 
   const resumo = await obter('/resumo?horas=24');
+  assert.equal(resumo.dados_disponiveis.total, 6, 'dados existentes ignoram o filtro de período');
+  const vazio = await obter('/resumo?horas=1');
+  assert.equal(vazio.kpis.total, 0);
+  assert.equal(vazio.dados_disponiveis.total, 6, 'período vazio, mas há dados: a tela oferece o atalho');
+  assert.ok(new Date(vazio.dados_disponiveis.inicio) < new Date(vazio.dados_disponiveis.fim));
   assert.deepEqual(
     { total: resumo.kpis.total, graves: resumo.kpis.graves, fadiga: resumo.kpis.fadiga, velocidade: resumo.kpis.velocidade },
     { total: 5, graves: 3, fadiga: 0, velocidade: 2 },

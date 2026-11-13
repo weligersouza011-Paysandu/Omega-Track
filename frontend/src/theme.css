@@ -348,8 +348,8 @@ html:not(.dark) .theme-login .theme-toggle:hover { color: #2563eb; border-color:
   }
 }
 
-/* Mapa da Telemetria (Leaflet) no tema escuro: tiles escurecidos e popups legíveis. */
-html.dark .mapa-telemetria .leaflet-tile-pane {
+/* Mapa da Telemetria (Leaflet) no tema escuro: só o mapa de ruas é escurecido (o satélite fica como é) e os popups ficam legíveis. */
+html.dark .mapa-telemetria .tiles-mapa {
   filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
 }
 html.dark .mapa-telemetria .leaflet-popup-content-wrapper,

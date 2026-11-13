@@ -26,6 +26,7 @@ import {
   extrairEventos,
   lerLinhas,
 } from '../services/telemetriaPlanilhaService.js';
+import { lerSemanas, semanaISO, semanasAnteriores } from '../utils/semanasTelemetria.js';
 
 const { EVENTOS, LISTA_EVENTOS, SEVERIDADES, STATUS_TRATATIVA } = regras;
 
@@ -87,6 +88,15 @@ function inicioDoMes(referencia, meses = 0) {
   return new Date(Date.UTC(ano, mes - 1 + meses, 1) - FUSO_MS);
 }
 
+/** Semanas do filtro (ou null); semana inválida vira 400. */
+export function lerSemanasOuErro(valor) {
+  try {
+    return lerSemanas(valor);
+  } catch (erro) {
+    throw erroHttp(400, erro.message);
+  }
+}
+
 /** `where` do Prisma a partir dos filtros da tela. */
 export function montarFiltro(query = {}, agora = new Date()) {
   const where = {};
@@ -116,6 +126,12 @@ export function montarFiltro(query = {}, agora = new Date()) {
       throw erroHttp(400, 'O campo "horas" deve ser um numero de horas maior que zero.');
     }
     where.data_hora = { gte: new Date(agora.getTime() - horas * HORA_MS), lte: agora };
+  }
+  // Semanas do ano selecionadas ("2026-44,2026-45"): podem não ser contíguas, então cada uma
+  // vira um intervalo dentro de um OR (em AND para não colidir com o OR da busca).
+  const semanas = lerSemanasOuErro(query.semanas);
+  if (semanas) {
+    where.AND = [...(where.AND || []), { OR: semanas.intervalos.map((i) => ({ data_hora: { gte: i.inicio, lt: i.fim } })) }];
   }
   if (query.atrasados === 'true') {
     where.status_tratativa = 'PENDENTE';
@@ -240,7 +256,7 @@ async function topVeiculos(where) {
 
 /** Quem teve evento grave/crítico desde 00:00 (-03:00), os de mais críticos primeiro. */
 async function alertaDeRiscoHoje(query, agora) {
-  const { horas, inicio, fim, severidade, ...outros } = query;
+  const { horas, inicio, fim, semanas, severidade, ...outros } = query;
   const eventos = await comRetry(() => prisma.eventoTelemetria.findMany({
     where: {
       ...montarFiltro(outros, agora),
@@ -270,20 +286,28 @@ async function alertaDeRiscoHoje(query, agora) {
 export const resumoTelemetria = asyncHandler(async (req, res) => {
   const agora = new Date();
   const where = montarFiltro(req.query, agora);
-  const [kpis, porEvento, porSeveridade, top5, alerta] = await Promise.all([
+  // Dados existentes sem o filtro de data: a tela avisa quando o período escolhido está vazio.
+  const { horas: _semJanela, inicio: _semInicio, fim: _semFim, semanas: _semSemanas, ...semPeriodo } = req.query;
+  const [kpis, porEvento, porSeveridade, top5, alerta, disponiveis] = await Promise.all([
     contarCartoes(where),
     comRetry(() => prisma.eventoTelemetria.groupBy({ by: ['evento'], where, _count: { _all: true } }), 'por_evento'),
     comRetry(() => prisma.eventoTelemetria.groupBy({ by: ['severidade'], where, _count: { _all: true } }), 'por_severidade'),
     topVeiculos(where),
     alertaDeRiscoHoje(req.query, agora),
+    comRetry(() => prisma.eventoTelemetria.aggregate({
+      where: montarFiltro(semPeriodo, agora), _count: { _all: true }, _min: { data_hora: true }, _max: { data_hora: true },
+    }), 'disponiveis'),
   ]);
 
   let anterior = null;
   const horas = Number(req.query.horas) || null;
-  if (horas) {
-    const { horas: _h, inicio, fim, ...outros } = req.query;
+  const semanas = lerSemanasOuErro(req.query.semanas);
+  if (semanas) {
+    // Compara com o mesmo número de semanas imediatamente antes das selecionadas.
+    anterior = await contarCartoes(montarFiltro({ ...semPeriodo, semanas: semanasAnteriores(semanas.intervalos).join(',') }, agora));
+  } else if (horas) {
     anterior = await contarCartoes({
-      ...montarFiltro(outros, agora),
+      ...montarFiltro(semPeriodo, agora),
       data_hora: { gte: new Date(agora.getTime() - 2 * horas * HORA_MS), lt: new Date(agora.getTime() - horas * HORA_MS) },
     });
   }
@@ -292,7 +316,12 @@ export const resumoTelemetria = asyncHandler(async (req, res) => {
   const fadigas = eventos[EVENTOS.FADIGA] || 0;
   const semParada = eventos[EVENTOS.FADIGA_SEM_PARADA] || 0;
   return res.status(200).json({
-    kpis: { ...kpis, janela_horas: horas, anterior },
+    kpis: { ...kpis, janela_horas: semanas ? null : horas, semanas: semanas ? semanas.intervalos.map((i) => i.chave) : null, anterior },
+    dados_disponiveis: {
+      total: disponiveis._count._all,
+      inicio: disponiveis._min.data_hora,
+      fim: disponiveis._max.data_hora,
+    },
     por_evento: eventos,
     por_severidade: {
       ...Object.fromEntries(SEVERIDADES.map((s) => [s, 0])),
@@ -587,4 +616,37 @@ export const excluirEventosTelemetriaLote = asyncHandler(async (req, res) => {
     total_excluido: count,
     mensagem: `${count} ${count === 1 ? 'evento excluido' : 'eventos excluidos'} com sucesso.`,
   });
+});
+
+// ============================================================================
+// 6. SEMANAS COM REGISTRO (filtro da tela)
+// ============================================================================
+
+/**
+ * GET /api/telemetria/semanas — semanas do ano (ISO, -03:00) que têm eventos, da mais
+ * recente para a mais antiga, com o total e a quebra por tipo. A tela usa as duas
+ * mais recentes como seleção padrão.
+ */
+export const listarSemanasTelemetria = asyncHandler(async (_req, res) => {
+  const eventos = await comRetry(() => prisma.eventoTelemetria.findMany({
+    select: { data_hora: true, evento: true, valor: true },
+    take: 200000,
+  }), 'semanas');
+  const semanas = new Map();
+  for (const e of eventos) {
+    const { ano, semana, chave } = semanaISO(e.data_hora);
+    const s = semanas.get(chave) || { chave, ano, semana, total: 0, velocidade: 0, fadiga: 0, outros: 0 };
+    s.total += 1;
+    if (e.evento === EVENTOS.VELOCIDADE) s.velocidade += 1;
+    else if (e.evento === EVENTOS.FADIGA) s.fadiga += 1;
+    else if (e.evento !== EVENTOS.FADIGA_SEM_PARADA) s.outros += 1;
+    semanas.set(chave, s);
+  }
+  const lista = [...semanas.values()]
+    .map((s) => {
+      const intervalo = lerSemanas(s.chave).intervalos[0];
+      return { ...s, inicio: intervalo.inicio, fim: new Date(intervalo.fim.getTime() - 1) };
+    })
+    .sort((a, b) => b.chave.localeCompare(a.chave));
+  return res.status(200).json({ semanas: lista, padrao: lista.slice(0, 2).map((s) => s.chave) });
 });

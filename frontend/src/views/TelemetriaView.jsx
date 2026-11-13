@@ -41,6 +41,7 @@ import { gerarModeloTelemetria } from '../utils/gerarModeloTelemetria.js';
 import { formatarDataHora, lerJson, obterHeaders } from '../utils/telemetriaApi.js';
 import FadigaDetectadaTab from '../components/telemetria/FadigaDetectadaTab.jsx';
 import VelocidadeTab from '../components/telemetria/VelocidadeTab.jsx';
+import SeletorSemanas from '../components/telemetria/SeletorSemanas.jsx';
 
 const ABAS = [
   { id: 'geral', label: 'Visão Geral', icone: LayoutDashboard },
@@ -63,13 +64,6 @@ const SEVERIDADES = [
   { id: 'MODERADO', label: 'Moderado' },
   { id: 'GRAVE', label: 'Grave' },
   { id: 'CRITICO', label: 'Crítico' },
-];
-
-const PERIODOS = [
-  { id: '24', label: 'Últimas 24h', horas: 24 },
-  { id: '168', label: 'Últimos 7 dias', horas: 168 },
-  { id: '720', label: 'Últimos 30 dias', horas: 720 },
-  { id: 'tudo', label: 'Todo o período', horas: null },
 ];
 
 const POR_PAGINA = 50;
@@ -400,7 +394,11 @@ export default function TelemetriaView() {
   const usuario = lerSessao()?.usuario;
   const podeGerenciar = podeEscrever(usuario, 'telemetria');
 
-  const [periodo, setPeriodo] = useState('24');
+  // Filtro por semana do ano: começa nas duas últimas semanas com registro.
+  const [semanasDisponiveis, setSemanasDisponiveis] = useState([]);
+  const [semanasPadrao, setSemanasPadrao] = useState([]);
+  const [semanasSel, setSemanasSel] = useState([]);
+  const [semanasProntas, setSemanasProntas] = useState(false);
   const [busca, setBusca] = useState('');
   const [buscaDebounced, setBuscaDebounced] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('Todos');
@@ -424,13 +422,29 @@ export default function TelemetriaView() {
     return () => clearTimeout(id);
   }, [busca]);
 
-  const periodoAtual = PERIODOS.find((p) => p.id === periodo) || PERIODOS[0];
+  /** Lista as semanas com registro; `redefinir` volta a seleção para as duas últimas (carga e importação). */
+  const carregarSemanas = useCallback(async (redefinir) => {
+    try {
+      const dados = await lerJson(await fetch('/api/telemetria/semanas', { headers: obterHeaders() }), 'Erro ao buscar as semanas');
+      setSemanasDisponiveis(dados.semanas || []);
+      setSemanasPadrao(dados.padrao || []);
+      if (redefinir) setSemanasSel(dados.padrao || []);
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      setSemanasProntas(true);
+    }
+  }, []);
+
+  useEffect(() => { carregarSemanas(true); }, [carregarSemanas]);
+
+  const semanasParam = useMemo(() => [...semanasSel].sort().join(','), [semanasSel]);
   const filtros = useMemo(() => ({
-    horas: periodoAtual.horas,
+    semanas: semanasParam,
     busca: buscaDebounced,
     severidade: filtroSeveridade,
     evento: TIPOS.find((t) => t.label === filtroTipo)?.eventos || [],
-  }), [periodoAtual.horas, buscaDebounced, filtroSeveridade, filtroTipo]);
+  }), [semanasParam, buscaDebounced, filtroSeveridade, filtroTipo]);
 
   useEffect(() => {
     setPagina(1);
@@ -460,11 +474,20 @@ export default function TelemetriaView() {
   }, [filtros, pagina]);
 
   useEffect(() => {
-    carregar();
-  }, [carregar, versao]);
+    // Espera a lista de semanas para não buscar tudo e logo depois refazer com o padrão.
+    if (semanasProntas) carregar();
+  }, [carregar, versao, semanasProntas]);
 
   const atualizar = () => {
     setSelectedIds([]);
+    setVersao((v) => v + 1);
+    carregarSemanas(false);
+  };
+
+  // Depois de importar, novas semanas podem aparecer: volta para as duas últimas com registro.
+  const aposImportar = () => {
+    setSelectedIds([]);
+    carregarSemanas(true);
     setVersao((v) => v + 1);
   };
 
@@ -540,7 +563,8 @@ export default function TelemetriaView() {
   const top5 = resumo?.top_veiculos || [];
   const alertas = resumo?.alerta_risco_hoje || [];
   const maiorTop = top5[0]?.total || 1;
-  const sufixoPeriodo = periodoAtual.horas === 24 ? '(24h)' : `(${periodoAtual.label})`;
+  const numerosSemanas = semanasDisponiveis.filter((s) => semanasSel.includes(s.chave)).map((s) => s.semana).sort((a, b) => a - b);
+  const sufixoPeriodo = numerosSemanas.length ? `(Sem. ${numerosSemanas.join(', ')})` : '(todas as semanas)';
 
   return (
     <div className="space-y-6">
@@ -553,9 +577,13 @@ export default function TelemetriaView() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <select value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="input w-auto" aria-label="Período">
-            {PERIODOS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-          </select>
+          <SeletorSemanas
+            semanas={semanasDisponiveis}
+            selecionadas={semanasSel}
+            padrao={semanasPadrao}
+            onChange={setSemanasSel}
+            carregando={!semanasProntas}
+          />
           <button type="button" className="btn-secondary" onClick={atualizar} title="Recarregar os dados">
             <RefreshCw size={16} className={carregando ? 'animate-spin' : ''} /> Atualizar
           </button>
@@ -595,9 +623,9 @@ export default function TelemetriaView() {
         ))}
       </div>
 
-      {aba === 'fadiga' && <FadigaDetectadaTab horas={periodoAtual.horas} busca="" podeGerenciar={podeGerenciar} />}
+      {aba === 'fadiga' && <FadigaDetectadaTab semanas={semanasParam} busca="" podeGerenciar={podeGerenciar} pronto={semanasProntas} />}
 
-      {aba === 'velocidade' && <VelocidadeTab horas={periodoAtual.horas} podeGerenciar={podeGerenciar} />}
+      {aba === 'velocidade' && <VelocidadeTab semanas={semanasParam} podeGerenciar={podeGerenciar} pronto={semanasProntas} />}
 
       {aba === 'geral' && (<>
       {erro && (
@@ -805,7 +833,7 @@ export default function TelemetriaView() {
                 {!carregando && eventos.length === 0 && (
                   <tr>
                     <td colSpan={7} className="py-10 text-center text-omega-500">
-                      Nenhum evento encontrado. Amplie o período ou importe a planilha da plataforma de telemetria.
+                      Nenhum evento nas semanas selecionadas. Selecione outras semanas ou importe a planilha da plataforma de telemetria.
                     </td>
                   </tr>
                 )}
@@ -906,7 +934,7 @@ export default function TelemetriaView() {
       </div>
       </>)}
 
-      <ModalImportar aberto={importarAberto} onFechar={() => setImportarAberto(false)} onImportado={atualizar} />
+      <ModalImportar aberto={importarAberto} onFechar={() => setImportarAberto(false)} onImportado={aposImportar} />
     </div>
   );
 }

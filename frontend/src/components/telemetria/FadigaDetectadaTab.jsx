@@ -81,7 +81,7 @@ function MatrizAnexo({ matriz }) {
   );
 }
 
-export default function FadigaDetectadaTab({ horas, busca, podeGerenciar }) {
+export default function FadigaDetectadaTab({ semanas, busca, podeGerenciar, pronto = true }) {
   const [dados, setDados] = useState(null);
   const [planos, setPlanos] = useState([]);
   const [matriz, setMatriz] = useState(null);
@@ -100,7 +100,7 @@ export default function FadigaDetectadaTab({ horas, busca, podeGerenciar }) {
     setErro(null);
     try {
       const params = new URLSearchParams();
-      if (horas) params.set('horas', String(horas));
+      if (semanas) params.set('semanas', semanas);
       if (busca) params.set('busca', busca);
       const [analise, listaPlanos] = await Promise.all([
         apiTelemetria(`/fadiga?${params}`, { erro: 'Falha ao carregar a analise de fadiga' }),
@@ -113,10 +113,10 @@ export default function FadigaDetectadaTab({ horas, busca, podeGerenciar }) {
     } finally {
       setCarregando(false);
     }
-  }, [horas, busca]);
+  }, [semanas, busca]);
 
-  useEffect(() => { carregar(); }, [carregar, versao]);
-  useEffect(() => { setSelecionadas([]); }, [horas, busca, farol]);
+  useEffect(() => { if (pronto) carregar(); }, [carregar, versao, pronto]);
+  useEffect(() => { setSelecionadas([]); }, [semanas, busca, farol]);
   useEffect(() => {
     apiTelemetria('/matriz-fadiga').then((r) => setMatriz(r.matriz)).catch(() => {});
   }, []);
@@ -366,7 +366,7 @@ export default function FadigaDetectadaTab({ horas, busca, podeGerenciar }) {
                 );
               })}
               {!carregando && !visiveis.length && (
-                <tr><td colSpan={9} className="py-10 text-center text-omega-500">Nenhuma fadiga detectada no filtro atual. Amplie o período no topo da tela.</td></tr>
+                <tr><td colSpan={9} className="py-10 text-center text-omega-500">Nenhuma fadiga detectada no filtro atual. Selecione outras semanas no topo da tela.</td></tr>
               )}
               {carregando && !visiveis.length && (
                 <tr><td colSpan={9} className="py-10 text-center"><Loader2 className="mx-auto animate-spin text-omega-400" /></td></tr>

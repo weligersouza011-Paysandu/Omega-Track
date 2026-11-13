@@ -17,7 +17,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 import { erroHttp } from '../services/telemetriaPlanilhaService.js';
-import { montarFiltro } from './telemetriaController.js';
+import { lerSemanasOuErro, montarFiltro } from './telemetriaController.js';
 import {
   CLASSIFICACAO_FADIGA,
   EVENTOS,
@@ -134,11 +134,15 @@ function semDeteccoes(o) {
 // ============================================================================
 export const analiseFadiga = asyncHandler(async (req, res) => {
   const agora = new Date();
-  const { classificacao, evento, severidade, ...filtros } = req.query;
+  const { classificacao, evento, severidade, semanas, ...filtros } = req.query;
   const where = { ...montarFiltro(filtros, agora), evento: EVENTOS.FADIGA };
   // A recorrência conta o mês inteiro: busca desde o início do mês da data inicial.
   const intervalo = where.data_hora;
   if (intervalo?.gte) where.data_hora = { ...intervalo, gte: inicioDoMesDe(intervalo.gte) };
+  // Semanas selecionadas: lê desde o início do mês da primeira (a recorrência é mensal) e
+  // depois mostra só as ocorrências que começam dentro das semanas escolhidas.
+  const selecao = lerSemanasOuErro(semanas);
+  if (selecao) where.data_hora = { gte: inicioDoMesDe(selecao.inicio), lt: selecao.fim };
 
   const deteccoes = await comRetry(() => prisma.eventoTelemetria.findMany({
     where,
@@ -149,6 +153,7 @@ export const analiseFadiga = asyncHandler(async (req, res) => {
 
   let ocorrencias = analisarOcorrencias(deteccoes);
   if (intervalo?.gte) ocorrencias = ocorrencias.filter((o) => new Date(o.fim) >= intervalo.gte);
+  if (selecao) ocorrencias = ocorrencias.filter((o) => selecao.contem(o.inicio));
   const filtroClassificacao = String(classificacao || '').toUpperCase().split(',').filter(Boolean);
   if (filtroClassificacao.some((c) => !CLASSIFICACOES.includes(c))) {
     throw erroHttp(400, `Classificacao invalida. Aceitas: ${CLASSIFICACOES.join(', ')}.`);
