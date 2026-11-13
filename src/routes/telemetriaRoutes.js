@@ -1,0 +1,65 @@
+// ============================================================================
+// src/routes/telemetriaRoutes.js — Telemetria & Fadiga (PGS-007245 Rev. 03).
+//
+// Endpoints protegidos por autenticação administrativa (requerAdmin):
+//   GET    /               -> Eventos com filtros (busca, horas, evento, severidade, status, tag, inicio, fim)
+//   GET    /resumo         -> KPIs, Top 5 de veículos, alerta de risco do dia e % de fadiga sem parada
+//   POST   /importar       -> Planilha da plataforma (multipart, campo `arquivo`; confirmar=true grava)
+//   POST   /               -> Lançamento manual de evento
+//   PATCH  /:id/tratativa  -> { status_tratativa, medida_aplicada?, observacao? }
+//   POST   /excluir-lote | DELETE /lote -> { ids }
+//   DELETE /:id            -> Exclusão de evento
+// ============================================================================
+import { Router } from 'express';
+import multer from 'multer';
+import {
+  listarEventosTelemetria,
+  resumoTelemetria,
+  importarTelemetria,
+  criarEventoTelemetria,
+  registrarTratativaTelemetria,
+  excluirEventoTelemetria,
+  excluirEventosTelemetriaLote,
+} from '../controllers/telemetriaController.js';
+import { requerAdmin } from '../middleware/sessao.js';
+
+const router = Router();
+
+// Upload em memória: a planilha é lida e descartada, sem gravar em disco.
+// A exportação da plataforma traz todas as posições do período (dezenas de milhares de linhas).
+const uploadPlanilha = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024, files: 1 }, // 30 MB
+  fileFilter: (_req, file, cb) => {
+    if (!/\.(xlsx|xls|csv)$/i.test(file.originalname || '')) {
+      const erro = new Error('Apenas arquivos .xlsx, .xls ou .csv sao aceitos.');
+      erro.statusCode = 400;
+      return cb(erro);
+    }
+    return cb(null, true);
+  },
+});
+
+function receberPlanilha(req, res, next) {
+  uploadPlanilha.single('arquivo')(req, res, (erro) => {
+    if (!erro) return next();
+    if (erro instanceof multer.MulterError && erro.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        error: 'Arquivo muito grande',
+        message: 'O limite para importacao de planilhas de telemetria e 30 MB.',
+      });
+    }
+    return res.status(400).json({ error: 'Arquivo invalido', message: erro.message });
+  });
+}
+
+router.get('/', requerAdmin, listarEventosTelemetria);
+router.get('/resumo', requerAdmin, resumoTelemetria);
+router.post('/importar', requerAdmin, receberPlanilha, importarTelemetria);
+router.post('/excluir-lote', requerAdmin, excluirEventosTelemetriaLote);
+router.delete('/lote', requerAdmin, excluirEventosTelemetriaLote);
+router.post('/', requerAdmin, criarEventoTelemetria);
+router.patch('/:id/tratativa', requerAdmin, registrarTratativaTelemetria);
+router.delete('/:id', requerAdmin, excluirEventoTelemetria);
+
+export default router;

@@ -509,6 +509,55 @@ model ProdutoQuimico {
   @@map("produtos_quimicos")
 }
 
+// Telemetria & Fadiga — PGS-007245 Rev. 03.
+// Eventos de conduta da telemetria veicular e do detector de fadiga, importados
+// da planilha da plataforma ou lançados à mão. Posições, ignição, cercas e
+// operadora ficam de fora. Severidade e classificação (N3/N5) seguem o Anexo I
+// (Matriz de Avaliação de Condutas); a tratativa volta à Central em até 15 dias.
+model EventoTelemetria {
+  id                   String    @id @default(uuid()) @db.Uuid
+  tag_placa            String    @db.VarChar(60) // Placa como vem da plataforma (ex: QVN4G02 CT-251)
+  tag                  String?   @db.VarChar(50) // TAG da frota (mob_desmob) cruzada pela placa
+  motorista            String?   @db.VarChar(255)
+  data_hora            DateTime  @db.Timestamp(6) // UTC; a planilha vem em -03:00
+  evento               String    @db.VarChar(60) // Ex: Excesso de Velocidade, Arrancada Brusca, Freada de Emergência, Fadiga / Sono, Uso de Celular
+  valor                Float? // Velocidade registrada (km/h) ou intensidade
+  limite               Float? // Limite da via/cerca (km/h)
+  localizacao          String?   @db.VarChar(500)
+  severidade           String    @default("NORMAL") @db.VarChar(20) // NORMAL, MODERADO, GRAVE, CRITICO
+  status_tratativa     String    @default("PENDENTE") @db.VarChar(20) // PENDENTE, TRATADO, DESCARTADO
+
+  classificacao        String?   @db.VarChar(5) // N3 | N5 (Anexo I)
+  percentual_excesso   Float? // % acima do limite (velocidade)
+  duracao_s            Int? // Tempo acima do limite, em segundos
+  cerca                String?   @db.VarChar(60)
+  latitude             Float?
+  longitude            Float?
+  link_mapa            String?   @db.VarChar(500)
+  evento_original      String?   @db.VarChar(500) // Texto original da plataforma
+  origem               String    @default("MANUAL") @db.VarChar(20) // IMPORTACAO, MANUAL, DERIVADO
+  arquivo_origem       String?   @db.VarChar(255)
+  chave_unica          String    @unique @db.VarChar(64) // Hash placa + data/hora + evento: reimportar não duplica
+
+  prazo_tratativa      DateTime? @db.Date // 15 dias (PNR-000070)
+  medida_aplicada      String?   @db.Text
+  observacao_tratativa String?   @db.Text
+  tratado_por          String?   @db.VarChar(255)
+  tratado_em           DateTime? @db.Timestamp(6)
+
+  created_at           DateTime  @default(now()) @db.Timestamp(6)
+  updated_at           DateTime  @updatedAt @db.Timestamp(6)
+
+  @@index([tag_placa])
+  @@index([tag])
+  @@index([evento])
+  @@index([severidade])
+  @@index([data_hora])
+  @@index([motorista, evento, data_hora])
+  @@index([status_tratativa, prazo_tratativa])
+  @@map("eventos_telemetria")
+}
+
 
 
 

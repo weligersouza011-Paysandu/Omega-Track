@@ -16,6 +16,7 @@ import residuosRoutes from './residuosRoutes.js';
 import aguaRoutes from './aguaRoutes.js';
 import atosRoutes from './atosRoutes.js';
 import produtosQuimicosRoutes from './produtosQuimicosRoutes.js';
+import telemetriaRoutes from './telemetriaRoutes.js';
 
 const router = Router();
 
@@ -66,6 +67,7 @@ router.get('/', (req, res) => {
       ecogestao_residuos: 'GET /api/ecogestao/residuos?mes_ano=YYYY/MM -> { dados, resumo (destinacao/tipo/MTRs), paginacao }; GET /api/ecogestao/residuos/meses; POST /api/ecogestao/residuos/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
       ecogestao_agua: 'GET /api/ecogestao/agua?ano_mes=YYYY/MM -> { dados, resumo (total/média/pico/pontos), paginacao }; GET /api/ecogestao/agua/meses; POST /api/ecogestao/agua/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
       ecogestao_atos: 'GET /api/ecogestao/atos?status=&farol=&busca= -> { dados, resumo (total/ativas/vencidas/a_vencer/normais/taxa_conformidade), paginacao }; POST /api/ecogestao/atos/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
+      telemetria: 'GET /api/telemetria?busca=&horas=24&evento=&severidade=&status=&tag=&pagina=&limite= -> { eventos (com ocorrencia_no_mes e medida_recomendada do Anexo I), paginacao }; GET /api/telemetria/resumo -> { kpis (+janela anterior), por_evento, por_severidade, fadiga, top_veiculos, alerta_risco_hoje }; POST /api/telemetria/importar (multipart `arquivo`; confirmar=true grava, senao previa; cruza PLACA -> TAG); POST /api/telemetria; PATCH /:id/tratativa; POST /excluir-lote { ids }; DELETE /:id',
       ecogestao_produtos_quimicos: 'GET /api/ecogestao/produtos-quimicos?enquadramento=&local=&busca= -> { produtos, resumo (total/perigosos/matriz_perigos/por_local), paginacao }; POST /api/ecogestao/produtos-quimicos/importar (multipart campo `arquivo` .xlsx/.xls/.csv)',
     },
   });
@@ -109,5 +111,6 @@ router.use('/ecogestao/atos', atosRoutes);
 router.use('/atos', atosRoutes);
 router.use('/ecogestao/produtos-quimicos', produtosQuimicosRoutes);
 router.use('/produtos-quimicos', produtosQuimicosRoutes);
+router.use('/telemetria', telemetriaRoutes);
 
 export default router;

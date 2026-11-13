@@ -27,6 +27,12 @@ const STATUS_MAP = {
   Alta: { bg: 'bg-red-50', text: 'text-status-vermelho', ring: 'ring-red-600/20', label: 'Alta' },
   Media: { bg: 'bg-amber-50', text: 'text-status-amarelo', ring: 'ring-amber-600/20', label: 'Média' },
   Baixa: { bg: 'bg-blue-50', text: 'text-blue-700', ring: 'ring-blue-600/20', label: 'Baixa' },
+
+  // Severidade de Telemetria & Fadiga (Anexo I do PGS-007245; GRAVE = "Significativo")
+  NORMAL: { bg: 'bg-green-50', text: 'text-status-verde', ring: 'ring-green-600/20', label: 'Normal' },
+  MODERADO: { bg: 'bg-amber-50', text: 'text-status-amarelo', ring: 'ring-amber-600/20', label: 'Moderado' },
+  GRAVE: { bg: 'bg-orange-50', text: 'text-orange-600', ring: 'ring-orange-600/20', label: 'Grave' },
+  CRITICO: { bg: 'bg-red-50', text: 'text-status-vermelho', ring: 'ring-red-600/20', label: 'Crítico' },
   PREENCHENDO: { bg: 'bg-slate-100', text: 'text-slate-700', ring: 'ring-slate-600/20', label: 'Em Preenchimento' },
   REVISAO: { bg: 'bg-amber-50', text: 'text-status-amarelo', ring: 'ring-amber-600/20', label: 'Em Revisão' },
 };
