@@ -406,3 +406,26 @@ html.dark .app-layout .prog-obra-pill {
 html.dark .app-layout .prog-obra-livre { color: #64748b; border-color: rgb(100 116 139 / 45%); }
 html.dark .app-layout .prog-obra-livre:not(:disabled):hover { color: #93c5fd; border-color: #60a5fa; background: rgb(96 165 250 / 8%); }
 html.dark .app-layout .prog-chip-filtro[aria-pressed="true"] { background: #e2e8f0; color: #0f172a; border-color: #e2e8f0; }
+
+/* ============================================================================
+   Parte Diária — alerta de Desvio de Programação (fundo sólido, legível nos
+   dois temas; não depende das classes âmbar mapeadas pelo tema escuro).
+   ============================================================================ */
+.alerta-desvio {
+  background: #fffbeb;
+  border: 1.5px solid #f59e0b;
+  color: #78350f;
+}
+.alerta-desvio .alerta-desvio-titulo { color: #92400e; }
+.alerta-desvio .alerta-desvio-link { color: #b45309; }
+.alerta-desvio .alerta-desvio-link:hover { color: #78350f; }
+html.dark .app-layout .alerta-desvio,
+html.dark .alerta-desvio {
+  background: #0f172a;
+  border-color: rgb(245 158 11 / 70%);
+  color: #fde68a;
+}
+html.dark .alerta-desvio .alerta-desvio-titulo { color: #fbbf24; }
+html.dark .alerta-desvio .alerta-desvio-link { color: #fcd34d; }
+html.dark .alerta-desvio .alerta-desvio-link:hover { color: #fef3c7; }
+html.dark .alerta-desvio .label { color: #fde68a; }

@@ -110,6 +110,19 @@ export async function requerAdminAutenticado(req, res, next) {
   next();
 }
 
+// Quem pode alterar a Programacao de Recursos (e cadastrar operador/supervisor
+// por ela). Usar depois de requerAdminAutenticado (precisa de req.atuante).
+export function requerGestaoTransporte(req, res, next) {
+  const usuario = req.atuante;
+  if (usuario?.nivel !== 'MASTER' && !['GESTAO', 'TRANSPORTE'].includes(usuario?.setor)) {
+    return res.status(403).json({
+      error: 'Sem permissao',
+      message: 'Apenas Gestao, Transporte ou ADM Master podem alterar a programacao.',
+    });
+  }
+  next();
+}
+
 export function requerMaster(req, res, next) {
   if (!req.atuante || req.atuante.nivel !== 'MASTER') {
     return res.status(403).json({

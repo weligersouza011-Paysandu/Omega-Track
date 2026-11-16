@@ -7,6 +7,7 @@ import {
   listarUsuarios,
   criarAdmin,
   criarLoteOperacionais,
+  criarUsuarioRapido,
   atualizarUsuario,
   obterMinhaAssinatura,
   salvarMinhaAssinatura,
@@ -18,7 +19,9 @@ import {
   restaurarVeiculo,
   restaurarParteDiaria,
 } from '../controllers/usuariosController.js';
-import { requerAdmin, requerMaster, requerSessao } from '../middleware/sessao.js';
+import {
+  requerAdmin, requerAdminAutenticado, requerGestaoTransporte, requerMaster, requerSessao,
+} from '../middleware/sessao.js';
 
 const router = Router();
 
@@ -32,6 +35,8 @@ router.post('/lixeira/veiculos/:tag/restaurar', requerAdmin, requerMaster, resta
 router.post('/lixeira/partes/:id/restaurar', requerAdmin, requerMaster, restaurarParteDiaria);
 router.post('/admin', criarAdmin);
 router.post('/lote', criarLoteOperacionais);
+// Cadastro rapido de Operador/Supervisor pela Programacao de Recursos.
+router.post('/rapido', requerAdminAutenticado, requerGestaoTransporte, criarUsuarioRapido);
 router.put('/:id', atualizarUsuario);
 router.post('/:id/assinatura', salvarAssinaturaUsuario);
 router.patch('/:id/nivel', alterarNivel);

@@ -11,6 +11,11 @@ import RelatorioParteDiariaPreview from './RelatorioParteDiariaPreview.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { hojeISO, paraInputData, formatarDataSemTimezone, formatarDataBR, extrairPartesData } from '../utils/datas.js';
 import { podeAlterarStatusOperacional, ehMaster } from '../utils/permissoes.js';
+import {
+  avaliarDesvio, camposDesvioPayload, JUSTIFICATIVA_MAX, pendenciaDesvio,
+} from '../utils/desvioProgramacao.js';
+
+const NOVA_CATEGORIA = '__nova_categoria__';
 
 // Status internos do fluxo de aprovação (mapeados para exibição)
 const STATUS_APROVACAO = {
@@ -190,6 +195,9 @@ function estadoVazio(usuario, data = hojeISO()) {
     atividades: [],
     ocorrencias: [],
     fotos: [],
+    // Desvio de Programação (obra diferente da programada para o veículo no dia)
+    categoria_desvio_id: '',
+    justificativa_desvio: '',
   });
 }
 
@@ -365,7 +373,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const [parteExistente, setParteExistente] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [nomesAssinatura, setNomesAssinatura] = useState({});
-  const [secoes, setSecoes] = useState({ cabecalho: true, horario: true, mao: true, equip: false, ativ: true, ocor: false, fotos: false, assin: true });
+  const [secoes, setSecoes] = useState({ cabecalho: true, horario: true, mao: true, equip: true, ativ: true, ocor: false, fotos: false, assin: true });
   const [verLogs, setVerLogs] = useState(false);
   const [verRelatorio, setVerRelatorio] = useState(false);
   const [obras, setObras] = useState([]);
@@ -379,6 +387,14 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const manutencaoReqRef = useRef(0);
   const formRef = useRef(null);
   formRef.current = form;
+  // Programação do veículo principal no dia (GET /partes-diarias/obra-programada).
+  const [programacaoDia, setProgramacaoDia] = useState({ chave: '', carregando: false, dados: null });
+  const [categoriasDesvio, setCategoriasDesvio] = useState([]);
+  // Categoria já gravada no RDO (pode ter sido desativada pelo admin depois).
+  const [categoriaDesvioGravada, setCategoriaDesvioGravada] = useState(null);
+  const [novaCategoria, setNovaCategoria] = useState({ aberta: false, nome: '', salvando: false, erro: '' });
+  // Obra preenchida automaticamente pela Programação (pode ser trocada ao mudar o veículo).
+  const obraAutoRef = useRef(null);
 
   const sujoRef = useRef(false);
   const pularAutosaveRef = useRef(true);
@@ -537,6 +553,101 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     });
   }, [obras, limparErroCampo]);
 
+  // ------- Programação do dia: obra programada + detecção de desvio -------
+  const chaveProgramacao = (f) => {
+    const tag = String((f?.equipamentos || []).find((e) => String(e?.tag_patrimonio || '').trim())?.tag_patrimonio || '')
+      .trim().toUpperCase();
+    return tag && f?.data ? `${tag}|${f.data}` : '';
+  };
+  const avaliarDesvioDoForm = useCallback((f) => {
+    // Só compara com a programação do mesmo veículo+data (resposta ainda
+    // carregando ou de outro veículo não gera desvio).
+    const dados = programacaoDia.chave && programacaoDia.chave === chaveProgramacao(f) ? programacaoDia.dados : null;
+    return avaliarDesvio(dados, {
+      obraId: f?.obra_id || null,
+      obraTexto: f?.obra,
+      statusOperacional: statusTravado ? 'Operação' : (f?.status_operacional || 'Operação'),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programacaoDia, statusTravado]);
+
+  const chaveAtual = chaveProgramacao(form);
+  useEffect(() => {
+    if (!open || !chaveAtual) {
+      setProgramacaoDia({ chave: '', carregando: false, dados: null });
+      return undefined;
+    }
+    let vivo = true;
+    const [tag, data] = chaveAtual.split('|');
+    setProgramacaoDia((atual) => ({ chave: chaveAtual, carregando: true, dados: atual.chave === chaveAtual ? atual.dados : null }));
+    (async () => {
+      let dados = null;
+      try {
+        const qs = new URLSearchParams({ tag, data });
+        const resp = await fetch(`/api/partes-diarias/obra-programada?${qs}`, { headers: authHeaders(sessao) });
+        if (resp.ok) dados = (await resp.json())?.data || null;
+      } catch {
+        /* sem conexão/cache: segue sem programação (nada é bloqueado) */
+      }
+      if (!vivo) return;
+      setProgramacaoDia({ chave: chaveAtual, carregando: false, dados });
+      // Autopreenche a obra (só em Operação) quando está vazia ou quando foi
+      // a própria Programação que preencheu antes (troca de veículo/data).
+      const f = formRef.current;
+      const obraProg = dados?.programada ? dados.obra : null;
+      const podePreencher = !f.obra_id && !String(f.obra || '').trim()
+        || (obraAutoRef.current && f.obra_id === obraAutoRef.current);
+      if (modoDoStatus(f.status_operacional) !== 'operacao' || !podePreencher) return;
+      if (!obraProg) {
+        if (obraAutoRef.current) {
+          obraAutoRef.current = null;
+          setForm((atual) => ({ ...atual, obra_id: '', obra: '' }));
+        }
+        return;
+      }
+      if (f.obra_id === obraProg.id) { obraAutoRef.current = obraProg.id; return; }
+      obraAutoRef.current = obraProg.id;
+      sujoRef.current = true;
+      setForm((atual) => ({
+        ...atual,
+        obra_id: obraProg.id,
+        obra: obraProg.nome,
+        numero_contrato: obraProg.numero_contrato || atual.numero_contrato,
+        contratante: obraProg.contratante || atual.contratante,
+        responsavel: obraProg.gestao || atual.responsavel,
+        planejador: obraProg.planejador || atual.planejador,
+      }));
+      limparErroCampo('obra');
+    })();
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, chaveAtual]);
+
+  // "+ Adicionar nova categoria...": grava na hora e já seleciona no RDO.
+  const criarCategoriaDesvio = async () => {
+    const nome = novaCategoria.nome.trim().replace(/\s+/g, ' ');
+    if (!nome || novaCategoria.salvando) return;
+    setNovaCategoria((n) => ({ ...n, salvando: true, erro: '' }));
+    try {
+      const resp = await fetch('/api/categorias-desvio', {
+        method: 'POST', headers: authHeaders(sessao), body: JSON.stringify({ nome }),
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(corpo.message || `Não foi possível salvar a categoria (${resp.status}).`);
+      const categoria = corpo.data;
+      setCategoriasDesvio((lista) => (lista.some((c) => c.id === categoria.id) ? lista
+        : [...lista, categoria].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))));
+      limparErroCampo('desvio');
+      definir('categoria_desvio_id', categoria.id);
+      setNovaCategoria({ aberta: false, nome: '', salvando: false, erro: '' });
+    } catch (falha) {
+      setNovaCategoria((n) => ({
+        ...n, salvando: false,
+        erro: falha instanceof TypeError && !navigator.onLine ? 'Sem conexão: não foi possível salvar a categoria.' : falha.message,
+      }));
+    }
+  };
+
   // ------- obras ativas (dropdown do cabeçalho) + usuários (função da mão de obra) -------
   useEffect(() => {
     if (!open) return;
@@ -549,6 +660,15 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         if (vivo) setObras(Array.isArray(corpo?.data) ? corpo.data : []);
       } catch {
         /* dropdown segue com lista vazia */
+      }
+      try {
+        const resp = await fetch('/api/categorias-desvio?ativas=1', { headers: authHeaders(sessao) });
+        if (resp.ok) {
+          const corpo = await resp.json();
+          if (vivo) setCategoriasDesvio(Array.isArray(corpo?.data) ? corpo.data : []);
+        }
+      } catch {
+        /* sem categorias: o bloqueio de desvio explica o que falta */
       }
       try {
         const resp = await fetch('/api/usuarios', { headers: authHeaders(sessao) });
@@ -677,7 +797,11 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
           descricao: i.descricao || '',
         })),
         fotos: (p.fotos || []).map((i) => ({ url: i.url, legenda: i.legenda || '', public_id: i.public_id || '' })),
+        categoria_desvio_id: p.categoria_desvio_id || '',
+        justificativa_desvio: p.justificativa_desvio || '',
       }));
+      setCategoriaDesvioGravada(p.categoria_desvio || null);
+      obraAutoRef.current = null;
       // Registro carregado traz a própria KM (não é herança).
       setKmHerdada(false);
       setKmOrigem(null);
@@ -899,8 +1023,13 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       atividades: (f.atividades || []).map((a) => ({ descricao: a.descricao, status: a.status })),
       ocorrencias: ocorrenciasPayload,
       fotos: f.fotos,
+      ...camposDesvioPayload({
+        desvio: avaliarDesvioDoForm(f).desvio,
+        categoriaId: f.categoria_desvio_id,
+        justificativa: f.justificativa_desvio,
+      }),
     };
-  }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada, statusTravado, fluxoSimplificadoTransporte, criadorOriginal]);
+  }, [form, assinaturas, usuario, funcaoDoLogado, motivoParada, statusTravado, fluxoSimplificadoTransporte, criadorOriginal, avaliarDesvioDoForm]);
 
   const aplicarResposta = useCallback((p) => {
     if (!p) return;
@@ -919,7 +1048,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   // parada exigem só veículo + status (obra oculta/opcional). Preventiva exige
   // também a KM (âncora do ciclo).
   // Validação explícita de campos obrigatórios com mapeamento de IDs do DOM
-  const validarFormulario = useCallback((f = form) => {
+  const validarFormulario = useCallback((f = form, { exigirDesvio = true } = {}) => {
     const novosErros = {};
     const pendentes = [];
     let primeiroId = null;
@@ -983,10 +1112,21 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       }
     }
 
+    // 6. Desvio de Programação: concluir exige categoria + justificativa
+    // (o autosave não cobra, para não perder o que já foi digitado).
+    if (exigirDesvio) {
+      const msgDesvio = pendenciaDesvio({
+        desvio: avaliarDesvioDoForm(f).desvio,
+        categoriaId: f.categoria_desvio_id,
+        justificativa: f.justificativa_desvio,
+      });
+      if (msgDesvio) marcarErro('desvio', 'campo-desvio', msgDesvio);
+    }
+
     setErrosValidacao(novosErros);
     const valido = Object.keys(novosErros).length === 0;
     return { valido, pendentes, primeiroId, erros: novosErros };
-  }, [form, erroData]);
+  }, [form, erroData, avaliarDesvioDoForm]);
 
   const relatorioValido = (f = form) => {
     const { valido } = validarFormulario(f);
@@ -1010,7 +1150,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
 
   const persistir = useCallback(async ({ silencioso = false, formOverride } = {}) => {
     const f = formOverride || form;
-    const { valido, pendentes, primeiroId } = validarFormulario(f);
+    const { valido, pendentes, primeiroId } = validarFormulario(f, { exigirDesvio: !silencioso });
     if (!valido) {
       if (!silencioso) {
         setErro(`Preencha para salvar: ${pendentes.join(' • ')}.`);
@@ -1238,14 +1378,27 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       }
     }
 
+    // Regra: 1 único veículo por Parte Diária — escolher outro substitui o atual.
+    const tagNova = String(veiculo.tag).trim().toUpperCase();
+    const tagAnterior = String((form.equipamentos || []).find((e) => String(e?.tag_patrimonio || '').trim())?.tag_patrimonio || '')
+      .trim().toUpperCase();
+    if (tagTravada && tagAnterior === tagTravada && tagNova !== tagTravada) {
+      setErro('O veículo deste lançamento retroativo está travado e não pode ser trocado.');
+      setModalEquip(false);
+      return;
+    }
+    // KM herdada do veículo anterior não vale para o novo: limpa e herda de novo.
+    const trocouVeiculo = Boolean(tagAnterior) && tagAnterior !== tagNova;
+    const limparKmHerdada = trocouVeiculo && kmHerdada;
     sujoRef.current = true;
     limparErroCampo('equipamentos');
-    // O 1º equipamento é o veículo principal (TAG do relatório).
-    const ehPrincipal = (form.equipamentos || []).length === 0;
-    const kmVazia = String(form.km_inicial ?? '').trim() === '';
+    const ehPrincipal = true;
+    const kmVazia = limparKmHerdada || String(form.km_inicial ?? '').trim() === '';
+    if (limparKmHerdada) { setKmHerdada(false); setKmOrigem(null); }
     setForm((f) => ({
       ...f,
-      equipamentos: [...(f.equipamentos || []), {
+      ...(limparKmHerdada ? { km_inicial: '' } : {}),
+      equipamentos: [{
         tag_patrimonio: veiculo.tag,
         descricao: veiculo.modelo || veiculo.placa || '',
         horimetro_inicial: '',
@@ -1402,6 +1555,18 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   };
 
   const abrirModalAssin = (etapa, rotulo) => {
+    // Assinar conclui a etapa: com desvio, categoria e justificativa vêm antes.
+    const msgDesvio = pendenciaDesvio({
+      desvio: avaliarDesvioDoForm(formRef.current).desvio,
+      categoriaId: formRef.current.categoria_desvio_id,
+      justificativa: formRef.current.justificativa_desvio,
+    });
+    if (msgDesvio) {
+      validarFormulario(formRef.current);
+      setErro(`${msgDesvio} antes de assinar.`);
+      executarScrollParaElemento('campo-desvio');
+      return;
+    }
     setErro(null);
     setModalAssin({ etapa, rotulo });
   };
@@ -1565,6 +1730,65 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const btnIcone = 'p-1.5 rounded-md hover:bg-red-50 text-omega-400 hover:text-status-vermelho transition-colors';
   // Modo de segregação do formulário (recalculado a cada render).
   const modo = modoDoStatus(form.status_operacional);
+  const desvioAtual = avaliarDesvioDoForm(form);
+  // Categorias ativas + a já gravada no RDO (mesmo que desativada depois).
+  const opcoesCategoriaDesvio = categoriaDesvioGravada && !categoriasDesvio.some((c) => c.id === categoriaDesvioGravada.id)
+    ? [...categoriasDesvio, { ...categoriaDesvioGravada, nome: `${categoriaDesvioGravada.nome}${categoriaDesvioGravada.ativo === false ? ' (inativa)' : ''}` }]
+    : categoriasDesvio;
+  const tamanhoJustificativa = String(form.justificativa_desvio || '').trim().length;
+  const selecionarCategoriaDesvio = (valor) => {
+    limparErroCampo('desvio');
+    if (valor === NOVA_CATEGORIA) {
+      setNovaCategoria({ aberta: true, nome: '', salvando: false, erro: '' });
+      return;
+    }
+    definir('categoria_desvio_id', valor);
+  };
+  const camposDesvio = (
+    <div id="campo-desvio" className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3">
+      <div className="min-w-0">
+        <label className="label" htmlFor="campo-categoria-desvio">Categoria do Desvio <span className="text-status-vermelho">*</span></label>
+        <select id="campo-categoria-desvio" value={novaCategoria.aberta ? NOVA_CATEGORIA : (form.categoria_desvio_id || '')}
+          onChange={(e) => selecionarCategoriaDesvio(e.target.value)}
+          className={`${inputCls} ${errosValidacao.desvio && !form.categoria_desvio_id ? '!border-red-500 ring-2 ring-red-500/40' : ''}`}>
+          <option value="">Selecionar categoria...</option>
+          {opcoesCategoriaDesvio.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          <option value={NOVA_CATEGORIA}>+ Adicionar nova categoria...</option>
+        </select>
+        {novaCategoria.aberta && (
+          <form className="mt-2 space-y-1.5" onSubmit={(e) => { e.preventDefault(); criarCategoriaDesvio(); }}>
+            <div className="flex gap-1.5">
+              <input autoFocus value={novaCategoria.nome} maxLength={120} aria-label="Nome da nova categoria"
+                onChange={(e) => setNovaCategoria((n) => ({ ...n, nome: e.target.value, erro: '' }))}
+                placeholder="Ex.: Apoio Operacional" className={`${inputCls} flex-1 min-w-0`} />
+              <button type="submit" disabled={!novaCategoria.nome.trim() || novaCategoria.salvando}
+                className="btn-primary !py-1.5 !px-2.5 text-xs shrink-0 disabled:opacity-50">
+                {novaCategoria.salvando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Salvar
+              </button>
+              <button type="button" onClick={() => setNovaCategoria({ aberta: false, nome: '', salvando: false, erro: '' })}
+                className="btn-secondary !py-1.5 !px-2 text-xs shrink-0" aria-label="Cancelar nova categoria"><X size={13} /></button>
+            </div>
+            {novaCategoria.erro && <p className="text-[11px] font-semibold text-red-600">{novaCategoria.erro}</p>}
+          </form>
+        )}
+        {errosValidacao.desvio && (
+          <p className="mt-1 text-[11px] font-semibold text-red-600 flex items-center gap-1">
+            <AlertTriangle size={12} className="shrink-0" /> {errosValidacao.desvio}
+          </p>
+        )}
+      </div>
+      <div className="min-w-0">
+        <label className="label" htmlFor="campo-justificativa-desvio">Justificativa do Desvio <span className="font-normal text-omega-400">(opcional)</span></label>
+        <textarea id="campo-justificativa-desvio" value={form.justificativa_desvio || ''} maxLength={JUSTIFICATIVA_MAX} rows={3}
+          onChange={(e) => definir('justificativa_desvio', e.target.value)}
+          placeholder="Detalhe o motivo, se quiser"
+          className={`${inputCls} min-h-[72px] resize-y`} />
+        {tamanhoJustificativa > JUSTIFICATIVA_MAX - 200 && (
+          <p className="mt-1 text-[11px] text-omega-400">{tamanhoJustificativa}/{JUSTIFICATIVA_MAX} caracteres.</p>
+        )}
+      </div>
+    </div>
+  );
   const corStatusOperacional = CORES_STATUS_OPERACIONAL[form.status_operacional] || '';
   const statusInvalido = errosValidacao.status_operacional || !STATUS_OPERACIONAL_DIA.includes(form.status_operacional);
   const corSetaStatus = statusInvalido ? 'text-red-500' : corStatusOperacional ? 'text-white' : 'text-omega-500';
@@ -1737,8 +1961,85 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                     </p>
                   )}
                 </div>
-                {modo === 'operacao' && (
-                <>
+              </div>
+            </div>
+
+            {/* 2. VEÍCULO / EQUIPAMENTOS (antes da obra: a obra vem da Programação do veículo) */}
+            <div id="campo-equipamentos" className={`rounded-2xl transition-all ${errosValidacao.equipamentos ? 'ring-2 ring-red-500/70 p-0.5' : ''}`}>
+              <Secao
+                icone={Truck}
+                titulo="Veículo (1 por Parte Diária)"
+                labelAdicionar={form.equipamentos.some((e) => String(e?.tag_patrimonio || '').trim()) ? 'Trocar veículo' : undefined}
+                count={form.equipamentos.length}
+                aberto={secoes.equip}
+                onToggle={() => alternarSecao('equip')}
+                onAdicionar={() => { setBuscaEquip(''); setModalEquip(true); }}
+                temErro={!!errosValidacao.equipamentos}
+              >
+                {errosValidacao.equipamentos && (
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-bold text-red-700 flex items-center gap-2 animate-pulse">
+                    <AlertTriangle size={15} className="shrink-0 text-red-600" />
+                    <span>{errosValidacao.equipamentos}</span>
+                    <button
+                      type="button"
+                      onClick={() => { setBuscaEquip(''); setModalEquip(true); }}
+                      className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold text-white bg-omega-red-600 hover:bg-omega-red-700 active:scale-95 shadow-sm transition-all shrink-0 cursor-pointer"
+                    >
+                      <Plus size={13} className="stroke-[2.5]" /> Escolher da Frota
+                    </button>
+                  </div>
+                )}
+                {form.equipamentos.length === 0 && <LinhaVazia texto="Nenhum veículo/equipamento lançado. Use + Adicionar para escolher da frota." />}
+                {form.equipamentos.map((it, i) => {
+                  const norm = (v) => String(v || '').trim().toUpperCase();
+                  const ficha = (veiculos || []).find((v) => norm(v.tag) === norm(it.tag_patrimonio));
+                  const identificacao = [
+                    it.tag_patrimonio || '—',
+                    ficha?.placa,
+                    it.descricao || ficha?.modelo,
+                  ].filter(Boolean).join(' • ');
+                  // Retroativo: o veiculo do dia pendente (1º equipamento) fica travado.
+                  const equipamentoTravado = !!tagTravada && i === 0 && norm(it.tag_patrimonio) === tagTravada;
+                  return (
+                    <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
+                      <div className="flex items-center gap-3 min-w-0 w-full">
+                        <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
+                          <Truck size={15} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-mono font-extrabold text-omega-900 text-sm break-words">{identificacao}</span>
+                          {ficha?.status && <span className="block text-[11px] text-omega-400">{ficha.status}</span>}
+                          {equipamentoTravado && <span className="block text-[11px] text-sky-700 font-semibold">Veículo travado pelo lançamento retroativo</span>}
+                        </span>
+                      </div>
+                      {!equipamentoTravado && (
+                        <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} self-end sm:self-center sm:ml-auto shrink-0`} title="Remover"><Trash2 size={15} /></button>
+                      )}
+                    </div>
+                  );
+                })}
+              </Secao>
+            </div>
+
+            {/* 3. OBRA (preenchida pela Programação do veículo; só operação) */}
+            {modo === 'operacao' && (
+            <div className="card p-4">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <span className="p-1.5 rounded-lg bg-omega-900 text-white"><Building2 size={14} /></span>
+                <span className="text-sm font-bold text-omega-900">Obra</span>
+                {programacaoDia.carregando && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-omega-400"><Loader2 size={12} className="animate-spin" /> Consultando programação...</span>
+                )}
+                {!programacaoDia.carregando && desvioAtual.programada && !desvioAtual.desvio && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                    <Check size={12} /> Conforme Programação
+                  </span>
+                )}
+                {!programacaoDia.carregando && chaveAtual && programacaoDia.chave === chaveAtual && !desvioAtual.programada && (
+                  <span className="text-[11px] text-omega-400">Veículo sem programação nesta data</span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className={`rounded-xl border-2 p-2.5 shadow-sm transition-colors ${
                   errosValidacao.obra
                     ? 'border-red-400 bg-red-50/40 shadow-red-500/10'
@@ -1793,12 +2094,40 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   <label className="label">Planejador</label>
                   <input value={form.planejador} readOnly title="Preenchido automaticamente pela obra selecionada" className={`${inputCls} bg-omega-50 text-omega-500`} placeholder="Preenchido pela obra" />
                 </div>
-                </>
-                )}
               </div>
+              {desvioAtual.desvio && (
+                <div role="alert" className="alerta-desvio mt-3 rounded-xl p-3 space-y-3">
+                  <div className="text-xs">
+                    <p className="alerta-desvio-titulo font-bold">⚠️ Desvio de Programação Detectado (Programado: {desvioAtual.obraProgramada.nome})</p>
+                    <p className="mt-0.5">Selecione a categoria do desvio para concluir a Parte Diária.</p>
+                    {obras.some((o) => o.id === desvioAtual.obraProgramada.id) && (
+                      <button type="button" onClick={() => { selecionarObra(desvioAtual.obraProgramada.id); obraAutoRef.current = desvioAtual.obraProgramada.id; }}
+                        className="alerta-desvio-link mt-1 font-bold underline underline-offset-2">
+                        Voltar para a obra programada
+                      </button>
+                    )}
+                  </div>
+                  {camposDesvio}
+                </div>
+              )}
             </div>
+            )}
 
-            {/* 2. HORÁRIO DE TRABALHO (só operação) */}
+            {/* Desvio fora de Operação: veículo programado mas parado/em manutenção */}
+            {modo !== 'operacao' && desvioAtual.desvio && (
+            <div role="alert" className="alerta-desvio rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-amber-500 text-white"><AlertTriangle size={14} /></span>
+                <span className="alerta-desvio-titulo text-sm font-bold">Desvio de Programação</span>
+              </div>
+              <p className="text-xs">
+                ⚠️ Programado para <strong>{desvioAtual.obraProgramada.nome}</strong>, mas o dia está como <strong>{form.status_operacional}</strong>. Selecione a categoria do desvio.
+              </p>
+              {camposDesvio}
+            </div>
+            )}
+
+            {/* 4. HORÁRIO DE TRABALHO (só operação) */}
             {modo === 'operacao' && (
             <div className="card p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -1826,7 +2155,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             </div>
             )}
 
-            {/* 3. MÃO DE OBRA (só operação) */}
+            {/* 5. MÃO DE OBRA (só operação) */}
             {modo === 'operacao' && (
             <Secao icone={Users} titulo="Mão de Obra" count={form.mao_obra.length} aberto={secoes.mao} onToggle={() => alternarSecao('mao')} onAdicionar={() => adicionar('mao_obra', { nome: '', matricula: '', funcao: 'Sinaleiro' })}>
               {form.mao_obra.length === 0 && <LinhaVazia texto="Nenhum colaborador lançado. Use + Adicionar." />}
@@ -1924,63 +2253,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             </Secao>
             )}
 
-            {/* 4. EQUIPAMENTOS */}
-            <div id="campo-equipamentos" className={`rounded-2xl transition-all ${errosValidacao.equipamentos ? 'ring-2 ring-red-500/70 p-0.5' : ''}`}>
-              <Secao
-                icone={Truck}
-                titulo="Equipamentos (Veículo Obrigatório)"
-                count={form.equipamentos.length}
-                aberto={secoes.equip}
-                onToggle={() => alternarSecao('equip')}
-                onAdicionar={() => { setBuscaEquip(''); setModalEquip(true); }}
-                temErro={!!errosValidacao.equipamentos}
-              >
-                {errosValidacao.equipamentos && (
-                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-bold text-red-700 flex items-center gap-2 animate-pulse">
-                    <AlertTriangle size={15} className="shrink-0 text-red-600" />
-                    <span>{errosValidacao.equipamentos}</span>
-                    <button
-                      type="button"
-                      onClick={() => { setBuscaEquip(''); setModalEquip(true); }}
-                      className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold text-white bg-omega-red-600 hover:bg-omega-red-700 active:scale-95 shadow-sm transition-all shrink-0 cursor-pointer"
-                    >
-                      <Plus size={13} className="stroke-[2.5]" /> Escolher da Frota
-                    </button>
-                  </div>
-                )}
-                {form.equipamentos.length === 0 && <LinhaVazia texto="Nenhum veículo/equipamento lançado. Use + Adicionar para escolher da frota." />}
-                {form.equipamentos.map((it, i) => {
-                  const norm = (v) => String(v || '').trim().toUpperCase();
-                  const ficha = (veiculos || []).find((v) => norm(v.tag) === norm(it.tag_patrimonio));
-                  const identificacao = [
-                    it.tag_patrimonio || '—',
-                    ficha?.placa,
-                    it.descricao || ficha?.modelo,
-                  ].filter(Boolean).join(' • ');
-                  // Retroativo: o veiculo do dia pendente (1º equipamento) fica travado.
-                  const equipamentoTravado = !!tagTravada && i === 0 && norm(it.tag_patrimonio) === tagTravada;
-                  return (
-                    <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
-                      <div className="flex items-center gap-3 min-w-0 w-full">
-                        <span className="w-9 h-9 rounded-xl bg-omega-900 text-white flex items-center justify-center shrink-0">
-                          <Truck size={15} />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-mono font-extrabold text-omega-900 text-sm break-words">{identificacao}</span>
-                          {ficha?.status && <span className="block text-[11px] text-omega-400">{ficha.status}</span>}
-                          {equipamentoTravado && <span className="block text-[11px] text-sky-700 font-semibold">Veículo travado pelo lançamento retroativo</span>}
-                        </span>
-                      </div>
-                      {!equipamentoTravado && (
-                        <button onClick={() => removerItem('equipamentos', i)} className={`${btnIcone} self-end sm:self-center sm:ml-auto shrink-0`} title="Remover"><Trash2 size={15} /></button>
-                      )}
-                    </div>
-                  );
-                })}
-              </Secao>
-            </div>
-
-            {/* 5. QUILOMETRAGEM (operação + preventiva) */}
+            {/* 6. QUILOMETRAGEM (operação + preventiva) */}
             {(modo === 'operacao' || modo === 'preventiva') && (
             <div className="card p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -2081,7 +2354,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             </div>
             )}
 
-            {/* 6. OCORRÊNCIA (só operação) */}
+            {/* 7. OCORRÊNCIAS / DESVIOS (só operação) */}
             {modo === 'operacao' && (
             <>
             <div className="pt-1">
@@ -2104,7 +2377,15 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               ))}
             </Secao>
 
-            <Secao icone={AlertTriangle} titulo="Ocorrências" count={form.ocorrencias.length} aberto={secoes.ocor} onToggle={() => alternarSecao('ocor')} onAdicionar={abrirModalOcor}>
+            <Secao icone={AlertTriangle} titulo="Ocorrências / Desvios" count={form.ocorrencias.length + (desvioAtual.desvio ? 1 : 0)} aberto={secoes.ocor} onToggle={() => alternarSecao('ocor')} onAdicionar={abrirModalOcor} temErro={!!errosValidacao.desvio}>
+              {desvioAtual.desvio && (
+                <button type="button" onClick={() => executarScrollParaElemento('campo-desvio')}
+                  className="alerta-desvio w-full rounded-xl px-3 py-2 text-left text-xs">
+                  <span className="alerta-desvio-titulo font-bold">⚠️ Desvio de Programação</span>
+                  {' '}(Programado: {desvioAtual.obraProgramada.nome}) — categoria registrada no bloco <strong>Obra</strong>.
+                  {form.categoria_desvio_id ? ' ✓' : ' Toque para preencher.'}
+                </button>
+              )}
               {form.ocorrencias.length === 0 && <LinhaVazia texto="Nenhuma ocorrência registrada. Use + Adicionar." />}
               {form.ocorrencias.map((it, i) => (
                 <div key={i} className="flex flex-col md:flex-row gap-2 p-2.5 rounded-xl border border-omega-100 bg-omega-50/40">
@@ -2147,7 +2428,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             </Secao>
             )}
 
-            {/* 7. ASSINATURAS (só operação) */}
+            {/* 8. ASSINATURAS (só operação) */}
             {modo === 'operacao' && (
             <div className="card p-4 space-y-4">
               <div className="flex items-center justify-between">
@@ -2284,7 +2565,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             </div>
             )}
 
-            {/* 8. RODAPÉ / AUDITORIA */}
+            {/* 9. RODAPÉ / AUDITORIA */}
             <div className="card p-4">
               <div className="flex items-center gap-2 mb-3">
                 <span className="p-1.5 rounded-lg bg-omega-900 text-white"><History size={14} /></span>
@@ -2354,7 +2635,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         open={modalEquip}
         onClose={() => setModalEquip(false)}
         title="Selecionar Veículo"
-        subtitle="Clique no veículo para vinculá-lo como equipamento"
+        subtitle="Clique no veículo para vinculá-lo (substitui o veículo atual)"
         size="md"
       >
         <div className="space-y-3">

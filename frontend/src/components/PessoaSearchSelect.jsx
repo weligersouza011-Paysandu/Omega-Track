@@ -1,12 +1,14 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, Search } from 'lucide-react';
+import { Check, ChevronDown, Search, UserPlus } from 'lucide-react';
 
 function normalizar(valor) {
   return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
-export default function PessoaSearchSelect({ id, rotulo, matricula, nomeSalvo, pessoas, onChange, disabled }) {
+// `onNovo(textoBuscado)`: quando informado, mostra "+ Novo Usuário Operacional"
+// no fim da lista (o texto da busca vira sugestão de matrícula ou nome).
+export default function PessoaSearchSelect({ id, rotulo, matricula, nomeSalvo, pessoas, onChange, disabled, onNovo }) {
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState('');
   const [indiceAtivo, setIndiceAtivo] = useState(-1);
@@ -152,6 +154,15 @@ export default function PessoaSearchSelect({ id, rotulo, matricula, nomeSalvo, p
               </button>
             ))}
           </div>
+          {onNovo && (
+            <button type="button"
+              onClick={() => { const texto = busca.trim(); setAberto(false); setBusca(''); onNovo(texto); }}
+              className="mt-2 w-full rounded-lg border border-dashed border-omega-200 px-3 py-2 text-left text-sm font-semibold text-omega-accent hover:bg-omega-50 flex items-center gap-2">
+              <UserPlus size={15} className="shrink-0" />
+              Novo Usuário Operacional
+              {busca.trim() && <span className="truncate font-normal text-omega-500">“{busca.trim()}”</span>}
+            </button>
+          )}
         </div>,
         document.body
       )}

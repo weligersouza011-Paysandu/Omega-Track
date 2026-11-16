@@ -12,7 +12,15 @@ const chaveTravaTerceiro = (id) => `terceiro:${id}`;
 
 const SELECT_PROGRAMACAO_DIA = {
   id: true, obra_id: true, operador_matricula: true, operador_nome: true,
+  operador_tarde_matricula: true, operador_tarde_nome: true,
   supervisor_matricula: true, supervisor_nome: true, updated_at: true,
+};
+
+// Campos de pessoas copiados entre dias (copiar ultima programacao).
+const SELECT_PESSOAS_COPIA = {
+  operador_matricula: true, operador_nome: true,
+  operador_tarde_matricula: true, operador_tarde_nome: true,
+  supervisor_matricula: true, supervisor_nome: true,
 };
 
 function camposProgramacao(programacao) {
@@ -20,6 +28,8 @@ function camposProgramacao(programacao) {
     obraId: programacao?.obra_id ?? null,
     operadorMatricula: programacao?.operador_matricula ?? null,
     operadorNome: programacao?.operador_nome ?? null,
+    operadorTardeMatricula: programacao?.operador_tarde_matricula ?? null,
+    operadorTardeNome: programacao?.operador_tarde_nome ?? null,
     supervisorMatricula: programacao?.supervisor_matricula ?? null,
     supervisorNome: programacao?.supervisor_nome ?? null,
     atualizadoEm: programacao?.updated_at ?? null,
@@ -66,10 +76,25 @@ function formatarManutencao(registro) {
   };
 }
 
+// operador = motorista principal (manha); operadorTarde = 2o motorista
+// (tarde) de onibus/vans, opcional e independente para os demais veiculos.
 const CAMPOS_PESSOA = [
   ['operadorMatricula', 'operador'],
+  ['operadorTardeMatricula', 'operador_tarde'],
   ['supervisorMatricula', 'supervisor'],
 ];
+
+// O mesmo colaborador nao pode ser motorista da manha e da tarde no mesmo dia.
+function motoristasRepetidos(item) {
+  return Boolean(item?.operadorMatricula) && item.operadorMatricula === item.operadorTardeMatricula;
+}
+
+function erroMotoristasRepetidos(res) {
+  return res.status(400).json({
+    error: 'Dados invalidos',
+    message: 'O motorista da tarde deve ser diferente do motorista da manhã.',
+  });
+}
 
 function matriculaValida(valor) {
   return valor === null || (typeof valor === 'string' && valor.length > 0 &&
@@ -112,10 +137,7 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
         foto_veiculo: true,
         programacoes: {
           where: { data },
-          select: {
-            id: true, obra_id: true, operador_matricula: true, operador_nome: true,
-            supervisor_matricula: true, supervisor_nome: true, updated_at: true,
-          },
+          select: SELECT_PROGRAMACAO_DIA,
         },
         manutencoes: {
           where: { OR: [
@@ -220,15 +242,13 @@ export const copiarUltimaProgramacao = asyncHandler(async (req, res) => {
     const origem = await tx.programacaoRecurso.findMany({
       where: { data: ultima.data, equipamento: FILTRO_MOBILIZADOS },
       select: {
-        tag: true, obra_id: true, operador_matricula: true, operador_nome: true,
-        supervisor_matricula: true, supervisor_nome: true, obra: { select: { ativo: true } },
+        tag: true, obra_id: true, ...SELECT_PESSOAS_COPIA, obra: { select: { ativo: true } },
       },
     });
     const origemTerceiros = await tx.programacaoRecursoTerceiro.findMany({
       where: { data: ultima.data },
       select: {
-        veiculo_terceiro_id: true, obra_id: true, operador_matricula: true, operador_nome: true,
-        supervisor_matricula: true, supervisor_nome: true, obra: { select: { ativo: true } },
+        veiculo_terceiro_id: true, obra_id: true, ...SELECT_PESSOAS_COPIA, obra: { select: { ativo: true } },
       },
     });
     if (origem.length === 0 && origemTerceiros.length === 0) {
@@ -254,6 +274,8 @@ export const copiarUltimaProgramacao = asyncHandler(async (req, res) => {
         obra_id: item.obra_id,
         operador_matricula: item.operador_matricula,
         operador_nome: item.operador_nome,
+        operador_tarde_matricula: item.operador_tarde_matricula,
+        operador_tarde_nome: item.operador_tarde_nome,
         supervisor_matricula: item.supervisor_matricula,
         supervisor_nome: item.supervisor_nome,
         data,
@@ -310,6 +332,7 @@ export const salvarProgramacaoEmLote = asyncHandler(async (req, res) => {
         message: 'Cada alteração deve ter uma TAG única, uma obra válida ou null, e matrículas válidas.',
       });
     }
+    if (motoristasRepetidos(item)) return erroMotoristasRepetidos(res);
     tags.add(item.tag);
     if (item.obraId) obrasIds.add(item.obraId);
     if (item.obraId) {
@@ -349,7 +372,7 @@ export const salvarProgramacaoEmLote = asyncHandler(async (req, res) => {
   if (pessoasPorMatricula.size !== matriculas.size) {
     return res.status(400).json({
       error: 'Usuario invalido',
-      message: 'Um ou mais operadores ou supervisores não estão cadastrados. Atualize a página.',
+      message: 'Um ou mais operadores, motoristas ou supervisores não estão cadastrados. Atualize a página.',
     });
   }
 
@@ -417,6 +440,7 @@ export const salvarProgramacao = asyncHandler(async (req, res) => {
   if (CAMPOS_PESSOA.some(([campo]) => req.body?.[campo] !== undefined && !matriculaValida(req.body[campo]))) {
     return res.status(400).json({ error: 'Dados invalidos', message: 'Informe matrículas válidas.' });
   }
+  if (motoristasRepetidos(req.body)) return erroMotoristasRepetidos(res);
   const matriculas = new Set(CAMPOS_PESSOA.map(([campo]) => req.body?.[campo]).filter(Boolean));
   const [equipamento, obra, pessoasPorMatricula] = await Promise.all([
     prisma.mobDesmob.findUnique({ where: { tag }, select: { tag: true, status: true, deletado_em: true } }),
@@ -433,7 +457,7 @@ export const salvarProgramacao = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Obra inativa', message: 'Ative a obra antes de programar equipamentos nela.' });
   }
   if (pessoasPorMatricula.size !== matriculas.size) {
-    return res.status(400).json({ error: 'Usuario invalido', message: 'Operador ou supervisor não cadastrado.' });
+    return res.status(400).json({ error: 'Usuario invalido', message: 'Operador, motorista ou supervisor não cadastrado.' });
   }
 
   const pessoas = dadosPessoas(req.body, pessoasPorMatricula);
@@ -450,10 +474,7 @@ export const salvarProgramacao = asyncHandler(async (req, res) => {
       where: { tag_data: { tag, data } },
       create: { tag, data, obra_id: obraId, ...pessoas },
       update: { obra_id: obraId, ...pessoas },
-      select: {
-        id: true, tag: true, obra_id: true, operador_matricula: true, operador_nome: true,
-        supervisor_matricula: true, supervisor_nome: true, data: true, updated_at: true,
-      },
+      select: { tag: true, data: true, ...SELECT_PROGRAMACAO_DIA },
     });
     return { programacao };
   });
@@ -467,13 +488,8 @@ export const salvarProgramacao = asyncHandler(async (req, res) => {
     data: {
       id: programacao.id,
       tag: programacao.tag,
-      obraId: programacao.obra_id,
-      operadorMatricula: programacao.operador_matricula,
-      operadorNome: programacao.operador_nome,
-      supervisorMatricula: programacao.supervisor_matricula,
-      supervisorNome: programacao.supervisor_nome,
+      ...camposProgramacao(programacao),
       data: programacao.data.toISOString().slice(0, 10),
-      atualizadoEm: programacao.updated_at,
     },
   });
 });

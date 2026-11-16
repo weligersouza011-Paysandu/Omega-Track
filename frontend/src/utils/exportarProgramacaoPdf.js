@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { agruparPorCategoria } from './categoriasProgramacao.js';
+import { ehOnibusOuVan } from './programacaoEdicao.js';
 
 const LARGURA = 297;
 const ALTURA = 210;
@@ -261,7 +262,13 @@ function linhaTabela(pdf, y, equipamento, obra, indice) {
       ? ` · ${equipamento.operadorMatricula}` : '';
     const supervisorMatricula = equipamento.supervisorNome && equipamento.supervisorMatricula
       ? ` · ${equipamento.supervisorMatricula}` : '';
-    texto(pdf, cortar(pdf, `Operador: ${operador}${operadorMatricula}`, 126), 19, y + 9.5, {
+    // Ônibus/vans com 2 motoristas: "Manhã: X / Tarde: Y" no lugar do operador.
+    const tarde = ehOnibusOuVan(equipamento.modelo)
+      ? equipamento.operadorTardeNome || equipamento.operadorTardeMatricula : null;
+    const rotuloOperador = tarde
+      ? `Manhã: ${equipamento.operadorNome || equipamento.operadorMatricula || 'Não definido'} / Tarde: ${tarde}`
+      : `Operador: ${operador}${operadorMatricula}`;
+    texto(pdf, cortar(pdf, rotuloOperador, 126), 19, y + 9.5, {
       tamanho: 7, cor: COR.secundario,
     });
     texto(pdf, cortar(pdf, `Supervisor: ${supervisor}${supervisorMatricula}`, 126), 151, y + 9.5, {

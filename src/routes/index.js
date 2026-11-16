@@ -18,6 +18,7 @@ import atosRoutes from './atosRoutes.js';
 import produtosQuimicosRoutes from './produtosQuimicosRoutes.js';
 import telemetriaRoutes from './telemetriaRoutes.js';
 import veiculosTerceirosRoutes from './veiculosTerceirosRoutes.js';
+import categoriasDesvioRoutes from './categoriasDesvioRoutes.js';
 
 const router = Router();
 
@@ -36,8 +37,13 @@ router.get('/', (req, res) => {
       documentacao: '/api/documentacao-veiculos',
       documentacao_farol: '/api/documentacao-veiculos/farol',
       obras: '/api/obras (GET aberto; POST/PUT/DELETE restritos a Gestao/Transporte ou ADM Master)',
-      programacao_recursos: 'GET /api/programacao-recursos?data=AAAA-MM-DD; PUT /api/programacao-recursos/lote { data, alteracoes: [{ tag, obraId|null, operadorMatricula?, supervisorMatricula? }] }; PUT/DELETE /:data/:tag; POST /copiar-ultima-programacao (Gestao/Transporte ou ADM Master)',
+      programacao_recursos: 'GET /api/programacao-recursos?data=AAAA-MM-DD; PUT /api/programacao-recursos/lote { data, alteracoes: [{ tag, obraId|null, operadorMatricula? (motorista manha), operadorTardeMatricula? (2o motorista onibus/van), supervisorMatricula? }] }; PUT/DELETE /:data/:tag; POST /copiar-ultima-programacao (Gestao/Transporte ou ADM Master)',
       veiculos_terceiros: 'GET/POST /api/veiculos-terceiros { tag*, tipo*, empresa_terceira?, placa?, modelo?, foto_url?, observacao? }; PUT/DELETE /:id (admin; exclusao direta; aparecem SOMENTE na Programacao de Recursos com is_terceiro=true)',
+      usuario_rapido: 'POST /api/usuarios/rapido { matricula?, nome, funcao? (texto livre: Motorista, Operador, Supervisor...) } cria Usuario Operacional (tipo OPERACIONAL, sem senha/setor/nivel; Gestao/Transporte ou ADM Master; sem matricula gera PROV-XXXXXXXX) -> { matricula, nome, funcao, tipo, matriculaProvisoria }',
+      aderencia_obra_programada: 'GET /api/partes-diarias/obra-programada?tag=&data=AAAA-MM-DD -> { programada, obra{id,nome,numero_contrato,contratante,gestao,planejador}, operador, operador_tarde, supervisor } (autopreenche o RDO)',
+      aderencia_resumo: 'GET /api/partes-diarias/aderencia?inicio=&fim= (admin) -> { programados, aderentes, desvios, sem_programacao, percentual_aderencia, justificativas_pendentes, desvios_por_categoria }',
+      aderencia_rdo: 'POST/PUT /api/partes-diarias aceitam categoria_desvio_id + justificativa_desvio (10-2000 car.); o servidor calcula obra_programada_id e aderencia (true/false/null) pela Programacao; resposta traz aderencia_programacao { status: ADERENTE|DESVIO|SEM_PROGRAMACAO, justificativa_pendente; programado sem obra no RDO = DESVIO }',
+      categorias_desvio: 'GET /api/categorias-desvio?ativas=1 | POST { nome } | PUT /:id { nome?, ativo? } | DELETE /:id (em uso: desativa) (escrita: Gestao/Transporte ou ADM Master)',
       programacao_manutencoes: 'POST /api/programacao-recursos/manutencoes { tag, tipo: PREVENTIVA|CORRETIVA, dataSaida, previsaoRetorno, descricao }; PATCH /manutencoes/:id/retorno { dataRetorno }',
       partes_diarias: '/api/partes-diarias (POST/PUT aceitam formulario completo; POST limita 2 partes/dia por veiculo para todos os modelos, com bypass MASTER)',
       relatorios_pdf_lote: 'POST /api/partes-diarias/exportacao/lote { ids: UUID[] } (JWT obrigatorio; ate 50 relatorios completos por consulta; operacional apenas os proprios)',
@@ -116,5 +122,6 @@ router.use('/ecogestao/produtos-quimicos', produtosQuimicosRoutes);
 router.use('/produtos-quimicos', produtosQuimicosRoutes);
 router.use('/telemetria', telemetriaRoutes);
 router.use('/veiculos-terceiros', veiculosTerceirosRoutes);
+router.use('/categorias-desvio', categoriasDesvioRoutes);
 
 export default router;

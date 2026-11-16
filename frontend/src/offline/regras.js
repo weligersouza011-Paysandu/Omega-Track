@@ -12,6 +12,8 @@ const LEITURAS_CACHEAVEIS = [
   /^\/api\/parametros-preventiva(\?|\/|$)/,
   /^\/api\/manutencao\//,
   /^\/api\/partes-diarias(\?|$)/,
+  /^\/api\/partes-diarias\/obra-programada\?/,
+  /^\/api\/categorias-desvio(\?|$)/,
   /^\/api\/eficiencia(\?|\/|$)/,
 ];
 
@@ -140,7 +142,7 @@ function aplicarPendenciasProgramacao(corpo, fila) {
       const equipamento = porTag.get(alteracao.tag);
       if (!equipamento || equipamento.manutencaoAtiva) continue;
       equipamento.obraId = alteracao.obraId;
-      for (const prefixo of ['operador', 'supervisor']) {
+      for (const prefixo of ['operador', 'operadorTarde', 'supervisor']) {
         const campo = `${prefixo}Matricula`;
         if (alteracao.obraId === null) {
           equipamento[campo] = null;

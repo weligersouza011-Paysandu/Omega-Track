@@ -6,6 +6,9 @@ import { parseKm, obterUltimaKmFinal } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { salvarAssinaturaPadrao } from '../services/assinaturaService.js';
+import {
+  avaliarAderencia, buscarProgramacaoDoDia, diaUtc, resolverJustificativa, statusAderencia,
+} from '../services/aderenciaProgramacaoService.js';
 
 // ============================================================================
 // Parte Diaria (Veiculos Leves) — modelo Omega Service
@@ -73,12 +76,17 @@ export function statusAprovacaoParaRelatorio(statusAprovacao) {
 
 // Compat frontend: expõe `assinatura_url` como alias de `assinatura_dado`
 // (o formulário lê ambos via imagemAssinatura).
+// Ajustes de saida de uma Parte Diaria completa: URL das assinaturas e o
+// resumo de aderencia a Programacao (status + justificativa pendente).
 export function enriquecerAssinaturas(parte) {
   if (parte?.assinaturas) {
     parte.assinaturas = parte.assinaturas.map((a) => ({
       ...a,
       assinatura_url: a.assinatura_url || a.assinatura_dado || null,
     }));
+  }
+  if (parte && typeof parte === 'object' && 'aderencia' in parte) {
+    parte.aderencia_programacao = statusAderencia(parte);
   }
   return parte;
 }
@@ -257,10 +265,6 @@ async function persistirAssinaturaNoPerfil(req, valor) {
   return salvarAssinaturaPadrao(usuario, dados);
 }
 
-function calcularAderencia(obra, obra_programada) {
-  if (!obra || !obra_programada) return null;
-  return obra.trim().toUpperCase() === obra_programada.trim().toUpperCase();
-}
 
 // Pendência geral do relatório: atividade com status Pendente
 // (ausente conta como pendente).
@@ -271,6 +275,8 @@ function calcularPendencia(atividades = []) {
 const INCLUDE_COMPLETO = {
   veiculo: { select: { placa: true, modelo: true, status: true } },
   obra_ref: { select: { id: true, nome: true, numero_contrato: true, contratante: true, gestao: true, planejador: true } },
+  obra_programada_ref: { select: { id: true, nome: true, numero_contrato: true } },
+  categoria_desvio: { select: { id: true, nome: true, ativo: true } },
   mao_obra: { orderBy: { created_at: 'asc' } },
   equipamentos: { orderBy: { created_at: 'asc' } },
   atividades: { orderBy: { created_at: 'asc' } },
@@ -710,8 +716,6 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
     });
   }
 
-  const aderencia = calcularAderencia(obra, obra_programada);
-
   // Rastreabilidade do autor: corpo > 1º registro da mão de obra >
   // matricula atuante do header (x-acting-matricula) quando presente.
   const operadorFinal = operador
@@ -782,6 +786,17 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
     obraIdFinal = obraExiste.id;
   }
 
+  // Aderencia: a obra programada vem da Programacao de Recursos (TAG + dia),
+  // nunca do cliente; desvio aceita categoria + justificativa.
+  const avaliacao = avaliarAderencia(
+    await buscarProgramacaoDoDia(prisma, tagFinal, diaRef),
+    { obraId: obraIdFinal, obraTexto: obra, statusOperacional: statusOperacionalFinal },
+  );
+  const justificativa = await resolverJustificativa(prisma, avaliacao.aderencia, {
+    categoriaId: req.body?.categoria_desvio_id,
+    justificativa: req.body?.justificativa_desvio,
+  });
+
   let pContratual = toIntOuNull(prazo_contratual);
   let pDecorrido = toIntOuNull(prazo_decorrido);
   let pVencer = toIntOuNull(prazo_a_vencer);
@@ -798,7 +813,9 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
           funcionario: funcionarioFinal,
           funcao: funcaoFinal,
           obra: obra || null,
-          obra_programada,
+          obra_programada: avaliacao.obra_programada ?? strOuNull(obra_programada),
+          obra_programada_id: avaliacao.obra_programada_id,
+          ...justificativa,
           data: dataRef,
           dia_semana: diaSemanaPT(dataRef),
           id_relatorio,
@@ -826,7 +843,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
           status: statusOperacionalFinal,
           lideranca,
           operador: operadorFinal,
-          aderencia,
+          aderencia: avaliacao.aderencia,
           eficiencia: eficiencia !== undefined && eficiencia !== null && eficiencia !== ''
             ? Number(eficiencia)
             : null,
@@ -988,7 +1005,7 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
 
   const dados = {};
   const simplesTexto = [
-    'funcionario', 'funcao', 'obra', 'obra_programada', 'id_relatorio', 'status',
+    'funcionario', 'funcao', 'obra', 'id_relatorio', 'status',
     'status_operacional', 'status_aprovacao',
     'lideranca', 'operador', 'numero_relatorio', 'numero_contrato', 'endereco_obra',
     'contratante', 'responsavel', 'planejador', 'horario_entrada', 'horario_saida',
@@ -1051,9 +1068,26 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
     }
   }
 
-  const novaObra = tem('obra') ? corpo.obra : atual.obra;
-  const novaObraProgramada = tem('obra_programada') ? corpo.obra_programada : atual.obra_programada;
-  dados.aderencia = calcularAderencia(novaObra, novaObraProgramada);
+  // Aderencia recalculada a cada edicao (data/obra podem ter mudado).
+  const avaliacao = avaliarAderencia(
+    await buscarProgramacaoDoDia(prisma, atual.tag, dados.data || atual.data),
+    {
+      obraId: 'obra_id' in dados ? dados.obra_id : atual.obra_id,
+      obraTexto: tem('obra') ? corpo.obra : atual.obra,
+      statusOperacional: dados.status_operacional || atual.status_operacional,
+    },
+  );
+  Object.assign(dados, {
+    aderencia: avaliacao.aderencia,
+    obra_programada_id: avaliacao.obra_programada_id,
+    obra_programada: avaliacao.obra_programada
+      ?? (tem('obra_programada') ? strOuNull(corpo.obra_programada) : atual.obra_programada),
+    ...await resolverJustificativa(prisma, avaliacao.aderencia, {
+      categoriaId: tem('categoria_desvio_id') ? corpo.categoria_desvio_id : atual.categoria_desvio_id,
+      justificativa: tem('justificativa_desvio') ? corpo.justificativa_desvio : atual.justificativa_desvio,
+      categoriaAtual: atual.categoria_desvio_id,
+    }),
+  });
 
   const autor = autorDaRequisicao(req, corpo);
   if (autor) dados.atualizado_por = autor;
@@ -1767,4 +1801,93 @@ export const listarLogs = asyncHandler(async (req, res) => {
     take: 50,
   });
   res.json({ data: logs });
+});
+
+// ---------------------------------------------------------------------------
+// Aderencia a Programacao de Recursos
+// ---------------------------------------------------------------------------
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+function dataIsoValida(valor) {
+  if (typeof valor !== 'string' || !DATA_ISO.test(valor)) return null;
+  const dia = diaUtc(`${valor}T00:00:00.000Z`);
+  return dia && dia.toISOString().slice(0, 10) === valor ? dia : null;
+}
+
+// GET /api/partes-diarias/obra-programada?tag=&data=AAAA-MM-DD
+// Usado pelo RDO ao escolher o veiculo: autopreenche obra, contrato,
+// contratante e planejador com o que estava na Programacao do dia.
+export const buscarObraProgramada = asyncHandler(async (req, res) => {
+  const tag = String(req.query.tag || '').trim();
+  const dia = dataIsoValida(req.query.data);
+  if (!tag || tag.length > 50 || !dia) {
+    return res.status(400).json({ error: 'Dados invalidos', message: 'Informe `tag` e `data` (AAAA-MM-DD).' });
+  }
+  const programacao = await buscarProgramacaoDoDia(prisma, tag, dia);
+  const pessoa = (matricula, nome) => (matricula ? { matricula, nome } : null);
+  res.json({
+    data: {
+      tag,
+      data: req.query.data,
+      programada: Boolean(programacao?.obra),
+      obra: programacao?.obra ? {
+        id: programacao.obra.id,
+        nome: programacao.obra.nome,
+        numero_contrato: programacao.obra.numero_contrato,
+        contratante: programacao.obra.contratante,
+        gestao: programacao.obra.gestao,
+        planejador: programacao.obra.planejador,
+        ativo: programacao.obra.ativo,
+      } : null,
+      operador: pessoa(programacao?.operador_matricula, programacao?.operador_nome),
+      operador_tarde: pessoa(programacao?.operador_tarde_matricula, programacao?.operador_tarde_nome),
+      supervisor: pessoa(programacao?.supervisor_matricula, programacao?.supervisor_nome),
+    },
+  });
+});
+
+// GET /api/partes-diarias/aderencia?inicio=AAAA-MM-DD&fim=AAAA-MM-DD
+// Base do indicador de Aderencia a Programacao: so conta RDOs de veiculos
+// programados (aderencia true/false); sem programacao fica a parte.
+export const resumoAderencia = asyncHandler(async (req, res) => {
+  const inicio = dataIsoValida(req.query.inicio);
+  const fim = dataIsoValida(req.query.fim);
+  if (!inicio || !fim || fim < inicio) {
+    return res.status(400).json({ error: 'Periodo invalido', message: 'Informe `inicio` e `fim` (AAAA-MM-DD), com fim >= inicio.' });
+  }
+  if ((fim - inicio) / 86400000 > 366) {
+    return res.status(400).json({ error: 'Periodo invalido', message: 'O período máximo é de 366 dias.' });
+  }
+  const base = { data: { gte: inicio, lte: fim }, deletado_em: null };
+  const [porAderencia, desviosPorCategoria, pendentes, categorias] = await Promise.all([
+    prisma.parteDiaria.groupBy({ by: ['aderencia'], where: base, _count: { _all: true } }),
+    prisma.parteDiaria.groupBy({ by: ['categoria_desvio_id'], where: { ...base, aderencia: false }, _count: { _all: true } }),
+    prisma.parteDiaria.count({
+      where: { ...base, aderencia: false, categoria_desvio_id: null },
+    }),
+    prisma.categoriaDesvioProgramacao.findMany({ select: { id: true, nome: true } }),
+  ]);
+  const contar = (valor) => porAderencia.find((g) => g.aderencia === valor)?._count._all || 0;
+  const aderentes = contar(true);
+  const desvios = contar(false);
+  const nomes = new Map(categorias.map((c) => [c.id, c.nome]));
+  res.json({
+    data: {
+      inicio: req.query.inicio,
+      fim: req.query.fim,
+      programados: aderentes + desvios,
+      aderentes,
+      desvios,
+      sem_programacao: contar(null),
+      percentual_aderencia: aderentes + desvios ? Math.round((aderentes / (aderentes + desvios)) * 1000) / 10 : null,
+      justificativas_pendentes: pendentes,
+      desvios_por_categoria: desviosPorCategoria
+        .map((g) => ({
+          categoria_id: g.categoria_desvio_id,
+          categoria: g.categoria_desvio_id ? nomes.get(g.categoria_desvio_id) || 'Categoria removida' : 'Sem categoria',
+          total: g._count._all,
+        }))
+        .sort((a, b) => b.total - a.total),
+    },
+  });
 });
