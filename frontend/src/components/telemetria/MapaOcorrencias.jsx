@@ -22,6 +22,40 @@ function Enquadrar({ pontos }) {
   return null;
 }
 
+/** Camadas base dos mapas de telemetria: satélite (padrão, com vias e lugares) e ruas. */
+export function CamadasMapa() {
+  // Satélite por padrão (com nomes de vias e lugares por cima); "Mapa" mostra as ruas.
+  return (
+    <LayersControl position="topright">
+      <LayersControl.BaseLayer checked name="Satélite">
+        <LayerGroup>
+          <TileLayer
+            attribution="Imagens &copy; Esri, Maxar, Earthstar Geographics e comunidade GIS"
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={19}
+          />
+          <TileLayer
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={19}
+          />
+          <TileLayer
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={19}
+            opacity={0.7}
+          />
+        </LayerGroup>
+      </LayersControl.BaseLayer>
+      <LayersControl.BaseLayer name="Mapa">
+        <TileLayer
+          className="tiles-mapa"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+      </LayersControl.BaseLayer>
+    </LayersControl>
+  );
+}
+
 const ORDEM_PADRAO = ['DESCARTADA', 'VEICULO_PARADO', 'TOLERANCIA', 'EM_ANALISE', 'ABAIXO_GATILHO', 'CONFIRMADA'];
 
 export default function MapaOcorrencias({
@@ -48,34 +82,7 @@ export default function MapaOcorrencias({
         scrollWheelZoom
         className="mapa-telemetria z-0 h-[380px] w-full rounded-xl"
       >
-        {/* Satélite por padrão (com nomes de vias e lugares por cima); "Mapa" mostra as ruas. */}
-        <LayersControl position="topright">
-          <LayersControl.BaseLayer checked name="Satélite">
-            <LayerGroup>
-              <TileLayer
-                attribution="Imagens &copy; Esri, Maxar, Earthstar Geographics e comunidade GIS"
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                maxZoom={19}
-              />
-              <TileLayer
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
-                maxZoom={19}
-              />
-              <TileLayer
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
-                maxZoom={19}
-                opacity={0.7}
-              />
-            </LayerGroup>
-          </LayersControl.BaseLayer>
-          <LayersControl.BaseLayer name="Mapa">
-            <TileLayer
-              className="tiles-mapa"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-          </LayersControl.BaseLayer>
-        </LayersControl>
+        <CamadasMapa />
         <Enquadrar pontos={pontos} />
         {desenhadas.map((o) => {
           const farol = farois[o.classificacao] || Object.values(farois)[0];

@@ -109,12 +109,23 @@ export function criarPrismaEmMemoria({ veiculos = [], administradores = [] } = {
     async count({ where } = {}) {
       return eventos.filter((e) => atende(e, where)).length;
     },
-    async groupBy({ by, where }) {
+    async groupBy({ by, where, _min, _max }) {
       const grupos = new Map();
       for (const e of eventos.filter((x) => atende(x, where))) {
-        const chave = by.map((c) => e[c]).join('|');
-        const g = grupos.get(chave) || { ...Object.fromEntries(by.map((c) => [c, e[c]])), _count: { _all: 0 } };
+        const chave = by.map((c) => e[c] ?? null).join('|');
+        const g = grupos.get(chave) || {
+          ...Object.fromEntries(by.map((c) => [c, e[c] ?? null])),
+          _count: { _all: 0 },
+          ...(_min ? { _min: Object.fromEntries(Object.keys(_min).map((c) => [c, null])) } : {}),
+          ...(_max ? { _max: Object.fromEntries(Object.keys(_max).map((c) => [c, null])) } : {}),
+        };
         g._count._all += 1;
+        for (const c of Object.keys(_min || {})) {
+          if (e[c] != null && (g._min[c] === null || valorDe(e[c]) < valorDe(g._min[c]))) g._min[c] = e[c];
+        }
+        for (const c of Object.keys(_max || {})) {
+          if (e[c] != null && (g._max[c] === null || valorDe(e[c]) > valorDe(g._max[c]))) g._max[c] = e[c];
+        }
         grupos.set(chave, g);
       }
       return [...grupos.values()];

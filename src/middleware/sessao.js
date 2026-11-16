@@ -155,6 +155,12 @@ export const requerPlanejamentoOuMaster = requerAdministradorJwt(
   'Apenas a Gestão / Planejamento ou ADM Master podem aprovar Partes Diárias em lote.',
 );
 
+// Exclusão em massa de telemetria por placa: Master, Gestão ou Transporte (JWT, sem fallback).
+export const requerMasterGestaoTransporte = requerAdministradorJwt(
+  (u) => u.nivel === 'MASTER' || ['GESTAO', 'TRANSPORTE'].includes(u.setor),
+  'Apenas ADM Master, Gestão ou Transporte podem excluir a telemetria de uma placa.',
+);
+
 export function requerMaster(req, res, next) {
   if (!req.atuante || req.atuante.nivel !== 'MASTER') {
     return res.status(403).json({

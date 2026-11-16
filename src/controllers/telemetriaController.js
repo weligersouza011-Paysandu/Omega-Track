@@ -11,6 +11,9 @@
 //   PATCH  /api/telemetria/:id/tratativa   -> { status_tratativa, medida_aplicada?, observacao? }
 //   POST   /api/telemetria/excluir-lote | DELETE /api/telemetria/lote -> { ids }
 //   DELETE /api/telemetria/:id
+//   GET    /api/telemetria/trajeto?veiculo=&dataInicio=&dataFim=&horaInicio=&horaFim=
+//   GET    /api/telemetria/placas-nao-cadastradas
+//   DELETE /api/telemetria/por-placa/:placa  (Master, Gestão e Transporte)
 // ============================================================================
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
@@ -27,6 +30,15 @@ import {
   lerLinhas,
 } from '../services/telemetriaPlanilhaService.js';
 import { lerSemanas, semanaISO, semanasAnteriores } from '../utils/semanasTelemetria.js';
+import {
+  filtroDataHoraTrajeto,
+  indexarFrota,
+  lerFiltroTrajeto,
+  normalizarPlaca,
+  placasSemCadastro,
+  statusMobilizacao,
+  trechoBuscaPlaca,
+} from '../services/telemetriaTrajetoService.js';
 
 const { EVENTOS, LISTA_EVENTOS, SEVERIDADES, STATUS_TRATATIVA } = regras;
 
@@ -649,4 +661,129 @@ export const listarSemanasTelemetria = asyncHandler(async (_req, res) => {
     })
     .sort((a, b) => b.chave.localeCompare(a.chave));
   return res.status(200).json({ semanas: lista, padrao: lista.slice(0, 2).map((s) => s.chave) });
+});
+
+// ============================================================================
+// 7. TRAJETO, PLACAS SEM CADASTRO E EXCLUSÃO POR PLACA
+// ============================================================================
+
+const LIMITE_TRAJETO = 20000;
+const CAMPOS_TRAJETO = {
+  id: true, tag_placa: true, tag: true, motorista: true, data_hora: true, evento: true, valor: true, limite: true,
+  severidade: true, latitude: true, longitude: true, localizacao: true, link_mapa: true, cerca: true,
+};
+
+async function carregarFrota() {
+  const veiculos = await comRetry(() => prisma.mobDesmob.findMany({
+    select: { tag: true, placa: true, status: true, deletado_em: true },
+  }), 'frota-cadastro');
+  return indexarFrota(veiculos);
+}
+
+/**
+ * Valores exatos de `tag_placa` gravados para uma placa normalizada. A busca por trecho
+ * só reduz os candidatos; a comparação final é pela placa normalizada (sem hífen,
+ * espaços e caixa), então "QVN4G02 CT-251" e "qvn-4g02" casam com "QVN4G02".
+ */
+async function grafiasDaPlaca(chave, rotulo) {
+  if (!chave) return [];
+  const grupos = await comRetry(() => prisma.eventoTelemetria.groupBy({
+    by: ['tag_placa'],
+    where: { tag_placa: { contains: trechoBuscaPlaca(chave), mode: 'insensitive' } },
+    _count: { _all: true },
+  }), rotulo);
+  return grupos.map((g) => g.tag_placa).filter((tp) => normalizarPlaca(tp) === chave);
+}
+
+/**
+ * GET /api/telemetria/trajeto?veiculo=&dataInicio=AAAA-MM-DD&dataFim=AAAA-MM-DD&horaInicio=HH:mm&horaFim=HH:mm
+ * Eventos do período, só dentro da janela de horário de cada dia (-03:00), em ordem de data_hora.
+ * Com veículo, a consulta usa os índices de `tag` e `tag_placa` (valores exatos) em vez de busca textual.
+ */
+export const trajetoTelemetria = asyncHandler(async (req, res) => {
+  const filtro = lerFiltroTrajeto(req.query);
+  const where = filtroDataHoraTrajeto(filtro);
+  let veiculo = null;
+
+  if (filtro.veiculo) {
+    const chave = normalizarPlaca(filtro.veiculo);
+    const frota = await carregarFrota();
+    const cadastro = frota.get(chave) || null;
+    const placa = cadastro ? normalizarPlaca(cadastro.placa) : chave;
+    const grafias = await grafiasDaPlaca(placa, 'trajeto-grafias');
+    const vinculo = [];
+    if (cadastro?.tag) vinculo.push({ tag: cadastro.tag });
+    if (grafias.length) vinculo.push({ tag_placa: { in: grafias } });
+    veiculo = {
+      consulta: filtro.veiculo,
+      placa: cadastro?.placa ?? placa,
+      tag: cadastro?.tag ?? null,
+      status_mobilizacao: statusMobilizacao(cadastro),
+    };
+    if (!vinculo.length) {
+      return res.status(200).json({ veiculo, filtro: semJanelas(filtro), total: 0, truncado: false, pontos: [] });
+    }
+    where.AND = [...(where.AND || []), vinculo.length === 1 ? vinculo[0] : { OR: vinculo }];
+  }
+
+  const eventos = await comRetry(() => prisma.eventoTelemetria.findMany({
+    where,
+    select: CAMPOS_TRAJETO,
+    orderBy: [{ data_hora: 'asc' }, { id: 'asc' }],
+    take: LIMITE_TRAJETO + 1,
+  }), 'trajeto');
+  const truncado = eventos.length > LIMITE_TRAJETO;
+  const pontos = truncado ? eventos.slice(0, LIMITE_TRAJETO) : eventos;
+  return res.status(200).json({ veiculo, filtro: semJanelas(filtro), total: pontos.length, truncado, pontos });
+});
+
+function semJanelas({ janelas, diaInteiro, ...resto }) {
+  return resto;
+}
+
+/**
+ * GET /api/telemetria/placas-nao-cadastradas — placas da telemetria sem nenhum vínculo
+ * com a frota (mobilizados, desmobilizados e lixeira contam como cadastrados).
+ */
+export const placasNaoCadastradas = asyncHandler(async (_req, res) => {
+  const [grupos, frota] = await Promise.all([
+    comRetry(() => prisma.eventoTelemetria.groupBy({
+      by: ['tag_placa', 'tag'],
+      _count: { _all: true },
+      _min: { data_hora: true },
+      _max: { data_hora: true },
+    }), 'placas-sem-cadastro'),
+    carregarFrota(),
+  ]);
+  const placas = placasSemCadastro(grupos, frota);
+  return res.status(200).json({ total: placas.length, placas });
+});
+
+/**
+ * DELETE /api/telemetria/por-placa/:placa — remove todos os eventos da placa
+ * (comparação sem caixa, hífen ou espaços). Perfis: Master, Gestão e Transporte.
+ */
+export const excluirEventosPorPlaca = asyncHandler(async (req, res) => {
+  const original = String(req.params.placa || '').trim();
+  const chave = normalizarPlaca(original);
+  if (!chave || chave.length < 3 || chave.length > 20) throw erroHttp(400, 'Informe uma placa valida.');
+  const grafias = await grafiasDaPlaca(chave, 'excluir-placa-grafias');
+  if (!grafias.length) {
+    return res.status(404).json({ error: 'Nao encontrado', message: `Nenhum evento de telemetria para a placa ${chave}.`, total_excluido: 0 });
+  }
+  const { count } = await comRetry(
+    () => prisma.eventoTelemetria.deleteMany({ where: { tag_placa: { in: grafias } } }),
+    'excluir-placa',
+  );
+  await registrarLogAtividade(req, {
+    acao: 'EXCLUIR_EVENTOS_TELEMETRIA_PLACA',
+    modulo: MODULO_AUDITORIA,
+    detalhes: { placa: chave, informada: original, grafias, total_excluido: count },
+  }).catch(() => {});
+  return res.status(200).json({
+    sucesso: true,
+    placa: chave,
+    total_excluido: count,
+    mensagem: `${count} ${count === 1 ? 'evento excluido' : 'eventos excluidos'} da placa ${chave}.`,
+  });
 });
