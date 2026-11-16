@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import JSZip from 'jszip';
 import {
   validarPeriodoRelatorios, carregarPartesDoPeriodo,
-  planejarArquivosRelatorios, criarPacoteRelatorios,
+  planejarArquivosRelatorios, processarRelatoriosEmLotes,
 } from '../src/utils/relatoriosPeriodo.js';
 
 const sessao = { token: 'sessao-teste', usuario: { tipo: 'ADMINISTRADOR', matricula: '900' } };
@@ -76,76 +75,62 @@ test('pastas e arquivos permanecem distintos para obras homônimas e partes da m
   assert.ok(plano.every((a) => a.caminho.split('/').length === 2 && !a.caminho.startsWith('.')));
 });
 
-test('ZIP contém um PDF por relatório, com detalhes completos e pastas por obra', async (t) => {
-  const lista = [parte, { ...parte, id: 'parte-2' }, { ...parte, id: 'parte-3', obra: 'Obra B', obra_id: 'obra-b' }];
-  const renderizados = [];
-  const progresso = [];
+test('400 relatórios usam 4 páginas e 16 lotes completos, sem consultas individuais', async (t) => {
+  const partes = Array.from({ length: 400 }, (_, i) => ({ ...parte, id: `parte-${String(i).padStart(3, '0')}`, obra: i < 200 ? 'Obra A' : 'Obra B' }));
+  const chamadas = [], processados = [];
   t.mock.method(globalThis, 'fetch', async (url, opcoes) => {
     assert.equal(opcoes.headers.Authorization, 'Bearer sessao-teste');
-    if (url.includes('?')) return resposta(lista);
-    const atual = lista.find((p) => url.endsWith(p.id));
-    return resposta({ ...atual, assinaturas: [{ nome: 'Operador' }], fotos: [{ url: '/foto.png' }], atividades: [{ descricao: 'Atividade oficial' }] });
+    chamadas.push({ url, metodo: opcoes.method || 'GET' });
+    if (opcoes.method === 'POST') {
+      assert.equal(url, '/api/partes-diarias/exportacao/lote');
+      const { ids } = JSON.parse(opcoes.body);
+      assert.ok(ids.length <= 25);
+      return resposta(partes.filter((p) => ids.includes(p.id)).reverse().map((p) => ({ ...p, fotos: [], assinaturas: [{ nome: 'Operador' }] })));
+    }
+    const pagina = Number(new URL(url, 'http://localhost').searchParams.get('page'));
+    return resposta(partes.slice((pagina - 1) * 100, pagina * 100), 4);
   });
-  const pacote = await criarPacoteRelatorios(sessao, periodo, {
-    gerarPdf: async (completo) => {
-      assert.equal(completo.assinaturas[0].nome, 'Operador');
-      assert.equal(completo.fotos.length, 1);
-      assert.equal(completo.atividades[0].descricao, 'Atividade oficial');
-      renderizados.push(completo.id);
-      return new TextEncoder().encode(`%PDF-1.4\n${completo.id}\n%%EOF`);
+  const pacote = await processarRelatoriosEmLotes(sessao, periodo, {
+    processarLote: async (arquivos, { total }) => {
+      assert.equal(total, 400);
+      assert.ok(arquivos.every((a) => a.relatorio.assinaturas[0].nome === 'Operador'));
+      processados.push(...arquivos);
     },
-    onProgresso: (atual) => progresso.push(atual),
   });
-  const zip = await JSZip.loadAsync(pacote.conteudo);
-  const arquivos = Object.values(zip.files).filter((arquivo) => !arquivo.dir);
-  assert.equal(arquivos.length, 3);
-  assert.equal(arquivos.filter((arquivo) => arquivo.name.startsWith('Obra A/')).length, 2);
-  assert.equal(arquivos.filter((arquivo) => arquivo.name.startsWith('Obra B/')).length, 1);
-  for (const arquivo of arquivos) assert.match(await arquivo.async('string'), /^%PDF-1\.4/);
-  assert.deepEqual(renderizados, ['parte-1', 'parte-2', 'parte-3']);
-  assert.equal(pacote.total, 3);
-  assert.equal(pacote.obras, 2);
+  assert.equal(chamadas.length, 20);
+  assert.equal(chamadas.filter((c) => c.metodo === 'POST').length, 16);
+  assert.equal(processados.length, 400);
+  assert.equal(new Set(processados.map((a) => a.caminho)).size, 400);
+  assert.equal(pacote.total, 400);
   assert.equal(pacote.nome, 'Relatorios_Oficiais_2026-11-01_a_2026-11-16.zip');
-  assert.ok(progresso.some((p) => p.etapa === 'gerando' && p.total === 3));
-  assert.equal(progresso.at(-1).percentual, 100);
 });
 
-test('relatórios legados sem vínculo ficam na mesma pasta da obra cadastrada de mesmo nome', () => {
+test('relatórios legados sem vínculo ficam na pasta da obra cadastrada de mesmo nome', () => {
   const plano = planejarArquivosRelatorios([parte, { ...parte, id: 'legado', obra_id: null }]);
   assert.equal(plano[0].pasta, plano[1].pasta);
 });
 
-test('período vazio e falha na segunda página não produzem um pacote parcial', async (t) => {
+test('período vazio e falha de página impedem o processamento parcial', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => resposta([]));
-  await assert.rejects(criarPacoteRelatorios(sessao, periodo), /Nenhum relatório/);
+  await assert.rejects(processarRelatoriosEmLotes(sessao, periodo), /Nenhum relatório/);
   let chamadas = 0;
-  t.mock.method(globalThis, 'fetch', async () => ++chamadas === 1
-    ? resposta([parte], 2) : { ok: false, status: 503 });
-  await assert.rejects(criarPacoteRelatorios(sessao, periodo), /503/);
-  assert.equal(chamadas, 2);
+  t.mock.method(globalThis, 'fetch', async () => ++chamadas === 1 ? resposta([parte], 2) : { ok: false, status: 503 });
+  await assert.rejects(processarRelatoriosEmLotes(sessao, periodo), /503/);
 });
 
-test('falha em um PDF interrompe o lote e identifica a obra e o relatório', async (t) => {
-  let renderizados = 0;
-  t.mock.method(globalThis, 'fetch', async (url) => url.includes('?')
-    ? resposta([parte, { ...parte, id: 'parte-2' }]) : resposta(parte));
-  await assert.rejects(criarPacoteRelatorios(sessao, periodo, {
-    gerarPdf: async () => { renderizados += 1; throw new Error('Assinatura indisponível.'); },
-  }), /Obra A.*JI-001.*Assinatura indisponível.*Nenhum ZIP/);
-  assert.equal(renderizados, 1);
+test('lote incompleto ou não autorizado não é enviado ao gerador', async (t) => {
+  let processados = 0;
+  t.mock.method(globalThis, 'fetch', async (_, opcoes) => resposta(opcoes.method === 'POST' ? [] : [parte]));
+  await assert.rejects(processarRelatoriosEmLotes(sessao, periodo, {
+    processarLote: async () => { processados += 1; },
+  }), /lote está incompleto/);
+  assert.equal(processados, 0);
 });
 
-test('cancelar durante a geração impede o ZIP e não consulta o próximo relatório', async (t) => {
+test('cancelamento durante o lote impede concluir a exportação', async (t) => {
   const controller = new AbortController();
-  const detalhes = [];
-  t.mock.method(globalThis, 'fetch', async (url) => {
-    if (url.includes('?')) return resposta([parte, { ...parte, id: 'parte-2' }]);
-    detalhes.push(url);
-    return resposta(parte);
-  });
-  await assert.rejects(criarPacoteRelatorios(sessao, periodo, {
-    signal: controller.signal,
-    gerarPdf: async () => { controller.abort(); return new Uint8Array(); },
+  t.mock.method(globalThis, 'fetch', async () => resposta([parte]));
+  await assert.rejects(processarRelatoriosEmLotes(sessao, periodo, {
+    signal: controller.signal, processarLote: async () => controller.abort(),
   }), { name: 'AbortError' });
-  assert.equal(detalhes.length, 1);
 });

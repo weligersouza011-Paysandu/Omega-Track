@@ -40,6 +40,7 @@ router.get('/', (req, res) => {
       veiculos_terceiros: 'GET/POST /api/veiculos-terceiros { tag*, tipo*, empresa_terceira?, placa?, modelo?, foto_url?, observacao? }; PUT/DELETE /:id (admin; exclusao direta; aparecem SOMENTE na Programacao de Recursos com is_terceiro=true)',
       programacao_manutencoes: 'POST /api/programacao-recursos/manutencoes { tag, tipo: PREVENTIVA|CORRETIVA, dataSaida, previsaoRetorno, descricao }; PATCH /manutencoes/:id/retorno { dataRetorno }',
       partes_diarias: '/api/partes-diarias (POST/PUT aceitam formulario completo; POST limita 2 partes/dia por veiculo para todos os modelos, com bypass MASTER)',
+      relatorios_pdf_lote: 'POST /api/partes-diarias/exportacao/lote { ids: UUID[] } (JWT obrigatorio; ate 50 relatorios completos por consulta; operacional apenas os proprios)',
       parte_assinaturas: 'POST /api/partes-diarias/:id/assinaturas { etapa: OPERADOR|TRANSPORTE|PLANEJADOR, nome, salvar_no_perfil? } (Onibus/VAN: apenas OPERADOR + TRANSPORTE; aprovacao automatica no Transporte; salvar_no_perfil=true persiste a imagem como assinatura padrao do usuario logado)',
       parte_fotos: "POST /api/partes-diarias/:id/fotos (campo `arquivo` + legenda)",
       parte_logs: 'GET /api/partes-diarias/:id/logs',

@@ -1,39 +1,58 @@
-import { createElement } from 'react';
-import { createRoot } from 'react-dom/client';
-import { flushSync } from 'react-dom';
 import FileSaver from 'file-saver';
-import RelatorioParteDiariaPreview from '../components/RelatorioParteDiariaPreview.jsx';
-import { criarPacoteRelatorios, verificarCancelamento } from './relatoriosPeriodo.js';
-import { gerarPdfRelatorio } from './gerarPdfRelatorio.js';
+import { processarRelatoriosEmLotes, verificarCancelamento } from './relatoriosPeriodo.js';
 
-export async function exportarRelatoriosPdf(sessao, periodo, opcoes) {
-  // Um relatório de cada vez limita o consumo de memória, mesmo em períodos
-  // extensos. Fora da app-layout, o tema escuro não altera o relatório oficial.
-  const host = document.createElement('div');
-  host.setAttribute('aria-hidden', 'true');
-  Object.assign(host.style, {
-    position: 'fixed', top: '0', left: '0', width: '794px',
-    zIndex: '-1', pointerEvents: 'none',
+export async function exportarRelatoriosPdf(sessao, periodo, opcoes = {}) {
+  verificarCancelamento(opcoes.signal);
+  if (typeof Worker === 'undefined') throw new Error('Use um navegador atualizado para exportar os PDFs.');
+  const worker = new Worker(new URL('../workers/relatoriosPdf.worker.js', import.meta.url), { type: 'module' });
+  const controller = new AbortController();
+  const pendentes = new Map();
+  let sequencia = 0, erroFatal = null;
+  const falhar = (erro) => {
+    erroFatal = erro;
+    pendentes.forEach(({ reject }) => reject(erro));
+    pendentes.clear();
+  };
+  const cancelar = () => {
+    controller.abort();
+    falhar(new DOMException('Exportação cancelada.', 'AbortError'));
+    worker.terminate();
+  };
+  opcoes.signal?.addEventListener('abort', cancelar, { once: true });
+  worker.onmessage = ({ data }) => {
+    if (data.tipo === 'progresso') {
+      if (!controller.signal.aborted) opcoes.onProgresso?.(data.progresso);
+      return;
+    }
+    const chamada = pendentes.get(data.id);
+    if (!chamada) return;
+    pendentes.delete(data.id);
+    if (data.tipo === 'erro') chamada.reject(new Error(data.mensagem));
+    else chamada.resolve(data.resultado);
+  };
+  worker.onerror = () => falhar(new Error('Falha no gerador de PDFs. Recarregue a página e tente novamente.'));
+  worker.onmessageerror = () => falhar(new Error('Falha na comunicação com o gerador de PDFs.'));
+  const enviar = (tipo, dados = {}) => new Promise((resolve, reject) => {
+    if (erroFatal) { reject(erroFatal); return; }
+    const id = ++sequencia;
+    pendentes.set(id, { resolve, reject });
+    try { worker.postMessage({ tipo, id, ...dados }); }
+    catch (erro) { pendentes.delete(id); reject(erro); }
   });
-  document.body.appendChild(host);
-  const root = createRoot(host);
   try {
-    const pacote = await criarPacoteRelatorios(sessao, periodo, {
-      ...opcoes,
-      gerarPdf: async (relatorio, { signal }) => {
-        verificarCancelamento(signal);
-        const ref = { current: null };
-        flushSync(() => root.render(createElement(RelatorioParteDiariaPreview, {
-          key: relatorio.id, relatorio, somenteConteudo: true, conteudoRef: ref,
-        })));
-        return gerarPdfRelatorio(ref.current, { signal });
-      },
+    const pacote = await processarRelatoriosEmLotes(sessao, periodo, {
+      signal: controller.signal, onProgresso: opcoes.onProgresso,
+      processarLote: (arquivos, { total }) => enviar('lote', { arquivos, total }),
     });
-    verificarCancelamento(opcoes?.signal);
-    FileSaver.saveAs(new Blob([pacote.conteudo], { type: 'application/zip' }), pacote.nome);
+    verificarCancelamento(controller.signal);
+    const conteudo = await enviar('finalizar');
+    verificarCancelamento(controller.signal);
+    FileSaver.saveAs(new Blob([conteudo], { type: 'application/zip' }), pacote.nome);
     return { total: pacote.total, obras: pacote.obras };
   } finally {
-    root.unmount();
-    host.remove();
+    controller.abort();
+    opcoes.signal?.removeEventListener('abort', cancelar);
+    worker.terminate();
+    pendentes.clear();
   }
 }

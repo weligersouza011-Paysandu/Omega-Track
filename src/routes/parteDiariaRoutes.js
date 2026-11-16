@@ -16,12 +16,14 @@ import {
   apontamentoRapido,
 } from '../controllers/parteDiariaController.js';
 import { listarPendencias, ignorarPendencia, trocarOperadorPendencia } from '../controllers/pendenciasController.js';
+import { buscarRelatoriosPdfLote } from '../controllers/relatoriosPdfController.js';
 import { authApiKey } from '../middleware/auth.js';
 import { requerAdmin, requerMaster, requerMasterMatriz } from '../middleware/sessao.js';
 
 const router = Router();
 
 router.get('/', listarPartesDiarias);
+router.post('/exportacao/lote', buscarRelatoriosPdfLote);
 router.get('/pendentes', authApiKey, listarPendentesAssinatura);
 // Auditoria de pendencias de lancamento diario (antes de `/:id`).
 // GET: admin ve tudo; operacional ve apenas as proprias.

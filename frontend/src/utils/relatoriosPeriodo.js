@@ -110,51 +110,53 @@ export function planejarArquivosRelatorios(partes) {
   });
 }
 
-export async function criarPacoteRelatorios(sessao, periodo, {
-  gerarPdf, onProgresso = () => {}, signal,
+export const TAMANHO_LOTE_PDF = 25;
+
+export async function processarRelatoriosEmLotes(sessao, periodo, {
+  processarLote, onProgresso = () => {}, signal,
 } = {}) {
   onProgresso({ etapa: 'consulta', concluidos: 0, total: 0 });
   const partes = await carregarPartesDoPeriodo(sessao, periodo, { signal });
   if (!partes.length) throw new Error('Nenhum relatório encontrado para o período selecionado.');
   const arquivos = planejarArquivosRelatorios(partes);
-  const { default: JSZip } = await import('jszip');
-  const zip = new JSZip();
-  for (const [indice, arquivo] of arquivos.entries()) {
+  const consultar = async (inicio) => {
     verificarCancelamento(signal);
-    const { parte, obra, caminho } = arquivo;
-    onProgresso({ etapa: 'gerando', concluidos: indice, total: arquivos.length, obra, tag: parte.tag });
-    try {
-      // A listagem contém apenas resumos; cada PDF recebe o relatório completo.
-      const resposta = await fetch(`/api/partes-diarias/${encodeURIComponent(parte.id)}`, {
-        headers: authHeaders(sessao), cache: 'no-store', signal,
-      });
-      if (!resposta.ok) throw new Error(`Não foi possível carregar o relatório (${resposta.status}).`);
-      const { data: completo } = await resposta.json();
-      if (!completo || completo.id !== parte.id
-        || !filtrarPartesDiarias([completo], sessao.usuario).length) {
-        throw new Error('O relatório não está disponível para este usuário.');
-      }
-      verificarCancelamento(signal);
-      const pdf = await gerarPdf(completo, { signal });
-      verificarCancelamento(signal);
-      zip.file(caminho, pdf);
-    } catch (erro) {
-      verificarCancelamento(signal);
-      throw new Error(`${obra} • ${parte.tag || 'Sem TAG'} • ${diaRelatorio(parte)}: ${erro.message} Nenhum ZIP foi baixado.`);
+    const lote = arquivos.slice(inicio, inicio + TAMANHO_LOTE_PDF);
+    const resposta = await fetch('/api/partes-diarias/exportacao/lote', {
+      method: 'POST', headers: authHeaders(sessao), cache: 'no-store', signal,
+      body: JSON.stringify({ ids: lote.map(({ parte }) => parte.id) }),
+    });
+    if (!resposta.ok) {
+      const erro = await resposta.json().catch(() => ({}));
+      throw new Error(erro.message || `Não foi possível carregar o lote de relatórios (${resposta.status}).`);
     }
+    const { data } = await resposta.json();
+    const permitidos = Array.isArray(data) && data.every((parte) => parte && typeof parte.id === 'string')
+      ? filtrarPartesDiarias(data, sessao.usuario) : [];
+    const porId = new Map(permitidos.map((parte) => [parte.id, parte]));
+    if (!Array.isArray(data) || data.length !== lote.length || porId.size !== lote.length
+      || lote.some(({ parte }) => !porId.has(parte.id))) {
+      throw new Error('O lote está incompleto ou contém relatórios indisponíveis para este usuário. Nenhum ZIP foi baixado.');
+    }
+    verificarCancelamento(signal);
+    return lote.map(({ parte, ...arquivo }) => ({ ...arquivo, relatorio: porId.get(parte.id) }));
+  };
+  const adiantar = (inicio) => consultar(inicio).then((lote) => ({ lote }), (erro) => ({ erro }));
+  let pendente = adiantar(0);
+  for (let inicio = 0; inicio < arquivos.length; inicio += TAMANHO_LOTE_PDF) {
+    verificarCancelamento(signal);
+    onProgresso({ etapa: 'carregando', concluidos: inicio, total: arquivos.length,
+      ate: Math.min(arquivos.length, inicio + TAMANHO_LOTE_PDF) });
+    const preparado = await pendente;
+    if (preparado.erro) throw preparado.erro;
+    verificarCancelamento(signal);
+    const proximo = inicio + TAMANHO_LOTE_PDF;
+    pendente = proximo < arquivos.length ? adiantar(proximo) : null;
+    await processarLote(preparado.lote, { total: arquivos.length, signal });
   }
   verificarCancelamento(signal);
-  const progresso = { etapa: 'compactando', concluidos: arquivos.length, total: arquivos.length };
-  onProgresso({ ...progresso, percentual: 0 });
-  const conteudo = await zip.generateAsync({
-    type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 1 }, streamFiles: true,
-  }, ({ percent }) => {
-    verificarCancelamento(signal);
-    onProgresso({ ...progresso, percentual: Math.round(percent) });
-  });
-  verificarCancelamento(signal);
   return {
-    conteudo, total: arquivos.length, obras: new Set(arquivos.map((arquivo) => arquivo.pasta)).size,
+    total: arquivos.length, obras: new Set(arquivos.map((arquivo) => arquivo.pasta)).size,
     nome: `Relatorios_Oficiais_${periodo.dataInicio}_a_${periodo.dataFim}.zip`,
   };
 }

@@ -56,8 +56,10 @@ export default function ExportarRelatoriosPdfModal({ sessao, dataInicial, onFech
     : progresso?.total ? Math.round((progresso.concluidos / progresso.total) * 100) : 0;
   const mensagem = progresso?.etapa === 'compactando'
     ? `Preparando ZIP: ${percentual}%`
+    : progresso?.etapa === 'carregando'
+      ? `Carregando relatórios ${progresso.concluidos + 1} a ${progresso.ate} de ${progresso.total}`
     : progresso?.etapa === 'gerando'
-      ? `Gerando PDF ${progresso.concluidos + 1} de ${progresso.total}`
+      ? `Gerando PDF ${Math.min(progresso.concluidos + 1, progresso.total)} de ${progresso.total}`
       : 'Buscando todos os relatórios do período...';
 
   return (
