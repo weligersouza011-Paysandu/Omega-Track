@@ -1863,7 +1863,7 @@ export const resumoAderencia = asyncHandler(async (req, res) => {
     prisma.parteDiaria.groupBy({ by: ['aderencia'], where: base, _count: { _all: true } }),
     prisma.parteDiaria.groupBy({ by: ['categoria_desvio_id'], where: { ...base, aderencia: false }, _count: { _all: true } }),
     prisma.parteDiaria.count({
-      where: { ...base, aderencia: false, OR: [{ categoria_desvio_id: null }, { justificativa_desvio: null }] },
+      where: { ...base, aderencia: false, categoria_desvio_id: null },
     }),
     prisma.categoriaDesvioProgramacao.findMany({ select: { id: true, nome: true } }),
   ]);

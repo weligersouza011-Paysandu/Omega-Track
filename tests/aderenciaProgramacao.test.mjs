@@ -53,6 +53,9 @@ test('status de aderência e pendência de justificativa', () => {
   assert.deepEqual(statusAderencia({ aderencia: false }), { status: 'DESVIO', justificativa_pendente: true });
   assert.deepEqual(statusAderencia({ aderencia: false, categoria_desvio_id: 'x', justificativa_desvio: JUST }),
     { status: 'DESVIO', justificativa_pendente: false });
+  // Só a categoria é obrigatória.
+  assert.deepEqual(statusAderencia({ aderencia: false, categoria_desvio_id: 'x' }),
+    { status: 'DESVIO', justificativa_pendente: false });
   assert.equal(statusAderencia({ aderencia: null }).status, 'SEM_PROGRAMACAO');
 });
 
@@ -63,7 +66,9 @@ test('justificativa: limpa sem desvio, valida categoria/tamanho no desvio, aceit
   assert.deepEqual(await resolverJustificativa(client, false, { categoriaId: CAT_ATIVA, justificativa: `  ${JUST}  ` }),
     { categoria_desvio_id: CAT_ATIVA, justificativa_desvio: JUST });
   await assert.rejects(resolverJustificativa(client, false, { categoriaId: CAT_INATIVA }), /inválida ou inativa/);
-  await assert.rejects(resolverJustificativa(client, false, { justificativa: 'curta' }), /entre 10 e 2000/);
+  // Justificativa é opcional: curta passa; só o excesso é recusado.
+  assert.equal((await resolverJustificativa(client, false, { justificativa: ' curta ' })).justificativa_desvio, 'curta');
+  await assert.rejects(resolverJustificativa(client, false, { justificativa: 'x'.repeat(2001) }), /no máximo 2000/);
   assert.equal((await resolverJustificativa(client, false, { categoriaId: CAT_INATIVA, categoriaAtual: CAT_INATIVA }))
     .categoria_desvio_id, CAT_INATIVA);
   assert.deepEqual(await resolverJustificativa(client, false, {}), { categoria_desvio_id: null, justificativa_desvio: null });
@@ -209,9 +214,9 @@ test('veículo sem programação no dia não entra no indicador', async () => {
   assert.equal(r.corpo.data.aderencia_programacao.status, 'SEM_PROGRAMACAO');
 });
 
-test('justificativa inválida ou categoria inativa barram o salvamento', async () => {
-  const curta = await api('/partes-diarias', { method: 'POST', body: rdo({ obra_id: OBRA_B, justificativa_desvio: 'curta' }) });
-  assert.equal(curta.status, 400);
+test('justificativa acima do limite ou categoria inativa barram o salvamento', async () => {
+  const longa = await api('/partes-diarias', { method: 'POST', body: rdo({ obra_id: OBRA_B, justificativa_desvio: 'x'.repeat(2001) }) });
+  assert.equal(longa.status, 400);
   const inativa = await api('/partes-diarias', { method: 'POST', body: rdo({ obra_id: OBRA_B, categoria_desvio_id: CAT_INATIVA }) });
   assert.equal(inativa.status, 400);
   assert.equal(partes.size, 0);
@@ -225,7 +230,13 @@ test('categorias: listar ativas, criar, renomear, e excluir em uso apenas desati
   const nova = await api('/categorias-desvio', { method: 'POST', body: { nome: '  Chuva   Forte ' } });
   assert.equal(nova.status, 201);
   assert.equal(nova.corpo.data.nome, 'Chuva Forte');
-  assert.equal((await api('/categorias-desvio', { method: 'POST', body: { nome: 'chuva forte' } })).status, 409);
+  // Nome repetido devolve a existente (para ser selecionada), sem duplicar.
+  const repetida = await api('/categorias-desvio', { method: 'POST', body: { nome: 'chuva forte' } });
+  assert.deepEqual([repetida.status, repetida.corpo.existente, repetida.corpo.data.id], [200, true, nova.corpo.data.id]);
+  // Existente mas desativada: o operador não reativa.
+  const desativada = await api('/categorias-desvio', { method: 'POST', body: { nome: 'erro de programação' } });
+  assert.equal(desativada.status, 409);
+  assert.match(desativada.corpo.message, /desativada/);
 
   categorias[CAT_ATIVA].partes = 3;
   const emUso = await api(`/categorias-desvio/${CAT_ATIVA}`, { method: 'DELETE' });
@@ -255,4 +266,20 @@ test('resumo do indicador: % só sobre programados, pendências e desvios por ca
     [['Sem categoria', 1], ['Solicitação Urgente do Cliente', 1]]);
   assert.equal((await api('/partes-diarias/aderencia?inicio=2026-11-17&fim=2026-11-16')).status, 400);
   assert.equal((await api(`/partes-diarias/aderencia?inicio=${DIA}&fim=${DIA}`, { auth: false })).status, 401);
+});
+
+test('operador (usuário operacional logado) pode criar categoria pela Parte Diária', async () => {
+  const OPERADOR = { id: '00000000-0000-4000-8000-000000000009', nome: 'Op', matricula: '777', tipo: 'OPERACIONAL' };
+  modelos.usuario.findUnique = async ({ where }) => (where.id === OPERADOR.id ? OPERADOR
+    : where.id === ADMIN.id || where.matricula === ADMIN.matricula ? ADMIN : null);
+  const r = await fetch(`${base}/categorias-desvio`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${assinarSessao(OPERADOR)}` },
+    body: JSON.stringify({ nome: 'Apoio Operacional' }),
+  });
+  assert.equal(r.status, 201);
+  // ...mas não desativa nem exclui (restrito à gestão da programação).
+  const id = (await r.json()).data.id;
+  const del = await fetch(`${base}/categorias-desvio/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${assinarSessao(OPERADOR)}` } });
+  assert.equal(del.status, 403);
 });

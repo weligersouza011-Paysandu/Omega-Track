@@ -63,7 +63,7 @@ export default function CategoriasDesvioModal({ aberto, sessao, onFechar }) {
     const nome = nova.trim();
     if (!nome) return;
     if (await chamar('nova', '/api/categorias-desvio', { method: 'POST', body: JSON.stringify({ nome }) },
-      () => `Categoria "${nome}" adicionada.`)) setNova('');
+      (corpo) => (corpo.existente ? `"${corpo.data.nome}" já existia na lista.` : `Categoria "${nome}" adicionada.`))) setNova('');
   }
 
   const alternar = (c) => chamar(c.id, `/api/categorias-desvio/${c.id}`,

@@ -14,12 +14,14 @@ function nomeValido(valor) {
   return nome && nome.length <= 120 ? nome : null;
 }
 
-async function nomeEmUso(nome, idAtual = null) {
-  const existente = await prisma.categoriaDesvioProgramacao.findFirst({
+async function categoriaComNome(nome, idAtual = null) {
+  return prisma.categoriaDesvioProgramacao.findFirst({
     where: { nome: { equals: nome, mode: 'insensitive' }, ...(idAtual ? { NOT: { id: idAtual } } : {}) },
-    select: { id: true },
   });
-  return Boolean(existente);
+}
+
+async function nomeEmUso(nome, idAtual = null) {
+  return Boolean(await categoriaComNome(nome, idAtual));
 }
 
 // GET /api/categorias-desvio?ativas=1  (o RDO pede só as ativas)
@@ -35,12 +37,22 @@ export const listarCategoriasDesvio = asyncHandler(async (req, res) => {
   });
 });
 
+// POST { nome } — tambem usado pelo operador na Parte Diaria. Nome que ja
+// existe (sem diferenciar maiusculas) devolve a categoria existente para ser
+// selecionada, sem duplicar; se estiver desativada, so o admin pode reativar.
 export const criarCategoriaDesvio = asyncHandler(async (req, res) => {
   const nome = nomeValido(req.body?.nome);
   if (!nome) return res.status(400).json({ error: 'Dados invalidos', message: 'Informe o nome da categoria (até 120 caracteres).' });
-  if (await nomeEmUso(nome)) return res.status(409).json({ error: 'Categoria existente', message: `Já existe a categoria "${nome}".` });
+  const existente = await categoriaComNome(nome);
+  if (existente?.ativo) return res.status(200).json({ data: existente, existente: true });
+  if (existente) {
+    return res.status(409).json({
+      error: 'Categoria desativada',
+      message: `A categoria "${existente.nome}" existe, mas foi desativada. Peça ao administrador para reativá-la ou escolha outra.`,
+    });
+  }
   const categoria = await prisma.categoriaDesvioProgramacao.create({
-    data: { nome, ativo: req.body?.ativo !== false },
+    data: { nome, ativo: true },
   });
   await registrarLogAtividade(req, { acao: 'CRIAR_CATEGORIA_DESVIO', modulo: 'Programacao', detalhes: { id: categoria.id, nome } });
   res.status(201).json({ data: categoria });

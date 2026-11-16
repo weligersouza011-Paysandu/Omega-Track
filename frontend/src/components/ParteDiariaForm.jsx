@@ -12,8 +12,10 @@ import { authHeaders } from '../utils/sessao.js';
 import { hojeISO, paraInputData, formatarDataSemTimezone, formatarDataBR, extrairPartesData } from '../utils/datas.js';
 import { podeAlterarStatusOperacional, ehMaster } from '../utils/permissoes.js';
 import {
-  avaliarDesvio, camposDesvioPayload, JUSTIFICATIVA_MAX, JUSTIFICATIVA_MIN, pendenciaDesvio,
+  avaliarDesvio, camposDesvioPayload, JUSTIFICATIVA_MAX, pendenciaDesvio,
 } from '../utils/desvioProgramacao.js';
+
+const NOVA_CATEGORIA = '__nova_categoria__';
 
 // Status internos do fluxo de aprovação (mapeados para exibição)
 const STATUS_APROVACAO = {
@@ -390,6 +392,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
   const [categoriasDesvio, setCategoriasDesvio] = useState([]);
   // Categoria já gravada no RDO (pode ter sido desativada pelo admin depois).
   const [categoriaDesvioGravada, setCategoriaDesvioGravada] = useState(null);
+  const [novaCategoria, setNovaCategoria] = useState({ aberta: false, nome: '', salvando: false, erro: '' });
   // Obra preenchida automaticamente pela Programação (pode ser trocada ao mudar o veículo).
   const obraAutoRef = useRef(null);
 
@@ -619,6 +622,31 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     return () => { vivo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, chaveAtual]);
+
+  // "+ Adicionar nova categoria...": grava na hora e já seleciona no RDO.
+  const criarCategoriaDesvio = async () => {
+    const nome = novaCategoria.nome.trim().replace(/\s+/g, ' ');
+    if (!nome || novaCategoria.salvando) return;
+    setNovaCategoria((n) => ({ ...n, salvando: true, erro: '' }));
+    try {
+      const resp = await fetch('/api/categorias-desvio', {
+        method: 'POST', headers: authHeaders(sessao), body: JSON.stringify({ nome }),
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(corpo.message || `Não foi possível salvar a categoria (${resp.status}).`);
+      const categoria = corpo.data;
+      setCategoriasDesvio((lista) => (lista.some((c) => c.id === categoria.id) ? lista
+        : [...lista, categoria].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))));
+      limparErroCampo('desvio');
+      definir('categoria_desvio_id', categoria.id);
+      setNovaCategoria({ aberta: false, nome: '', salvando: false, erro: '' });
+    } catch (falha) {
+      setNovaCategoria((n) => ({
+        ...n, salvando: false,
+        erro: falha instanceof TypeError && !navigator.onLine ? 'Sem conexão: não foi possível salvar a categoria.' : falha.message,
+      }));
+    }
+  };
 
   // ------- obras ativas (dropdown do cabeçalho) + usuários (função da mão de obra) -------
   useEffect(() => {
@@ -1092,10 +1120,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         categoriaId: f.categoria_desvio_id,
         justificativa: f.justificativa_desvio,
       });
-      if (msgDesvio) {
-        marcarErro('desvio', 'campo-desvio', msgDesvio);
-        setSecoes((s) => ({ ...s, ocor: true }));
-      }
+      if (msgDesvio) marcarErro('desvio', 'campo-desvio', msgDesvio);
     }
 
     setErrosValidacao(novosErros);
@@ -1353,14 +1378,27 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       }
     }
 
+    // Regra: 1 único veículo por Parte Diária — escolher outro substitui o atual.
+    const tagNova = String(veiculo.tag).trim().toUpperCase();
+    const tagAnterior = String((form.equipamentos || []).find((e) => String(e?.tag_patrimonio || '').trim())?.tag_patrimonio || '')
+      .trim().toUpperCase();
+    if (tagTravada && tagAnterior === tagTravada && tagNova !== tagTravada) {
+      setErro('O veículo deste lançamento retroativo está travado e não pode ser trocado.');
+      setModalEquip(false);
+      return;
+    }
+    // KM herdada do veículo anterior não vale para o novo: limpa e herda de novo.
+    const trocouVeiculo = Boolean(tagAnterior) && tagAnterior !== tagNova;
+    const limparKmHerdada = trocouVeiculo && kmHerdada;
     sujoRef.current = true;
     limparErroCampo('equipamentos');
-    // O 1º equipamento é o veículo principal (TAG do relatório).
-    const ehPrincipal = (form.equipamentos || []).length === 0;
-    const kmVazia = String(form.km_inicial ?? '').trim() === '';
+    const ehPrincipal = true;
+    const kmVazia = limparKmHerdada || String(form.km_inicial ?? '').trim() === '';
+    if (limparKmHerdada) { setKmHerdada(false); setKmOrigem(null); }
     setForm((f) => ({
       ...f,
-      equipamentos: [...(f.equipamentos || []), {
+      ...(limparKmHerdada ? { km_inicial: '' } : {}),
+      equipamentos: [{
         tag_patrimonio: veiculo.tag,
         descricao: veiculo.modelo || veiculo.placa || '',
         horimetro_inicial: '',
@@ -1698,37 +1736,57 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     ? [...categoriasDesvio, { ...categoriaDesvioGravada, nome: `${categoriaDesvioGravada.nome}${categoriaDesvioGravada.ativo === false ? ' (inativa)' : ''}` }]
     : categoriasDesvio;
   const tamanhoJustificativa = String(form.justificativa_desvio || '').trim().length;
+  const selecionarCategoriaDesvio = (valor) => {
+    limparErroCampo('desvio');
+    if (valor === NOVA_CATEGORIA) {
+      setNovaCategoria({ aberta: true, nome: '', salvando: false, erro: '' });
+      return;
+    }
+    definir('categoria_desvio_id', valor);
+  };
   const camposDesvio = (
-    <div id="campo-desvio" className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div id="campo-desvio" className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3">
       <div className="min-w-0">
         <label className="label" htmlFor="campo-categoria-desvio">Categoria do Desvio <span className="text-status-vermelho">*</span></label>
-        <select id="campo-categoria-desvio" value={form.categoria_desvio_id || ''}
-          onChange={(e) => { limparErroCampo('desvio'); definir('categoria_desvio_id', e.target.value); }}
+        <select id="campo-categoria-desvio" value={novaCategoria.aberta ? NOVA_CATEGORIA : (form.categoria_desvio_id || '')}
+          onChange={(e) => selecionarCategoriaDesvio(e.target.value)}
           className={`${inputCls} ${errosValidacao.desvio && !form.categoria_desvio_id ? '!border-red-500 ring-2 ring-red-500/40' : ''}`}>
           <option value="">Selecionar categoria...</option>
           {opcoesCategoriaDesvio.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          <option value={NOVA_CATEGORIA}>+ Adicionar nova categoria...</option>
         </select>
-        {opcoesCategoriaDesvio.length === 0 && (
-          <p className="mt-1 text-[11px] text-omega-500">Nenhuma categoria disponível (sem conexão ou não cadastradas).</p>
+        {novaCategoria.aberta && (
+          <form className="mt-2 space-y-1.5" onSubmit={(e) => { e.preventDefault(); criarCategoriaDesvio(); }}>
+            <div className="flex gap-1.5">
+              <input autoFocus value={novaCategoria.nome} maxLength={120} aria-label="Nome da nova categoria"
+                onChange={(e) => setNovaCategoria((n) => ({ ...n, nome: e.target.value, erro: '' }))}
+                placeholder="Ex.: Apoio Operacional" className={`${inputCls} flex-1 min-w-0`} />
+              <button type="submit" disabled={!novaCategoria.nome.trim() || novaCategoria.salvando}
+                className="btn-primary !py-1.5 !px-2.5 text-xs shrink-0 disabled:opacity-50">
+                {novaCategoria.salvando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Salvar
+              </button>
+              <button type="button" onClick={() => setNovaCategoria({ aberta: false, nome: '', salvando: false, erro: '' })}
+                className="btn-secondary !py-1.5 !px-2 text-xs shrink-0" aria-label="Cancelar nova categoria"><X size={13} /></button>
+            </div>
+            {novaCategoria.erro && <p className="text-[11px] font-semibold text-red-600">{novaCategoria.erro}</p>}
+          </form>
+        )}
+        {errosValidacao.desvio && (
+          <p className="mt-1 text-[11px] font-semibold text-red-600 flex items-center gap-1">
+            <AlertTriangle size={12} className="shrink-0" /> {errosValidacao.desvio}
+          </p>
         )}
       </div>
-      <div className="min-w-0 md:col-span-2">
-        <label className="label" htmlFor="campo-justificativa-desvio">Justificativa do Desvio <span className="text-status-vermelho">*</span></label>
+      <div className="min-w-0">
+        <label className="label" htmlFor="campo-justificativa-desvio">Justificativa do Desvio <span className="font-normal text-omega-400">(opcional)</span></label>
         <textarea id="campo-justificativa-desvio" value={form.justificativa_desvio || ''} maxLength={JUSTIFICATIVA_MAX} rows={3}
-          onChange={(e) => { limparErroCampo('desvio'); definir('justificativa_desvio', e.target.value); }}
-          placeholder="Explique por que o veículo não foi para a obra programada"
-          className={`${inputCls} min-h-[72px] resize-y ${errosValidacao.desvio && tamanhoJustificativa < JUSTIFICATIVA_MIN ? '!border-red-500 ring-2 ring-red-500/40' : ''}`} />
-        <p className={`mt-1 text-[11px] ${tamanhoJustificativa > 0 && tamanhoJustificativa < JUSTIFICATIVA_MIN ? 'text-amber-700 font-semibold' : 'text-omega-400'}`}>
-          {tamanhoJustificativa < JUSTIFICATIVA_MIN
-            ? `Mínimo de ${JUSTIFICATIVA_MIN} caracteres (${tamanhoJustificativa}/${JUSTIFICATIVA_MIN}).`
-            : `${tamanhoJustificativa}/${JUSTIFICATIVA_MAX} caracteres.`}
-        </p>
+          onChange={(e) => definir('justificativa_desvio', e.target.value)}
+          placeholder="Detalhe o motivo, se quiser"
+          className={`${inputCls} min-h-[72px] resize-y`} />
+        {tamanhoJustificativa > JUSTIFICATIVA_MAX - 200 && (
+          <p className="mt-1 text-[11px] text-omega-400">{tamanhoJustificativa}/{JUSTIFICATIVA_MAX} caracteres.</p>
+        )}
       </div>
-      {errosValidacao.desvio && (
-        <p className="md:col-span-3 text-[11px] font-semibold text-red-600 flex items-center gap-1">
-          <AlertTriangle size={12} className="shrink-0" /> {errosValidacao.desvio}
-        </p>
-      )}
     </div>
   );
   const corStatusOperacional = CORES_STATUS_OPERACIONAL[form.status_operacional] || '';
@@ -1910,7 +1968,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
             <div id="campo-equipamentos" className={`rounded-2xl transition-all ${errosValidacao.equipamentos ? 'ring-2 ring-red-500/70 p-0.5' : ''}`}>
               <Secao
                 icone={Truck}
-                titulo="Equipamentos (Veículo Obrigatório)"
+                titulo="Veículo (1 por Parte Diária)"
+                labelAdicionar={form.equipamentos.some((e) => String(e?.tag_patrimonio || '').trim()) ? 'Trocar veículo' : undefined}
                 count={form.equipamentos.length}
                 aberto={secoes.equip}
                 onToggle={() => alternarSecao('equip')}
@@ -1980,18 +2039,6 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   <span className="text-[11px] text-omega-400">Veículo sem programação nesta data</span>
                 )}
               </div>
-              {desvioAtual.desvio && (
-                <div role="alert" className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
-                  <p className="font-bold">⚠️ Desvio de Programação Detectado (Programado: {desvioAtual.obraProgramada.nome})</p>
-                  <p className="mt-0.5">Informe a categoria e a justificativa em <strong>Ocorrências / Desvios</strong> para concluir a Parte Diária.</p>
-                  {obras.some((o) => o.id === desvioAtual.obraProgramada.id) && (
-                    <button type="button" onClick={() => { selecionarObra(desvioAtual.obraProgramada.id); obraAutoRef.current = desvioAtual.obraProgramada.id; }}
-                      className="mt-1.5 font-bold text-amber-800 underline underline-offset-2 hover:text-amber-950">
-                      Voltar para a obra programada
-                    </button>
-                  )}
-                </div>
-              )}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className={`rounded-xl border-2 p-2.5 shadow-sm transition-colors ${
                   errosValidacao.obra
@@ -2048,18 +2095,33 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
                   <input value={form.planejador} readOnly title="Preenchido automaticamente pela obra selecionada" className={`${inputCls} bg-omega-50 text-omega-500`} placeholder="Preenchido pela obra" />
                 </div>
               </div>
+              {desvioAtual.desvio && (
+                <div role="alert" className="alerta-desvio mt-3 rounded-xl p-3 space-y-3">
+                  <div className="text-xs">
+                    <p className="alerta-desvio-titulo font-bold">⚠️ Desvio de Programação Detectado (Programado: {desvioAtual.obraProgramada.nome})</p>
+                    <p className="mt-0.5">Selecione a categoria do desvio para concluir a Parte Diária.</p>
+                    {obras.some((o) => o.id === desvioAtual.obraProgramada.id) && (
+                      <button type="button" onClick={() => { selecionarObra(desvioAtual.obraProgramada.id); obraAutoRef.current = desvioAtual.obraProgramada.id; }}
+                        className="alerta-desvio-link mt-1 font-bold underline underline-offset-2">
+                        Voltar para a obra programada
+                      </button>
+                    )}
+                  </div>
+                  {camposDesvio}
+                </div>
+              )}
             </div>
             )}
 
             {/* Desvio fora de Operação: veículo programado mas parado/em manutenção */}
             {modo !== 'operacao' && desvioAtual.desvio && (
-            <div className="card p-4 border-2 !border-amber-300">
-              <div className="flex items-center gap-2 mb-2">
+            <div role="alert" className="alerta-desvio rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
                 <span className="p-1.5 rounded-lg bg-amber-500 text-white"><AlertTriangle size={14} /></span>
-                <span className="text-sm font-bold text-omega-900">Desvio de Programação</span>
+                <span className="alerta-desvio-titulo text-sm font-bold">Desvio de Programação</span>
               </div>
-              <p className="mb-3 text-xs text-amber-900">
-                ⚠️ Programado para <strong>{desvioAtual.obraProgramada.nome}</strong>, mas o dia está como <strong>{form.status_operacional}</strong>. Informe o motivo.
+              <p className="text-xs">
+                ⚠️ Programado para <strong>{desvioAtual.obraProgramada.nome}</strong>, mas o dia está como <strong>{form.status_operacional}</strong>. Selecione a categoria do desvio.
               </p>
               {camposDesvio}
             </div>
@@ -2315,14 +2377,14 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
               ))}
             </Secao>
 
-            <Secao icone={AlertTriangle} titulo="Ocorrências / Desvios" count={form.ocorrencias.length + (desvioAtual.desvio ? 1 : 0)} aberto={secoes.ocor || desvioAtual.desvio} onToggle={() => alternarSecao('ocor')} onAdicionar={abrirModalOcor} temErro={!!errosValidacao.desvio}>
+            <Secao icone={AlertTriangle} titulo="Ocorrências / Desvios" count={form.ocorrencias.length + (desvioAtual.desvio ? 1 : 0)} aberto={secoes.ocor} onToggle={() => alternarSecao('ocor')} onAdicionar={abrirModalOcor} temErro={!!errosValidacao.desvio}>
               {desvioAtual.desvio && (
-                <div className="rounded-xl border-2 border-amber-300 bg-amber-50/60 p-3">
-                  <p className="mb-2 text-xs font-bold text-amber-900">
-                    ⚠️ Desvio de Programação (Programado: {desvioAtual.obraProgramada.nome}) — obrigatório para concluir
-                  </p>
-                  {camposDesvio}
-                </div>
+                <button type="button" onClick={() => executarScrollParaElemento('campo-desvio')}
+                  className="alerta-desvio w-full rounded-xl px-3 py-2 text-left text-xs">
+                  <span className="alerta-desvio-titulo font-bold">⚠️ Desvio de Programação</span>
+                  {' '}(Programado: {desvioAtual.obraProgramada.nome}) — categoria registrada no bloco <strong>Obra</strong>.
+                  {form.categoria_desvio_id ? ' ✓' : ' Toque para preencher.'}
+                </button>
               )}
               {form.ocorrencias.length === 0 && <LinhaVazia texto="Nenhuma ocorrência registrada. Use + Adicionar." />}
               {form.ocorrencias.map((it, i) => (
@@ -2573,7 +2635,7 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
         open={modalEquip}
         onClose={() => setModalEquip(false)}
         title="Selecionar Veículo"
-        subtitle="Clique no veículo para vinculá-lo como equipamento"
+        subtitle="Clique no veículo para vinculá-lo (substitui o veículo atual)"
         size="md"
       >
         <div className="space-y-3">

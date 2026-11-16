@@ -7,7 +7,7 @@
 //   aderencia = null  -> veiculo sem programacao no dia (nao entra no indicador)
 // ============================================================================
 
-export const JUSTIFICATIVA_MIN = 10;
+// Justificativa e opcional (so a categoria e exigida no desvio).
 export const JUSTIFICATIVA_MAX = 2000;
 
 // Dia (UTC 00:00) no mesmo formato das colunas DATE da programacao/RDO.
@@ -74,9 +74,9 @@ function erro400(message, extra = {}) {
 /**
  * Valida categoria/justificativa e devolve os campos a gravar.
  * Sem desvio, os campos sao limpos. Com desvio, o que vier precisa ser valido
- * (categoria ativa, justificativa com 10 a 2000 caracteres); a AUSENCIA nao
- * bloqueia o salvamento — fica como `justificativa_pendente` para a tela
- * cobrar antes de finalizar (o RDO e preenchido aos poucos, inclusive offline).
+ * (categoria ativa; justificativa opcional, ate 2000 caracteres). A falta da
+ * categoria nao bloqueia o salvamento — fica como `justificativa_pendente`
+ * para a tela cobrar antes de concluir (o RDO e preenchido aos poucos).
  */
 export async function resolverJustificativa(client, aderencia, { categoriaId, justificativa, categoriaAtual = null }) {
   if (aderencia !== false) return { categoria_desvio_id: null, justificativa_desvio: null };
@@ -99,8 +99,8 @@ export async function resolverJustificativa(client, aderencia, { categoriaId, ju
   let justificativa_desvio = null;
   if (justificativa !== undefined && justificativa !== null && String(justificativa).trim() !== '') {
     const texto = String(justificativa).trim();
-    if (texto.length < JUSTIFICATIVA_MIN || texto.length > JUSTIFICATIVA_MAX) {
-      throw erro400(`A justificativa do desvio deve ter entre ${JUSTIFICATIVA_MIN} e ${JUSTIFICATIVA_MAX} caracteres.`);
+    if (texto.length > JUSTIFICATIVA_MAX) {
+      throw erro400(`A justificativa do desvio aceita no máximo ${JUSTIFICATIVA_MAX} caracteres.`);
     }
     justificativa_desvio = texto;
   }
@@ -113,7 +113,8 @@ export function statusAderencia(parte) {
   if (parte?.aderencia === false) {
     return {
       status: 'DESVIO',
-      justificativa_pendente: !parte.categoria_desvio_id || !parte.justificativa_desvio,
+      // So a categoria e obrigatoria; a justificativa e opcional.
+      justificativa_pendente: !parte.categoria_desvio_id,
     };
   }
   return { status: 'SEM_PROGRAMACAO', justificativa_pendente: false };

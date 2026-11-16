@@ -5,12 +5,14 @@ import {
   atualizarCategoriaDesvio,
   excluirCategoriaDesvio,
 } from '../controllers/categoriasDesvioController.js';
-import { requerAdminAutenticado, requerGestaoTransporte } from '../middleware/sessao.js';
+import { requerAdminAutenticado, requerGestaoTransporte, requerSessao } from '../middleware/sessao.js';
 
-// Leitura aberta (o RDO lista as ativas); escrita restrita a quem gere a programacao.
+// Leitura aberta (o RDO lista as ativas). Criar: qualquer usuario logado
+// ("+ Adicionar nova categoria..." na Parte Diaria, feita pelo operador).
+// Renomear, ativar/desativar e excluir: so quem gere a programacao.
 const router = Router();
 router.get('/', listarCategoriasDesvio);
-router.post('/', requerAdminAutenticado, requerGestaoTransporte, criarCategoriaDesvio);
+router.post('/', requerSessao, criarCategoriaDesvio);
 router.put('/:id', requerAdminAutenticado, requerGestaoTransporte, atualizarCategoriaDesvio);
 router.delete('/:id', requerAdminAutenticado, requerGestaoTransporte, excluirCategoriaDesvio);
 

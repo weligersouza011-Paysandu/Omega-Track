@@ -18,17 +18,19 @@ test('mesma obra = conforme; outra obra, sem obra ou status ≠ Operação = des
   assert.equal(avaliarDesvio(programacao, { obraId: 'obra-a', statusOperacional: 'Manutenção Corretiva' }).desvio, true);
 });
 
-test('pendência exige categoria e justificativa com 10+ caracteres', () => {
+test('pendência exige só a categoria; justificativa é opcional', () => {
   assert.equal(pendenciaDesvio({ desvio: false }), null);
-  assert.match(pendenciaDesvio({ desvio: true }), /categoria e a justificativa/);
-  assert.match(pendenciaDesvio({ desvio: true, categoriaId: 'c', justificativa: 'curta' }), /justificativa \(mín\. 10/);
-  assert.equal(pendenciaDesvio({ desvio: true, categoriaId: 'c', justificativa: 'Cliente pediu apoio.' }), null);
+  assert.match(pendenciaDesvio({ desvio: true }), /selecione a categoria/);
+  assert.match(pendenciaDesvio({ desvio: true, justificativa: 'Texto longo o bastante' }), /selecione a categoria/);
+  assert.equal(pendenciaDesvio({ desvio: true, categoriaId: 'c' }), null);
 });
 
-test('payload: limpa sem desvio e não envia justificativa curta (autosave seguro)', () => {
+test('payload: limpa sem desvio; justificativa curta ou vazia é aceita', () => {
   assert.deepEqual(camposDesvioPayload({ desvio: false, categoriaId: 'c', justificativa: 'qualquer coisa longa' }),
     { categoria_desvio_id: null, justificativa_desvio: null });
-  assert.deepEqual(camposDesvioPayload({ desvio: true, categoriaId: 'c', justificativa: 'curta' }),
+  assert.deepEqual(camposDesvioPayload({ desvio: true, categoriaId: 'c', justificativa: ' curta ' }),
+    { categoria_desvio_id: 'c', justificativa_desvio: 'curta' });
+  assert.deepEqual(camposDesvioPayload({ desvio: true, categoriaId: 'c', justificativa: '   ' }),
     { categoria_desvio_id: 'c', justificativa_desvio: null });
   assert.deepEqual(camposDesvioPayload({ desvio: true, categoriaId: 'c', justificativa: '  Cliente pediu apoio.  ' }),
     { categoria_desvio_id: 'c', justificativa_desvio: 'Cliente pediu apoio.' });

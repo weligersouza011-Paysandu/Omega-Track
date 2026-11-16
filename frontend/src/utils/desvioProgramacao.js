@@ -6,7 +6,6 @@
 //   - obra diferente / sem obra   -> desvio
 // ============================================================================
 
-export const JUSTIFICATIVA_MIN = 10;
 export const JUSTIFICATIVA_MAX = 2000;
 
 function normalizar(v) {
@@ -27,25 +26,21 @@ export function avaliarDesvio(programacao, { obraId, obraTexto, statusOperaciona
   return { programada: true, obraProgramada, desvio: !aderente };
 }
 
-/** Mensagem do que falta para concluir com desvio, ou null quando está ok. */
-export function pendenciaDesvio({ desvio, categoriaId, justificativa }) {
-  if (!desvio) return null;
-  const faltando = [];
-  if (!categoriaId) faltando.push('a categoria');
-  const texto = String(justificativa || '').trim();
-  if (texto.length < JUSTIFICATIVA_MIN) faltando.push(`a justificativa (mín. ${JUSTIFICATIVA_MIN} caracteres)`);
-  return faltando.length ? `Desvio de Programação: informe ${faltando.join(' e ')}` : null;
+/**
+ * Mensagem do que falta para concluir com desvio, ou null quando está ok.
+ * Só a categoria é obrigatória; a justificativa é opcional.
+ */
+export function pendenciaDesvio({ desvio, categoriaId }) {
+  if (!desvio || categoriaId) return null;
+  return 'Desvio de Programação: selecione a categoria do desvio';
 }
 
-/**
- * Campos de desvio para o payload. Justificativa ainda curta vai como null
- * (o servidor recusaria), para o autosave nunca falhar enquanto o operador digita.
- */
+/** Campos de desvio para o payload (limpos quando não há desvio). */
 export function camposDesvioPayload({ desvio, categoriaId, justificativa }) {
   if (!desvio) return { categoria_desvio_id: null, justificativa_desvio: null };
   const texto = String(justificativa || '').trim();
   return {
     categoria_desvio_id: categoriaId || null,
-    justificativa_desvio: texto.length >= JUSTIFICATIVA_MIN ? texto.slice(0, JUSTIFICATIVA_MAX) : null,
+    justificativa_desvio: texto ? texto.slice(0, JUSTIFICATIVA_MAX) : null,
   };
 }
