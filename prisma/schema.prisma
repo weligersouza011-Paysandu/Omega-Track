@@ -138,8 +138,18 @@ model ParteDiaria {
   obra_id    String? @db.Uuid
   planejador String? @db.VarChar(255)
 
-  veiculo  MobDesmob @relation(fields: [tag], references: [tag], onDelete: Restrict)
-  obra_ref Obra?     @relation(fields: [obra_id], references: [id], onDelete: SetNull)
+  // === Aderencia a Programacao de Recursos (calculada pelo servidor) ===
+  // obra_programada_id: obra da Programacao para TAG + data no momento do
+  // salvamento. `aderencia` (acima): true = seguiu, false = desvio,
+  // null = veiculo sem programacao no dia. Desvio pede categoria + justificativa.
+  obra_programada_id   String? @db.Uuid
+  categoria_desvio_id  String? @db.Uuid
+  justificativa_desvio String? @db.Text
+
+  veiculo             MobDesmob                   @relation(fields: [tag], references: [tag], onDelete: Restrict)
+  obra_ref            Obra?                       @relation(fields: [obra_id], references: [id], onDelete: SetNull)
+  obra_programada_ref Obra?                       @relation("ObraProgramadaParteDiaria", fields: [obra_programada_id], references: [id], onDelete: SetNull)
+  categoria_desvio    CategoriaDesvioProgramacao? @relation(fields: [categoria_desvio_id], references: [id], onDelete: Restrict)
 
   mao_obra     ParteDiariaMaoObra[]
   equipamentos ParteDiariaEquipamento[]
@@ -162,6 +172,8 @@ model ParteDiaria {
   @@index([status_operacional])
   @@index([status_aprovacao])
   @@index([deletado_em])
+  @@index([data, aderencia])
+  @@index([categoria_desvio_id])
   @@map("partes_diarias")
 }
 
@@ -315,6 +327,7 @@ model Obra {
   updated_at      DateTime @default(now()) @updatedAt @db.Timestamp(6)
 
   partes_diarias ParteDiaria[]
+  partes_programadas ParteDiaria[] @relation("ObraProgramadaParteDiaria")
   programacoes   ProgramacaoRecurso[]
   programacoes_terceiros ProgramacaoRecursoTerceiro[]
 
@@ -396,6 +409,21 @@ model ProgramacaoRecursoTerceiro {
   @@index([data])
   @@index([obra_id, data])
   @@map("programacao_recursos_terceiros")
+}
+
+// Motivos de desvio entre a obra programada e a obra real da Parte Diaria.
+// Parametrizavel pelo admin; em uso, a categoria e desativada (nao excluida)
+// para preservar o historico do indicador de Aderencia a Programacao.
+model CategoriaDesvioProgramacao {
+  id         String   @id @default(uuid()) @db.Uuid
+  nome       String   @unique @db.VarChar(120)
+  ativo      Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  partes_diarias ParteDiaria[]
+
+  @@index([ativo])
+  @@map("categorias_desvio_programacao")
 }
 
 // Cada passagem pela oficina permanece no historico. Somente um registro

@@ -3,6 +3,8 @@ import {
   listarPartesDiarias,
   buscarParteDiaria,
   buscarUltimaKm,
+  buscarObraProgramada,
+  resumoAderencia,
   criarParteDiaria,
   atualizarParteDiaria,
   deletarParteDiaria,
@@ -36,6 +38,9 @@ router.delete('/pendencias/:tag/:data', requerAdmin, ignorarPendencia);
 router.delete('/pendencias/:id', requerAdmin, ignorarPendencia);
 // Herança do odômetro (antes de `/:id` para não colidir com o parâmetro).
 router.get('/ultima-km', buscarUltimaKm);
+// Aderencia a Programacao (antes de `/:id`).
+router.get('/obra-programada', buscarObraProgramada);
+router.get('/aderencia', requerAdmin, resumoAderencia);
 router.get('/:id/logs', listarLogs);
 router.get('/:id', buscarParteDiaria);
 router.post('/', criarParteDiaria);
