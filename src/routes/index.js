@@ -19,6 +19,8 @@ import produtosQuimicosRoutes from './produtosQuimicosRoutes.js';
 import telemetriaRoutes from './telemetriaRoutes.js';
 import veiculosTerceirosRoutes from './veiculosTerceirosRoutes.js';
 import categoriasDesvioRoutes from './categoriasDesvioRoutes.js';
+import { aprovarLoteTransporte } from '../controllers/parteDiariaController.js';
+import { requerTransporteOuMaster } from '../middleware/sessao.js';
 
 const router = Router();
 
@@ -50,6 +52,8 @@ router.get('/', (req, res) => {
       parte_assinaturas: 'POST /api/partes-diarias/:id/assinaturas { etapa: OPERADOR|TRANSPORTE|PLANEJADOR, nome, salvar_no_perfil? } (Onibus/VAN: apenas OPERADOR + TRANSPORTE; aprovacao automatica no Transporte; salvar_no_perfil=true persiste a imagem como assinatura padrao do usuario logado)',
       parte_fotos: "POST /api/partes-diarias/:id/fotos (campo `arquivo` + legenda)",
       parte_logs: 'GET /api/partes-diarias/:id/logs',
+      parte_aprovacao_lote: 'POST /api/partes-diarias/aprovar-lote-transporte (alias /api/rdo/aprovar-lote-transporte) { ids[], assinatura_dado? } (Transporte/Master) -> assina TRANSPORTE nas partes "Finalizado pelo Operador" com KM; { aprovadas[], recusadas[{id,motivo}] }',
+      parte_finalizacao_km: 'Assinatura OPERADOR (Finalizado pelo Operador) exige km_inicial e km_final > 0; PUT que deixa a KM incompleta reverte para Em Preenchimento (resposta traz `aviso`)',
       parte_ultima_km: 'GET /api/partes-diarias/ultima-km?tag=TAG (&ignorar_id=ID) -> { ultima_km_final } (herança do odômetro; trava: km_final >= km_inicial no POST/PUT)',
       partes_pendentes: '/api/partes-diarias/pendentes (requer x-api-key)',
       pendencias_lancamento: 'GET /api/partes-diarias/pendencias?dias=7 (admin: tudo; operacional: próprias) -> [{ tag, placa, data_pendente, ultimo_operador_id, ultimo_operador_nome }]',
@@ -104,6 +108,8 @@ router.use('/documentacao-veiculos', documentacaoRoutes);
 router.use('/obras', obraRoutes);
 router.use('/programacao-recursos', programacaoRecursosRoutes);
 router.use('/partes-diarias', parteDiariaRoutes);
+// Alias do fluxo de aprovação em lote (mesmo handler de /partes-diarias).
+router.post('/rdo/aprovar-lote-transporte', requerTransporteOuMaster, aprovarLoteTransporte);
 router.use('/manutencao', manutencaoRoutes);
 router.use('/parametros-preventiva', parametroPreventivaRoutes);
 router.use('/upload', uploadRoutes);

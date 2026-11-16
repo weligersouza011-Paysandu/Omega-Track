@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Search, Eye, Pencil, Trash2, X, RefreshCw, AlertTriangle,
   CheckCircle2, ClipboardList, Filter, FileText, Loader2, ChevronDown, CalendarClock, FileSpreadsheet, FolderArchive,
+  PenLine,
 } from 'lucide-react';
+import ModalAssinaturaDigital from '../components/ModalAssinaturaDigital.jsx';
 import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
 import ParteDiariaForm from '../components/ParteDiariaForm.jsx';
@@ -13,6 +15,9 @@ import { authHeaders } from '../utils/sessao.js';
 import { podeVerTodasPartes, ehMaster } from '../utils/permissoes.js';
 import { formatarDataSemTimezone as formatarData } from '../utils/datas.js';
 import { carregarPartesDoDia, filtrarPartesDiarias, pertenceAoUsuario } from '../utils/partesDiarias.js';
+import {
+  alternarSelecaoMestre, aptaParaLoteTransporte, estadoSelecaoMestre, podeAprovarLoteTransporte,
+} from '../utils/aprovacaoLote.js';
 
 function normalizar(v) {
   return String(v || '').trim().toUpperCase();
@@ -28,6 +33,22 @@ const STATUS_NEUTRO = ['Não Operado', 'Sem Operação'];
 // - Operacao: fluxo de aprovacao (Em Preenchimento -> Aprovado) + obra abaixo;
 // - Parada/Manutencao: selo do tipo da parada + indicador de oficina/patio;
 // - Nao Operado: selo neutro + motivo (folga/sem demanda).
+// Checkbox com estado "indeterminado" (seleção parcial no mestre).
+function CaixaSelecao({ estado, onChange, disabled = false, title, rotulo }) {
+  return (
+    <input
+      type="checkbox"
+      className="h-4 w-4 rounded border-omega-300 accent-omega-accent cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
+      checked={estado === 'todos'}
+      ref={(el) => { if (el) el.indeterminate = estado === 'alguns'; }}
+      onChange={onChange}
+      disabled={disabled}
+      title={title}
+      aria-label={rotulo}
+    />
+  );
+}
+
 function StatusDaParte({ parte, direita = false }) {
   const statusOperacional = String(parte?.status_operacional || parte?.status || '').trim();
   const alinhamento = direita ? 'items-end text-right' : 'items-start';
@@ -61,6 +82,7 @@ export default function HomePartesDiariasView({ sessao }) {
   const usuario = sessao?.usuario || null;
   const visaoTotal = podeVerTodasPartes(usuario);
   const souMaster = ehMaster(usuario);
+  const podeLote = podeAprovarLoteTransporte(usuario);
 
   const [partes, setPartes] = useState([]);
   const [veiculos, setVeiculos] = useState([]);
@@ -93,6 +115,11 @@ export default function HomePartesDiariasView({ sessao }) {
   const [relatorioPreview, setRelatorioPreview] = useState(null);
   const [carregandoRelatorioId, setCarregandoRelatorioId] = useState(null);
   const [exportacaoPdfAberta, setExportacaoPdfAberta] = useState(false);
+  // Aprovação em lote (Transporte / Master)
+  const [selecionados, setSelecionados] = useState(() => new Set());
+  const [modalLote, setModalLote] = useState(false);
+  const [aprovandoLote, setAprovandoLote] = useState(false);
+  const [erroLote, setErroLote] = useState(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -181,6 +208,65 @@ export default function HomePartesDiariasView({ sessao }) {
   const visiveis = useMemo(() => filtrarPartesDiarias(partes, usuario, {
     busca, status: filtroStatus, assinatura: filtroAssinatura, data: filtroData,
   }), [partes, usuario, busca, filtroStatus, filtroAssinatura, filtroData]);
+
+  // Só entram na seleção as partes visíveis "Finalizado pelo Operador" com KM.
+  const aptasVisiveis = useMemo(
+    () => (podeLote ? visiveis.filter(aptaParaLoteTransporte) : []),
+    [podeLote, visiveis],
+  );
+  const idsSelecionados = useMemo(
+    () => aptasVisiveis.filter((p) => selecionados.has(p.id)).map((p) => p.id),
+    [aptasVisiveis, selecionados],
+  );
+  const estadoMestre = estadoSelecaoMestre(aptasVisiveis, selecionados);
+  const alternarSelecao = (id) => setSelecionados((atual) => {
+    const proximo = new Set(atual);
+    if (proximo.has(id)) proximo.delete(id); else proximo.add(id);
+    return proximo;
+  });
+  const alternarMestre = () => setSelecionados((atual) => alternarSelecaoMestre(aptasVisiveis, atual));
+  const motivoNaoApta = (p) => ((p.status_aprovacao || p.status) === 'Finalizado pelo Operador'
+    ? 'KM Inicial/Final incompleta: o operador precisa completar a KM'
+    : 'Somente Partes Diárias "Finalizado pelo Operador" entram na aprovação em lote');
+
+  const confirmarAprovacaoLote = async ({ modo, dataUrl, salvarNoPerfil }) => {
+    if (!idsSelecionados.length || aprovandoLote) return;
+    setAprovandoLote(true);
+    setErroLote(null);
+    try {
+      if (salvarNoPerfil && (modo === 'canvas' || modo === 'foto') && dataUrl) {
+        const respPerfil = await fetch('/api/usuarios/minha-assinatura', {
+          method: 'PUT',
+          headers: authHeaders(sessao),
+          body: JSON.stringify({ assinatura_base64: dataUrl }),
+        });
+        const corpoPerfil = await respPerfil.json().catch(() => ({}));
+        if (!respPerfil.ok) throw new Error(corpoPerfil.message || `Falha ao salvar a assinatura no perfil (${respPerfil.status}).`);
+      }
+      const resp = await fetch('/api/partes-diarias/aprovar-lote-transporte', {
+        method: 'POST',
+        headers: authHeaders(sessao),
+        body: JSON.stringify({ ids: idsSelecionados, assinatura_dado: dataUrl || undefined }),
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(corpo.message || `Falha na aprovação em lote (${resp.status}).`);
+      const aprovadas = corpo?.data?.aprovadas || [];
+      const recusadas = corpo?.data?.recusadas || [];
+      const novoStatus = new Map(aprovadas.map((a) => [a.id, a.status_aprovacao]));
+      setPartes((anteriores) => anteriores.map((p) => (novoStatus.has(p.id)
+        ? { ...p, status_aprovacao: novoStatus.get(p.id) } : p)));
+      setSelecionados(new Set());
+      setModalLote(false);
+      setToast(recusadas.length
+        ? `${aprovadas.length} assinada(s) pelo Transporte. ${recusadas.length} ignorada(s): ${recusadas.slice(0, 3).map((r) => `${r.tag || ''} ${r.motivo}`.trim()).join(' • ')}`
+        : `${aprovadas.length} Parte(s) Diária(s) assinada(s) pelo Transporte.`);
+      await fetchPartesDiarias();
+    } catch (e) {
+      setErroLote(e.message || 'Falha na aprovação em lote.');
+    } finally {
+      setAprovandoLote(false);
+    }
+  };
 
   const exportarExcel = async () => {
     if (!filtroData || exportando) return;
@@ -454,9 +540,15 @@ export default function HomePartesDiariasView({ sessao }) {
               const editavel = podeEditar(p);
               const ehPreventiva = String(p.status_operacional || p.status || '').trim() === 'Manutenção Preventiva';
               return (
-                <div key={p.id} className={`px-4 py-3 space-y-2.5 ${ehPreventiva ? 'bg-amber-50/50' : ''}`}>
+                <div key={p.id} className={`px-4 py-3 space-y-2.5 ${ehPreventiva ? 'bg-amber-50/50' : ''} ${selecionados.has(p.id) ? 'bg-omega-accent/5' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
-                    <span className="font-bold text-omega-900 tabular-nums text-sm">{formatarData(p.data)}</span>
+                    <span className="flex items-center gap-2.5">
+                      {podeLote && aptaParaLoteTransporte(p) && (
+                        <CaixaSelecao estado={selecionados.has(p.id) ? 'todos' : 'nenhum'} onChange={() => alternarSelecao(p.id)}
+                          rotulo={`Selecionar ${p.tag} de ${formatarData(p.data)}`} />
+                      )}
+                      <span className="font-bold text-omega-900 tabular-nums text-sm">{formatarData(p.data)}</span>
+                    </span>
                     <StatusDaParte parte={p} direita />
                   </div>
                   <div className="flex items-center justify-between gap-2">
@@ -512,6 +604,15 @@ export default function HomePartesDiariasView({ sessao }) {
             <table className="w-full text-sm min-w-[960px]">
               <thead className="bg-omega-50/70">
                 <tr className="text-left text-[11px] uppercase tracking-wider text-omega-500 font-bold border-b border-omega-100">
+                  {podeLote && (
+                    <th className="pl-4 pr-1 py-3 w-8">
+                      <CaixaSelecao estado={estadoMestre} onChange={alternarMestre} disabled={!aptasVisiveis.length}
+                        title={aptasVisiveis.length
+                          ? `Selecionar as ${aptasVisiveis.length} Parte(s) Diária(s) "Finalizado pelo Operador" visíveis`
+                          : 'Nenhuma Parte Diária "Finalizado pelo Operador" na lista'}
+                        rotulo="Selecionar todas as aptas para aprovação" />
+                    </th>
+                  )}
                   <th className="px-4 py-3">Data</th>
                   <th className="px-4 py-3">Veículo (TAG / Placa)</th>
                   <th className="px-4 py-3">Operador (Nome / Matrícula)</th>
@@ -528,7 +629,18 @@ export default function HomePartesDiariasView({ sessao }) {
                   const editavel = podeEditar(p);
                   const ehPreventiva = String(p.status_operacional || p.status || '').trim() === 'Manutenção Preventiva';
                   return (
-                    <tr key={p.id} className={`hover:bg-omega-50/60 ${ehPreventiva ? 'bg-amber-50/50' : ''}`}>
+                    <tr key={p.id} className={`hover:bg-omega-50/60 ${ehPreventiva ? 'bg-amber-50/50' : ''} ${selecionados.has(p.id) ? 'bg-omega-accent/5' : ''}`}>
+                      {podeLote && (
+                        <td className="pl-4 pr-1 py-2.5">
+                          {aptaParaLoteTransporte(p) ? (
+                            <CaixaSelecao estado={selecionados.has(p.id) ? 'todos' : 'nenhum'} onChange={() => alternarSelecao(p.id)}
+                              title="Selecionar para aprovação em lote" rotulo={`Selecionar ${p.tag} de ${formatarData(p.data)}`} />
+                          ) : (
+                            <CaixaSelecao estado="nenhum" onChange={() => {}} disabled title={motivoNaoApta(p)}
+                              rotulo={`${p.tag}: indisponível para aprovação em lote`} />
+                          )}
+                        </td>
+                      )}
                       <td className="px-4 py-2.5">
                         <div className="font-bold text-omega-900 tabular-nums">{formatarData(p.data)}</div>
                       </td>
@@ -744,6 +856,37 @@ export default function HomePartesDiariasView({ sessao }) {
         </p>
       </Modal>
 
+      {/* Barra flutuante da aprovação em lote (Transporte / Master) */}
+      {podeLote && aba === 'partes-diarias' && idsSelecionados.length > 0 && !formState.aberto && (
+        <div role="region" aria-label="Aprovação em lote"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[55] w-[calc(100%-2rem)] max-w-2xl flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-omega-900 text-white shadow-2xl px-4 py-3">
+          <span className="text-sm font-semibold">
+            {idsSelecionados.length} selecionada(s)
+            <span className="font-normal text-white/70"> · Finalizado pelo Operador</span>
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setSelecionados(new Set())}
+              className="rounded-lg px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10">
+              Limpar
+            </button>
+            <button type="button" onClick={() => { setErroLote(null); setModalLote(true); }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-omega-accent px-3 py-2 text-xs font-bold text-white hover:brightness-110">
+              <PenLine size={14} /> Aprovar / Assinar Selecionados (Transporte)
+            </button>
+          </div>
+        </div>
+      )}
+      <ModalAssinaturaDigital
+        open={modalLote}
+        onClose={() => { if (!aprovandoLote) setModalLote(false); }}
+        onConfirmar={confirmarAprovacaoLote}
+        etapa="TRANSPORTE"
+        rotuloEtapa={`Transporte — ${idsSelecionados.length} Parte(s) Diária(s)`}
+        usuario={usuario}
+        salvando={aprovandoLote}
+        erro={erroLote}
+      />
+
       {toast && (
         <div className="fixed bottom-5 right-5 z-[60] flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-xl bg-omega-900 text-white shadow-2xl text-sm font-semibold max-w-md">
           <CheckCircle2 size={17} className="text-status-verde shrink-0" />
@@ -771,7 +914,7 @@ export default function HomePartesDiariasView({ sessao }) {
       )}
 
       {/* FAB mobile: nova Parte Diária (oculto com o modal aberto e na aba de pendências) */}
-      {aba === 'partes-diarias' && !formState.aberto && (
+      {aba === 'partes-diarias' && !formState.aberto && idsSelecionados.length === 0 && (
         <button
           onClick={abrirNovo}
           title="Adicionar Parte Diária"

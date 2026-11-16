@@ -123,6 +123,28 @@ export function requerGestaoTransporte(req, res, next) {
   next();
 }
 
+// Aprovacao em lote das Partes Diarias: somente a identidade assinada do JWT
+// (sem fallback de matricula) e setor Transporte ou nivel Master.
+export async function requerTransporteOuMaster(req, res, next) {
+  const sessao = lerSessao(req);
+  if (!sessao?.sub) {
+    return res.status(401).json({
+      error: 'Nao autenticado',
+      message: 'Sessao ausente ou invalida. Faca login.',
+    });
+  }
+  const usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+  if (!usuario || usuario.tipo !== 'ADMINISTRADOR'
+    || (usuario.nivel !== 'MASTER' && usuario.setor !== 'TRANSPORTE')) {
+    return res.status(403).json({
+      error: 'Sem permissao',
+      message: 'Apenas o Transporte ou ADM Master podem aprovar Partes Diárias em lote.',
+    });
+  }
+  req.atuante = usuario;
+  next();
+}
+
 export function requerMaster(req, res, next) {
   if (!req.atuante || req.atuante.nivel !== 'MASTER') {
     return res.status(403).json({

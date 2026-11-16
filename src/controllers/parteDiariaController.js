@@ -9,6 +9,10 @@ import { salvarAssinaturaPadrao } from '../services/assinaturaService.js';
 import {
   avaliarAderencia, buscarProgramacaoDoDia, diaUtc, resolverJustificativa, statusAderencia,
 } from '../services/aderenciaProgramacaoService.js';
+import {
+  classificarLote, normalizarIdsLote, pendenciaKmFinalizacao,
+  STATUS_EM_PREENCHIMENTO, STATUS_FINALIZADO_OPERADOR,
+} from '../services/aprovacaoParteDiariaService.js';
 
 // ============================================================================
 // Parte Diaria (Veiculos Leves) — modelo Omega Service
@@ -708,6 +712,11 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   validarHorario(intervalo_saida ?? undefined, 'intervalo_saida');
   // Trava do odômetro (preventiva: só exige KM Final > 0, sem comparação).
   validarQuilometragem(km_inicial, km_final, statusOperacionalFinal);
+  // "Finalizado pelo Operador" só com KM Inicial e Final > 0.
+  const statusAprovacaoCriacao = status_aprovacao === STATUS_FINALIZADO_OPERADOR
+    && pendenciaKmFinalizacao(km_inicial, km_final, statusOperacionalFinal)
+    ? STATUS_EM_PREENCHIMENTO
+    : (status_aprovacao || STATUS_EM_PREENCHIMENTO);
 
   if (status_relatorio && !STATUS_RELATORIO_VALIDOS.includes(status_relatorio)) {
     return res.status(400).json({
@@ -832,8 +841,10 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
           intervalo_entrada: strOuNull(intervalo_entrada),
           intervalo_saida: strOuNull(intervalo_saida),
           status_operacional: statusOperacionalFinal,
-          status_aprovacao: status_aprovacao || 'Em Preenchimento',
-          status_relatorio: status_relatorio || statusAprovacaoParaRelatorio(status_aprovacao || 'Em Preenchimento'),
+          status_aprovacao: statusAprovacaoCriacao,
+          status_relatorio: statusAprovacaoCriacao === (status_aprovacao || 'Em Preenchimento')
+            ? (status_relatorio || statusAprovacaoParaRelatorio(statusAprovacaoCriacao))
+            : statusAprovacaoParaRelatorio(statusAprovacaoCriacao),
           possui_pendencia: calcularPendencia(filhos.atividades),
           obra_id: obraIdFinal,
           planejador: strOuNull(planejador),
@@ -1089,6 +1100,24 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
     }),
   });
 
+  // Finalizado pelo Operador exige KM Inicial e Final > 0: se a KM ficou
+  // incompleta, o RDO volta para Em Preenchimento e a assinatura do operador
+  // e retirada (ele assina de novo depois de completar a KM).
+  let avisoKm = null;
+  const statusAprovacaoFinal = dados.status_aprovacao || atual.status_aprovacao;
+  if (statusAprovacaoFinal === STATUS_FINALIZADO_OPERADOR) {
+    avisoKm = pendenciaKmFinalizacao(
+      tem('km_inicial') ? corpo.km_inicial : atual.km_inicial,
+      tem('km_final') ? corpo.km_final : atual.km_final,
+      dados.status_operacional || atual.status_operacional,
+    );
+    if (avisoKm) {
+      dados.status_aprovacao = STATUS_EM_PREENCHIMENTO;
+      dados.status_relatorio = statusAprovacaoParaRelatorio(STATUS_EM_PREENCHIMENTO);
+      dados.status_assinatura = 'PENDENTE';
+    }
+  }
+
   const autor = autorDaRequisicao(req, corpo);
   if (autor) dados.atualizado_por = autor;
 
@@ -1119,6 +1148,10 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   try {
     await prisma.$transaction(async (tx) => {
       await tx.parteDiaria.update({ where: { id }, data: dados });
+      if (avisoKm) {
+        await tx.parteDiariaAssinatura.deleteMany({ where: { parte_id: id, etapa: 'OPERADOR' } });
+        await registrarLog(tx, id, 'FINALIZACAO_REVERTIDA_KM', autor, { motivo: avisoKm });
+      }
     // Sincronizacao explicita por colecao (delete + recreate).
     if (temLista('mao_obra')) {
         await tx.parteDiariaMaoObra.deleteMany({ where: { parte_id: id } });
@@ -1218,7 +1251,7 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
       colecoes: colecoes.filter((c) => temLista(c)),
     },
   });
-  res.json({ data: enriquecerAssinaturas(completo) });
+  res.json({ data: enriquecerAssinaturas(completo), ...(avisoKm ? { aviso: avisoKm } : {}) });
 });
 
 export const deletarParteDiaria = asyncHandler(async (req, res) => {
@@ -1695,6 +1728,14 @@ export const assinarEtapa = asyncHandler(async (req, res) => {
   const etapaNorm = String(etapa).toUpperCase();
   const autor = autorDaRequisicao(req, req.body || {}) || String(nome).trim();
 
+  // A assinatura do operador finaliza o RDO: exige KM Inicial e Final > 0.
+  if (etapaNorm === 'OPERADOR') {
+    const pendenciaKm = pendenciaKmFinalizacao(existe.km_inicial, existe.km_final, existe.status_operacional);
+    if (pendenciaKm) {
+      return res.status(400).json({ error: 'KM incompleta', message: pendenciaKm });
+    }
+  }
+
   const assinaturaDadoStr = assinaturaDadoFinal ? String(assinaturaDadoFinal) : null;
 
   // Flag opcional do modal: salva a mesma imagem como assinatura padrao do
@@ -1784,6 +1825,96 @@ export const removerAssinatura = asyncHandler(async (req, res) => {
   });
   const completo = await prisma.parteDiaria.findUnique({ where: { id }, include: INCLUDE_COMPLETO });
   res.json({ data: enriquecerAssinaturas(completo) });
+});
+
+// POST /api/partes-diarias/aprovar-lote-transporte (alias /api/rdo/...)
+// Body: { ids: [uuid], assinatura_dado? }. Assina a etapa TRANSPORTE em lote
+// nas partes "Finalizado pelo Operador" (com KM válida). Fluxo normal vai a
+// "Revisado pelo Transporte"; Ônibus/VAN (Transporte é a etapa final) vão a
+// "Aprovado". Itens fora da regra são devolvidos em `recusadas`.
+export const aprovarLoteTransporte = asyncHandler(async (req, res) => {
+  const ids = normalizarIdsLote(req.body?.ids);
+  const atuante = req.atuante;
+  const imagem = req.body?.assinatura_dado
+    ? String(req.body.assinatura_dado)
+    : (atuante.assinatura_padrao || atuante.assinatura_url || null);
+  if (!imagem) {
+    return res.status(400).json({
+      error: 'Assinatura ausente',
+      message: 'Cadastre sua assinatura no Perfil ou desenhe-a para aprovar em lote.',
+    });
+  }
+
+  const partes = await prisma.parteDiaria.findMany({
+    where: { id: { in: ids }, deletado_em: null, veiculo: { deletado_em: null } },
+    select: {
+      id: true, tag: true, status_aprovacao: true, status_operacional: true, km_inicial: true, km_final: true,
+      assinaturas: { select: { etapa: true } },
+      veiculo: { select: { modelo: true } },
+    },
+  });
+  const { aptas, recusadas } = classificarLote(ids, partes);
+  if (!aptas.length) {
+    return res.status(409).json({
+      error: 'Nada a aprovar',
+      message: 'Nenhuma das Partes Diárias selecionadas está apta (precisam estar "Finalizado pelo Operador" com KM preenchida).',
+      aprovadas: [], recusadas,
+    });
+  }
+
+  const finais = aptas.filter((p) => ehFluxoSimplificadoTransporte(p.veiculo)).map((p) => p.id);
+  const revisadas = aptas.filter((p) => !ehFluxoSimplificadoTransporte(p.veiculo)).map((p) => p.id);
+  const agora = new Date();
+  const autor = atuante.nome;
+  const onde = (lista) => ({ id: { in: lista }, status_aprovacao: STATUS_FINALIZADO_OPERADOR, deletado_em: null });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.parteDiariaAssinatura.createMany({
+      data: aptas.map((p) => ({
+        parte_id: p.id, etapa: 'TRANSPORTE', nome: atuante.nome, matricula: atuante.matricula,
+        assinatura_dado: imagem, assinado_em: agora,
+      })),
+      skipDuplicates: true,
+    });
+    if (revisadas.length) {
+      await tx.parteDiaria.updateMany({
+        where: onde(revisadas),
+        data: { status_aprovacao: 'Revisado pelo Transporte', status_relatorio: 'REVISAO', status_assinatura: 'PENDENTE', atualizado_por: autor },
+      });
+    }
+    if (finais.length) {
+      await tx.parteDiaria.updateMany({
+        where: onde(finais),
+        data: { status_aprovacao: 'Aprovado', status_relatorio: 'APROVADO', status_assinatura: 'ASSINADO', atualizado_por: autor },
+      });
+    }
+    await tx.parteDiariaLog.createMany({
+      data: aptas.map((p) => ({
+        parte_id: p.id, acao: 'ASSINATURA_TRANSPORTE_LOTE', autor,
+        detalhes: {
+          etapa: 'TRANSPORTE', lote: aptas.length, matricula: atuante.matricula,
+          status_aprovacao: finais.includes(p.id) ? 'Aprovado' : 'Revisado pelo Transporte',
+        },
+      })),
+    });
+  }, { timeout: 30000, maxWait: 15000 });
+
+  await registrarLogAtividade(req, {
+    acao: 'APROVAR_LOTE_TRANSPORTE',
+    modulo: 'ParteDiaria',
+    detalhes: { aprovadas: aptas.map((p) => p.id), recusadas: recusadas.map((r) => r.id) },
+  });
+
+  res.json({
+    data: {
+      aprovadas: aptas.map((p) => ({
+        id: p.id, tag: p.tag,
+        status_aprovacao: finais.includes(p.id) ? 'Aprovado' : 'Revisado pelo Transporte',
+      })),
+      recusadas,
+    },
+    message: `${aptas.length} Parte(s) Diária(s) assinada(s) pelo Transporte${recusadas.length ? `; ${recusadas.length} ignorada(s)` : ''}.`,
+  });
 });
 
 // GET /api/partes-diarias/:id/logs — auditoria (log de edicoes).
