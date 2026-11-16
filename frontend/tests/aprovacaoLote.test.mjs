@@ -36,3 +36,43 @@ test('checkbox mestre: nenhum → todos → nenhum; parcial = alguns', () => {
   assert.deepEqual([...alternarSelecaoMestre(aptas, new Set(['z']))].sort(), ['a', 'b', 'z']);
   assert.equal(estadoSelecaoMestre([], new Set(['a'])), 'nenhum');
 });
+
+import {
+  aptaParaLotePlanejamento, comparativoDesvio, contarFiltrosRapidos, houveDesvio, loteDaParte, motivoForaDoLote,
+  MSG_DESVIO_LOTE, passaFiltroRapido, podeAprovarLotePlanejamento,
+} from '../src/utils/aprovacaoLote.js';
+
+const GESTAO = { tipo: 'ADMINISTRADOR', setor: 'GESTAO' };
+const TRANSP = { tipo: 'ADMINISTRADOR', setor: 'TRANSPORTE' };
+const MASTER = { tipo: 'ADMINISTRADOR', nivel: 'MASTER', setor: 'GESTAO' };
+const rev = (extra = {}) => ({ id: 'r', status_aprovacao: 'Revisado pelo Transporte', houve_desvio_programacao: false,
+  assinaturas: [{ etapa: 'OPERADOR' }, { etapa: 'TRANSPORTE' }], ...extra });
+
+test('Planejamento: só revisadas pelo Transporte e sem desvio entram no lote', () => {
+  assert.equal(podeAprovarLotePlanejamento(GESTAO), true);
+  assert.equal(podeAprovarLotePlanejamento(TRANSP), false);
+  assert.equal(aptaParaLotePlanejamento(rev()), true);
+  assert.equal(aptaParaLotePlanejamento(rev({ houve_desvio_programacao: true })), false);
+  assert.equal(aptaParaLotePlanejamento(rev({ assinaturas: [{ etapa: 'OPERADOR' }] })), false);
+  assert.equal(aptaParaLotePlanejamento(rev({ status_aprovacao: 'Aprovado' })), false);
+  assert.equal(houveDesvio({ aderencia: false }), true); // fallback sem o campo derivado
+});
+
+test('lote por perfil e tooltip da trava de desvio', () => {
+  assert.equal(loteDaParte(rev(), GESTAO), 'planejamento');
+  assert.equal(loteDaParte(rev(), TRANSP), null);
+  assert.equal(loteDaParte(fin(), MASTER), 'transporte');
+  assert.equal(loteDaParte(rev(), MASTER), 'planejamento');
+  assert.equal(motivoForaDoLote(rev({ houve_desvio_programacao: true }), GESTAO), MSG_DESVIO_LOTE);
+});
+
+test('filtros rápidos e comparativo do desvio', () => {
+  const lista = [rev(), rev({ id: 'd', houve_desvio_programacao: true }), fin(),
+    { id: 'x', status_aprovacao: 'Aprovado', houve_desvio_programacao: true }];
+  assert.deepEqual(contarFiltrosRapidos(lista), { todas: 4, 'aguardando-planejamento': 1, 'com-desvio': 2, desvioPendentes: 1 });
+  assert.deepEqual(lista.filter((p) => passaFiltroRapido(p, 'com-desvio')).map((p) => p.id), ['d', 'x']);
+  assert.deepEqual(comparativoDesvio({ obra_programada_ref: { nome: 'Obra Norte' }, obra: 'Usina Sul', status_operacional: 'Operação',
+    categoria_desvio: { nome: 'Cliente' }, justificativa_desvio: ' ' }),
+  { programado: 'Obra Norte', realizado: 'Usina Sul', categoria: 'Cliente', justificativa: null });
+  assert.equal(comparativoDesvio({ obra_programada: 'Obra Norte', status_operacional: 'Manutenção Corretiva' }).realizado, 'Manutenção Corretiva');
+});

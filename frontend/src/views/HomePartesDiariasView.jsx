@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Search, Eye, Pencil, Trash2, X, RefreshCw, AlertTriangle,
   CheckCircle2, ClipboardList, Filter, FileText, Loader2, ChevronDown, CalendarClock, FileSpreadsheet, FolderArchive,
-  PenLine,
+  PenLine, ChevronRight,
 } from 'lucide-react';
 import ModalAssinaturaDigital from '../components/ModalAssinaturaDigital.jsx';
 import Modal from '../components/Modal.jsx';
@@ -16,8 +16,25 @@ import { podeVerTodasPartes, ehMaster } from '../utils/permissoes.js';
 import { formatarDataSemTimezone as formatarData } from '../utils/datas.js';
 import { carregarPartesDoDia, filtrarPartesDiarias, pertenceAoUsuario } from '../utils/partesDiarias.js';
 import {
-  alternarSelecaoMestre, aptaParaLoteTransporte, estadoSelecaoMestre, podeAprovarLoteTransporte,
+  alternarSelecaoMestre, comparativoDesvio, contarFiltrosRapidos, estadoSelecaoMestre, FILTROS_RAPIDOS, houveDesvio,
+  loteDaParte, motivoForaDoLote, passaFiltroRapido, podeAprovarLotePlanejamento, podeAprovarLoteTransporte,
 } from '../utils/aprovacaoLote.js';
+
+// Endpoint e rótulos de cada lote.
+const LOTES = {
+  transporte: {
+    url: '/api/partes-diarias/aprovar-lote-transporte',
+    botao: 'Aprovar / Assinar Selecionados (Transporte)',
+    etapa: 'TRANSPORTE',
+    rotulo: 'Transporte',
+  },
+  planejamento: {
+    url: '/api/partes-diarias/aprovar-lote-planejamento',
+    botao: 'Aprovar Selecionados (Planejamento)',
+    etapa: 'PLANEJADOR',
+    rotulo: 'Planejamento',
+  },
+};
 
 function normalizar(v) {
   return String(v || '').trim().toUpperCase();
@@ -46,6 +63,38 @@ function CaixaSelecao({ estado, onChange, disabled = false, title, rotulo }) {
       title={title}
       aria-label={rotulo}
     />
+  );
+}
+
+// Selo de desvio (Gestão/Planejamento/Master) que expande o comparativo
+// Programado → Realizado e a justificativa do operador em 1 clique.
+function SeloDesvio({ parte, aberto, onAlternar }) {
+  const { categoria } = comparativoDesvio(parte);
+  return (
+    <button type="button" onClick={onAlternar} aria-expanded={aberto}
+      className="alerta-desvio inline-flex max-w-[230px] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold"
+      title={aberto ? 'Ocultar comparativo' : 'Ver Programado → Realizado e a justificativa'}>
+      <ChevronRight size={12} className={`shrink-0 transition-transform ${aberto ? 'rotate-90' : ''}`} />
+      <span className="truncate">⚠️ Desvio de Programação{categoria ? ` · ${categoria}` : ''}</span>
+    </button>
+  );
+}
+
+function ComparativoDesvio({ parte }) {
+  const { programado, realizado, categoria, justificativa } = comparativoDesvio(parte);
+  return (
+    <div className="alerta-desvio rounded-xl px-3 py-2.5 text-xs space-y-1.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span><span className="alerta-desvio-titulo font-bold">Programado:</span> {programado}</span>
+        <span aria-hidden="true">→</span>
+        <span><span className="alerta-desvio-titulo font-bold">Realizado:</span> {realizado}</span>
+      </div>
+      <div><span className="alerta-desvio-titulo font-bold">Categoria:</span> {categoria || 'Não informada (pendente)'}</div>
+      <div>
+        <span className="alerta-desvio-titulo font-bold">Justificativa:</span>{' '}
+        {justificativa ? <span className="whitespace-pre-line">{justificativa}</span> : <em>Não preenchida pelo operador</em>}
+      </div>
+    </div>
   );
 }
 
@@ -82,7 +131,8 @@ export default function HomePartesDiariasView({ sessao }) {
   const usuario = sessao?.usuario || null;
   const visaoTotal = podeVerTodasPartes(usuario);
   const souMaster = ehMaster(usuario);
-  const podeLote = podeAprovarLoteTransporte(usuario);
+  const podePlanejamento = podeAprovarLotePlanejamento(usuario);
+  const podeLote = podeAprovarLoteTransporte(usuario) || podePlanejamento;
 
   const [partes, setPartes] = useState([]);
   const [veiculos, setVeiculos] = useState([]);
@@ -117,7 +167,10 @@ export default function HomePartesDiariasView({ sessao }) {
   const [exportacaoPdfAberta, setExportacaoPdfAberta] = useState(false);
   // Aprovação em lote (Transporte / Master)
   const [selecionados, setSelecionados] = useState(() => new Set());
-  const [modalLote, setModalLote] = useState(false);
+  const [modalLote, setModalLote] = useState(null); // 'transporte' | 'planejamento'
+  // Filtros rápidos executivos e comparativos de desvio expandidos
+  const [filtroRapido, setFiltroRapido] = useState('todas');
+  const [desviosAbertos, setDesviosAbertos] = useState(() => new Set());
   const [aprovandoLote, setAprovandoLote] = useState(false);
   const [erroLote, setErroLote] = useState(null);
 
@@ -209,15 +262,29 @@ export default function HomePartesDiariasView({ sessao }) {
     busca, status: filtroStatus, assinatura: filtroAssinatura, data: filtroData,
   }), [partes, usuario, busca, filtroStatus, filtroAssinatura, filtroData]);
 
-  // Só entram na seleção as partes visíveis "Finalizado pelo Operador" com KM.
+  // Filtros rápidos aplicados sobre a lista já filtrada (contadores dinâmicos).
+  const contagemRapida = useMemo(() => contarFiltrosRapidos(visiveis), [visiveis]);
+  const listados = useMemo(() => visiveis.filter((p) => passaFiltroRapido(p, filtroRapido)), [visiveis, filtroRapido]);
+  const alternarDesvio = (id) => setDesviosAbertos((atual) => {
+    const proximo = new Set(atual);
+    if (proximo.has(id)) proximo.delete(id); else proximo.add(id);
+    return proximo;
+  });
+  const mostrarDesvio = (p) => podePlanejamento && houveDesvio(p);
+
+  // Só entram na seleção as partes listadas aptas a algum lote deste usuário
+  // (Transporte: Finalizado pelo Operador com KM; Planejamento: Revisado sem desvio).
   const aptasVisiveis = useMemo(
-    () => (podeLote ? visiveis.filter(aptaParaLoteTransporte) : []),
-    [podeLote, visiveis],
+    () => (podeLote ? listados.filter((p) => loteDaParte(p, usuario)) : []),
+    [podeLote, listados, usuario],
   );
-  const idsSelecionados = useMemo(
-    () => aptasVisiveis.filter((p) => selecionados.has(p.id)).map((p) => p.id),
-    [aptasVisiveis, selecionados],
-  );
+  const selecionadosPorLote = useMemo(() => {
+    const grupos = { transporte: [], planejamento: [] };
+    aptasVisiveis.forEach((p) => { if (selecionados.has(p.id)) grupos[loteDaParte(p, usuario)].push(p.id); });
+    return grupos;
+  }, [aptasVisiveis, selecionados, usuario]);
+  const totalSelecionado = selecionadosPorLote.transporte.length + selecionadosPorLote.planejamento.length;
+  const idsDoModal = modalLote ? selecionadosPorLote[modalLote] : [];
   const estadoMestre = estadoSelecaoMestre(aptasVisiveis, selecionados);
   const alternarSelecao = (id) => setSelecionados((atual) => {
     const proximo = new Set(atual);
@@ -225,12 +292,10 @@ export default function HomePartesDiariasView({ sessao }) {
     return proximo;
   });
   const alternarMestre = () => setSelecionados((atual) => alternarSelecaoMestre(aptasVisiveis, atual));
-  const motivoNaoApta = (p) => ((p.status_aprovacao || p.status) === 'Finalizado pelo Operador'
-    ? 'KM Inicial/Final incompleta: o operador precisa completar a KM'
-    : 'Somente Partes Diárias "Finalizado pelo Operador" entram na aprovação em lote');
 
   const confirmarAprovacaoLote = async ({ modo, dataUrl, salvarNoPerfil }) => {
-    if (!idsSelecionados.length || aprovandoLote) return;
+    const lote = LOTES[modalLote];
+    if (!lote || !idsDoModal.length || aprovandoLote) return;
     setAprovandoLote(true);
     setErroLote(null);
     try {
@@ -243,10 +308,10 @@ export default function HomePartesDiariasView({ sessao }) {
         const corpoPerfil = await respPerfil.json().catch(() => ({}));
         if (!respPerfil.ok) throw new Error(corpoPerfil.message || `Falha ao salvar a assinatura no perfil (${respPerfil.status}).`);
       }
-      const resp = await fetch('/api/partes-diarias/aprovar-lote-transporte', {
+      const resp = await fetch(lote.url, {
         method: 'POST',
         headers: authHeaders(sessao),
-        body: JSON.stringify({ ids: idsSelecionados, assinatura_dado: dataUrl || undefined }),
+        body: JSON.stringify({ ids: idsDoModal, assinatura_dado: dataUrl || undefined }),
       });
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo.message || `Falha na aprovação em lote (${resp.status}).`);
@@ -255,11 +320,15 @@ export default function HomePartesDiariasView({ sessao }) {
       const novoStatus = new Map(aprovadas.map((a) => [a.id, a.status_aprovacao]));
       setPartes((anteriores) => anteriores.map((p) => (novoStatus.has(p.id)
         ? { ...p, status_aprovacao: novoStatus.get(p.id) } : p)));
-      setSelecionados(new Set());
-      setModalLote(false);
+      setSelecionados((atual) => {
+        const proximo = new Set(atual);
+        idsDoModal.forEach((id) => proximo.delete(id));
+        return proximo;
+      });
+      setModalLote(null);
       setToast(recusadas.length
-        ? `${aprovadas.length} assinada(s) pelo Transporte. ${recusadas.length} ignorada(s): ${recusadas.slice(0, 3).map((r) => `${r.tag || ''} ${r.motivo}`.trim()).join(' • ')}`
-        : `${aprovadas.length} Parte(s) Diária(s) assinada(s) pelo Transporte.`);
+        ? `${aprovadas.length} assinada(s) pelo ${lote.rotulo}. ${recusadas.length} ignorada(s): ${recusadas.slice(0, 3).map((r) => `${r.tag || ''} ${r.motivo}`.trim()).join(' • ')}`
+        : `${aprovadas.length} Parte(s) Diária(s) assinada(s) pelo ${lote.rotulo}.`);
       await fetchPartesDiarias();
     } catch (e) {
       setErroLote(e.message || 'Falha na aprovação em lote.');
@@ -377,8 +446,10 @@ export default function HomePartesDiariasView({ sessao }) {
     setFiltroStatus('todos');
     setFiltroAssinatura('todos');
     setFiltroData('');
+    setFiltroRapido('todas');
   };
-  const temFiltro = busca.trim() !== '' || filtroStatus !== 'todos' || filtroAssinatura !== 'todos' || filtroData !== '';
+  const temFiltro = busca.trim() !== '' || filtroStatus !== 'todos' || filtroAssinatura !== 'todos' || filtroData !== ''
+    || filtroRapido !== 'todas';
 
   return (
     <div className="space-y-3 md:space-y-5">
@@ -481,7 +552,7 @@ export default function HomePartesDiariasView({ sessao }) {
           <Filter size={14} className="text-omega-500" />
           <span className="text-sm font-bold text-omega-900">Partes Diárias</span>
           <span className="text-[11px] text-omega-500 ml-auto">
-            {visiveis.length}{paginacao.total > visiveis.length ? ` de ${paginacao.total}` : ''} registro(s){!visaoTotal ? ' • meus lançamentos' : ''}
+            {listados.length}{paginacao.total > listados.length ? ` de ${paginacao.total}` : ''} registro(s){!visaoTotal ? ' • meus lançamentos' : ''}
           </span>
           <button type="button" onClick={() => setExportacaoPdfAberta(true)}
             className="btn-secondary !py-2 text-xs"
@@ -499,6 +570,30 @@ export default function HomePartesDiariasView({ sessao }) {
           )}
         </div>
 
+        {/* Filtros rápidos executivos (contadores sobre a lista carregada) */}
+        {visaoTotal && (
+          <div className="px-4 py-2.5 border-b border-omega-100 flex flex-wrap gap-2" role="tablist" aria-label="Filtros rápidos">
+            {FILTROS_RAPIDOS.map((f) => {
+              const ativo = filtroRapido === f.chave;
+              const desvio = f.chave === 'com-desvio';
+              return (
+                <button key={f.chave} type="button" role="tab" aria-selected={ativo} onClick={() => setFiltroRapido(f.chave)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${ativo
+                    ? (desvio ? 'alerta-desvio' : 'bg-omega-900 text-white')
+                    : 'bg-omega-100 text-omega-600 hover:text-omega-900'}`}>
+                  {f.rotulo}
+                  <span className={`rounded-full px-1.5 tabular-nums ${ativo && !desvio ? 'bg-white/20' : 'bg-white/70 text-omega-700'}`}>
+                    {contagemRapida[f.chave]}
+                  </span>
+                  {desvio && contagemRapida.desvioPendentes > 0 && (
+                    <span className="font-semibold opacity-80">· {contagemRapida.desvioPendentes} pendente(s)</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {carregando ? (
           <div className="flex items-center justify-center p-10 text-omega-500 text-sm font-semibold">
             <RefreshCw size={20} className="animate-spin mr-2" /> Carregando Partes Diárias...
@@ -512,7 +607,7 @@ export default function HomePartesDiariasView({ sessao }) {
               <RefreshCw size={14} /> Tentar novamente
             </button>
           </div>
-        ) : visiveis.length === 0 ? (
+        ) : listados.length === 0 ? (
           <div className="p-10 text-center text-omega-500">
             <ClipboardList size={36} className="mx-auto text-omega-300 mb-3" />
             <div className="text-sm font-semibold text-omega-700 mb-1">
@@ -533,7 +628,7 @@ export default function HomePartesDiariasView({ sessao }) {
           <>
           {/* Cards mobile (sm): Data + Status / TAG-Placa + KM / ações rápidas */}
           <div className="md:hidden divide-y divide-omega-100">
-            {visiveis.map((p) => {
+            {listados.map((p) => {
               const placa = p.veiculo?.placa || placaPorTag.get(normalizar(p.tag)) || '—';
               const kmI = p.km_inicial ?? p.kmInicial ?? null;
               const kmF = p.km_final ?? p.kmFinal ?? null;
@@ -543,7 +638,7 @@ export default function HomePartesDiariasView({ sessao }) {
                 <div key={p.id} className={`px-4 py-3 space-y-2.5 ${ehPreventiva ? 'bg-amber-50/50' : ''} ${selecionados.has(p.id) ? 'bg-omega-accent/5' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <span className="flex items-center gap-2.5">
-                      {podeLote && aptaParaLoteTransporte(p) && (
+                      {podeLote && loteDaParte(p, usuario) && (
                         <CaixaSelecao estado={selecionados.has(p.id) ? 'todos' : 'nenhum'} onChange={() => alternarSelecao(p.id)}
                           rotulo={`Selecionar ${p.tag} de ${formatarData(p.data)}`} />
                       )}
@@ -551,6 +646,12 @@ export default function HomePartesDiariasView({ sessao }) {
                     </span>
                     <StatusDaParte parte={p} direita />
                   </div>
+                  {mostrarDesvio(p) && (
+                    <div className="space-y-2">
+                      <SeloDesvio parte={p} aberto={desviosAbertos.has(p.id)} onAlternar={() => alternarDesvio(p.id)} />
+                      {desviosAbertos.has(p.id) && <ComparativoDesvio parte={p} />}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="font-bold text-omega-900 text-sm truncate">{p.tag}</div>
@@ -608,8 +709,8 @@ export default function HomePartesDiariasView({ sessao }) {
                     <th className="pl-4 pr-1 py-3 w-8">
                       <CaixaSelecao estado={estadoMestre} onChange={alternarMestre} disabled={!aptasVisiveis.length}
                         title={aptasVisiveis.length
-                          ? `Selecionar as ${aptasVisiveis.length} Parte(s) Diária(s) "Finalizado pelo Operador" visíveis`
-                          : 'Nenhuma Parte Diária "Finalizado pelo Operador" na lista'}
+                          ? `Selecionar as ${aptasVisiveis.length} Parte(s) Diária(s) aptas à aprovação em lote`
+                          : 'Nenhuma Parte Diária apta à aprovação em lote na lista'}
                         rotulo="Selecionar todas as aptas para aprovação" />
                     </th>
                   )}
@@ -622,21 +723,22 @@ export default function HomePartesDiariasView({ sessao }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-omega-100">
-                {visiveis.map((p) => {
+                {listados.map((p) => {
                   const placa = p.veiculo?.placa || placaPorTag.get(normalizar(p.tag)) || '—';
                   const kmI = p.km_inicial ?? p.kmInicial ?? null;
                   const kmF = p.km_final ?? p.kmFinal ?? null;
                   const editavel = podeEditar(p);
                   const ehPreventiva = String(p.status_operacional || p.status || '').trim() === 'Manutenção Preventiva';
                   return (
-                    <tr key={p.id} className={`hover:bg-omega-50/60 ${ehPreventiva ? 'bg-amber-50/50' : ''} ${selecionados.has(p.id) ? 'bg-omega-accent/5' : ''}`}>
+                    <Fragment key={p.id}>
+                    <tr className={`hover:bg-omega-50/60 ${ehPreventiva ? 'bg-amber-50/50' : ''} ${selecionados.has(p.id) ? 'bg-omega-accent/5' : ''}`}>
                       {podeLote && (
                         <td className="pl-4 pr-1 py-2.5">
-                          {aptaParaLoteTransporte(p) ? (
+                          {loteDaParte(p, usuario) ? (
                             <CaixaSelecao estado={selecionados.has(p.id) ? 'todos' : 'nenhum'} onChange={() => alternarSelecao(p.id)}
                               title="Selecionar para aprovação em lote" rotulo={`Selecionar ${p.tag} de ${formatarData(p.data)}`} />
                           ) : (
-                            <CaixaSelecao estado="nenhum" onChange={() => {}} disabled title={motivoNaoApta(p)}
+                            <CaixaSelecao estado="nenhum" onChange={() => {}} disabled title={motivoForaDoLote(p, usuario)}
                               rotulo={`${p.tag}: indisponível para aprovação em lote`} />
                           )}
                         </td>
@@ -657,6 +759,11 @@ export default function HomePartesDiariasView({ sessao }) {
                       </td>
                       <td className="px-4 py-2.5">
                         <StatusDaParte parte={p} />
+                        {mostrarDesvio(p) && (
+                          <div className="mt-1.5">
+                            <SeloDesvio parte={p} aberto={desviosAbertos.has(p.id)} onAlternar={() => alternarDesvio(p.id)} />
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex justify-end gap-1">
@@ -699,6 +806,14 @@ export default function HomePartesDiariasView({ sessao }) {
                         </div>
                       </td>
                     </tr>
+                    {mostrarDesvio(p) && desviosAbertos.has(p.id) && (
+                      <tr>
+                        <td colSpan={podeLote ? 7 : 6} className="px-4 pb-3 pt-0">
+                          <ComparativoDesvio parte={p} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -856,32 +971,31 @@ export default function HomePartesDiariasView({ sessao }) {
         </p>
       </Modal>
 
-      {/* Barra flutuante da aprovação em lote (Transporte / Master) */}
-      {podeLote && aba === 'partes-diarias' && idsSelecionados.length > 0 && !formState.aberto && (
+      {/* Barra flutuante da aprovação em lote (Transporte / Planejamento / Master) */}
+      {podeLote && aba === 'partes-diarias' && totalSelecionado > 0 && !formState.aberto && (
         <div role="region" aria-label="Aprovação em lote"
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[55] w-[calc(100%-2rem)] max-w-2xl flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-omega-900 text-white shadow-2xl px-4 py-3">
-          <span className="text-sm font-semibold">
-            {idsSelecionados.length} selecionada(s)
-            <span className="font-normal text-white/70"> · Finalizado pelo Operador</span>
-          </span>
-          <div className="flex items-center gap-2">
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[55] w-[calc(100%-2rem)] max-w-3xl flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-omega-900 text-white shadow-2xl px-4 py-3">
+          <span className="text-sm font-semibold">{totalSelecionado} selecionada(s)</span>
+          <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => setSelecionados(new Set())}
               className="rounded-lg px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10">
               Limpar
             </button>
-            <button type="button" onClick={() => { setErroLote(null); setModalLote(true); }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-omega-accent px-3 py-2 text-xs font-bold text-white hover:brightness-110">
-              <PenLine size={14} /> Aprovar / Assinar Selecionados (Transporte)
-            </button>
+            {Object.entries(LOTES).map(([chave, lote]) => (selecionadosPorLote[chave].length > 0 && (
+              <button key={chave} type="button" onClick={() => { setErroLote(null); setModalLote(chave); }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-omega-accent px-3 py-2 text-xs font-bold text-white hover:brightness-110">
+                <PenLine size={14} /> {lote.botao} ({selecionadosPorLote[chave].length})
+              </button>
+            )))}
           </div>
         </div>
       )}
       <ModalAssinaturaDigital
-        open={modalLote}
-        onClose={() => { if (!aprovandoLote) setModalLote(false); }}
+        open={!!modalLote}
+        onClose={() => { if (!aprovandoLote) setModalLote(null); }}
         onConfirmar={confirmarAprovacaoLote}
-        etapa="TRANSPORTE"
-        rotuloEtapa={`Transporte — ${idsSelecionados.length} Parte(s) Diária(s)`}
+        etapa={modalLote ? LOTES[modalLote].etapa : undefined}
+        rotuloEtapa={modalLote ? `${LOTES[modalLote].rotulo} — ${idsDoModal.length} Parte(s) Diária(s)` : ''}
         usuario={usuario}
         salvando={aprovandoLote}
         erro={erroLote}
@@ -914,7 +1028,7 @@ export default function HomePartesDiariasView({ sessao }) {
       )}
 
       {/* FAB mobile: nova Parte Diária (oculto com o modal aberto e na aba de pendências) */}
-      {aba === 'partes-diarias' && !formState.aberto && idsSelecionados.length === 0 && (
+      {aba === 'partes-diarias' && !formState.aberto && totalSelecionado === 0 && (
         <button
           onClick={abrirNovo}
           title="Adicionar Parte Diária"

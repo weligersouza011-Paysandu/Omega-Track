@@ -214,3 +214,80 @@ test('classificação: só Finalizado pelo Operador, com OPERADOR assinado, KM e
   assert.deepEqual(aptas.map((p) => p.id), [P_OK]);
   assert.deepEqual(recusadas.map((r) => r.id), [P_SEM_KM, P_PREENCHENDO, P_REVISADO, id(99)]);
 });
+
+// ------------------------------------------------- lote final (Planejamento)
+
+const P_REV_OK = id(21); // revisado, sem desvio (aderente)
+const P_REV_SEM_PROG = id(22); // revisado, veículo sem programação (aderencia null)
+const P_REV_DESVIO = id(23); // revisado, com desvio -> bloqueado no lote
+
+function prepararRevisadas() {
+  for (const [pid, aderencia] of [[P_REV_OK, true], [P_REV_SEM_PROG, null], [P_REV_DESVIO, false]]) {
+    partes.set(pid, parte(pid, { status_aprovacao: 'Revisado pelo Transporte', aderencia }));
+    assinaturas.push({ parte_id: pid, etapa: 'OPERADOR', nome: 'Op' }, { parte_id: pid, etapa: 'TRANSPORTE', nome: 'Tr' });
+  }
+}
+
+test('Planejamento: Transporte não aprova a etapa final (403)', async () => {
+  prepararRevisadas();
+  const r = await api('/partes-diarias/aprovar-lote-planejamento', { method: 'POST', body: { ids: [P_REV_OK] }, como: TRANSPORTE });
+  assert.equal(r.status, 403);
+  assert.equal(partes.get(P_REV_OK).status_aprovacao, 'Revisado pelo Transporte');
+});
+
+test('Planejamento: aprova em lote as revisadas sem desvio e bloqueia as com desvio', async () => {
+  prepararRevisadas();
+  const r = await api('/partes-diarias/aprovar-lote-planejamento', {
+    method: 'POST', body: { ids: [P_REV_OK, P_REV_SEM_PROG, P_REV_DESVIO, P_OK], assinatura_dado: 'data:image/png;base64,AAAA' }, como: GESTAO,
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.corpo));
+  assert.deepEqual(r.corpo.data.aprovadas.map((a) => [a.id, a.status_aprovacao]),
+    [[P_REV_OK, 'Aprovado'], [P_REV_SEM_PROG, 'Aprovado']]);
+  const desvio = r.corpo.data.recusadas.find((x) => x.id === P_REV_DESVIO);
+  assert.equal(desvio.desvio, true);
+  assert.match(desvio.motivo, /desvio de programação/);
+  assert.ok(r.corpo.data.recusadas.some((x) => x.id === P_OK)); // ainda não revisada pelo Transporte
+
+  assert.deepEqual([partes.get(P_REV_OK).status_aprovacao, partes.get(P_REV_OK).status_assinatura], ['Aprovado', 'ASSINADO']);
+  assert.equal(partes.get(P_REV_DESVIO).status_aprovacao, 'Revisado pelo Transporte');
+  assert.equal(assinaturas.some((a) => a.parte_id === P_REV_DESVIO && a.etapa === 'PLANEJADOR'), false);
+  const pl = assinaturas.find((a) => a.parte_id === P_REV_OK && a.etapa === 'PLANEJADOR');
+  assert.deepEqual([pl.nome, pl.matricula], [GESTAO.nome, GESTAO.matricula]);
+  assert.equal(logs.filter((l) => l.acao === 'ASSINATURA_PLANEJADOR_LOTE').length, 2);
+});
+
+test('Planejamento: lote só com desvio = 409 sem alterar nada; Master pode pelo alias /api/rdo', async () => {
+  prepararRevisadas();
+  const so = await api('/partes-diarias/aprovar-lote-planejamento', {
+    method: 'POST', body: { ids: [P_REV_DESVIO], assinatura_dado: 'data:image/png;base64,AAAA' }, como: GESTAO,
+  });
+  assert.equal(so.status, 409);
+  assert.equal(so.corpo.recusadas[0].desvio, true);
+  assert.equal(partes.get(P_REV_DESVIO).status_aprovacao, 'Revisado pelo Transporte');
+
+  const master = await api('/rdo/aprovar-lote-planejamento', {
+    method: 'POST', body: { ids: [P_REV_OK], assinatura_dado: 'data:image/png;base64,AAAA' }, como: MASTER,
+  });
+  assert.equal(master.status, 200, JSON.stringify(master.corpo));
+  assert.equal(partes.get(P_REV_OK).status_aprovacao, 'Aprovado');
+});
+
+test('listagem expõe houve_desvio_programacao', async () => {
+  prepararRevisadas();
+  const r = await api('/partes-diarias?limit=50', { como: GESTAO });
+  assert.equal(r.status, 200);
+  const porId = new Map(r.corpo.data.map((p) => [p.id, p.houve_desvio_programacao]));
+  assert.deepEqual([porId.get(P_REV_OK), porId.get(P_REV_SEM_PROG), porId.get(P_REV_DESVIO)], [false, false, true]);
+});
+
+test('classificação do Planejamento: já aprovada/sem Transporte são recusadas', async () => {
+  const { classificarLotePlanejamento } = await import('../src/services/aprovacaoParteDiariaService.js');
+  const base = { status_aprovacao: 'Revisado pelo Transporte', aderencia: true };
+  const { aptas, recusadas } = classificarLotePlanejamento(['a', 'b', 'c'], [
+    { id: 'a', ...base, assinaturas: [{ etapa: 'TRANSPORTE' }] },
+    { id: 'b', ...base, assinaturas: [] },
+    { id: 'c', ...base, assinaturas: [{ etapa: 'TRANSPORTE' }, { etapa: 'PLANEJADOR' }] },
+  ]);
+  assert.deepEqual(aptas.map((p) => p.id), ['a']);
+  assert.deepEqual(recusadas.map((r) => r.id), ['b', 'c']);
+});

@@ -10,8 +10,8 @@ import {
   avaliarAderencia, buscarProgramacaoDoDia, diaUtc, resolverJustificativa, statusAderencia,
 } from '../services/aderenciaProgramacaoService.js';
 import {
-  classificarLote, normalizarIdsLote, pendenciaKmFinalizacao,
-  STATUS_EM_PREENCHIMENTO, STATUS_FINALIZADO_OPERADOR,
+  classificarLote, classificarLotePlanejamento, executarLoteAprovacao, houveDesvioProgramacao,
+  pendenciaKmFinalizacao, STATUS_EM_PREENCHIMENTO, STATUS_FINALIZADO_OPERADOR,
 } from '../services/aprovacaoParteDiariaService.js';
 
 // ============================================================================
@@ -523,6 +523,10 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
       include: {
         veiculo: { select: { placa: true, modelo: true, status: true } },
         obra_ref: { select: { id: true, nome: true, numero_contrato: true } },
+        // Auditoria de desvios e lote: obra programada, categoria e etapas assinadas.
+        obra_programada_ref: { select: { id: true, nome: true } },
+        categoria_desvio: { select: { id: true, nome: true } },
+        assinaturas: { select: { etapa: true } },
         _count: {
           select: {
             mao_obra: true,
@@ -542,7 +546,7 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
 
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({
-    data: partes,
+    data: partes.map((p) => ({ ...p, houve_desvio_programacao: houveDesvioProgramacao(p) })),
     pagination: {
       page: Number(page),
       limit: Number(limit),
@@ -1827,95 +1831,62 @@ export const removerAssinatura = asyncHandler(async (req, res) => {
   res.json({ data: enriquecerAssinaturas(completo) });
 });
 
+// Executa um lote e responde (409 com `recusadas` quando nada estava apto).
+async function responderLote(req, res, opcoes, rotulo) {
+  const atuante = req.atuante;
+  const imagem = req.body?.assinatura_dado
+    ? String(req.body.assinatura_dado)
+    : (atuante.assinatura_padrao || atuante.assinatura_url || null);
+  let resultado;
+  try {
+    resultado = await executarLoteAprovacao(prisma, { ids: req.body?.ids, atuante, imagem, ...opcoes });
+  } catch (e) {
+    if (e.statusCode === 409) {
+      return res.status(409).json({ error: 'Nada a aprovar', message: e.message, aprovadas: [], recusadas: e.recusadas || [] });
+    }
+    throw e;
+  }
+  const { aprovadas, recusadas } = resultado;
+  await registrarLogAtividade(req, {
+    acao: opcoes.acaoLog === 'ASSINATURA_PLANEJADOR_LOTE' ? 'APROVAR_LOTE_PLANEJAMENTO' : 'APROVAR_LOTE_TRANSPORTE',
+    modulo: 'ParteDiaria',
+    detalhes: { aprovadas: aprovadas.map((a) => a.id), recusadas: recusadas.map((r) => r.id) },
+  });
+  return res.json({
+    data: { aprovadas, recusadas },
+    message: `${aprovadas.length} Parte(s) Diária(s) assinada(s) pelo ${rotulo}${recusadas.length ? `; ${recusadas.length} ignorada(s)` : ''}.`,
+  });
+}
+
 // POST /api/partes-diarias/aprovar-lote-transporte (alias /api/rdo/...)
 // Body: { ids: [uuid], assinatura_dado? }. Assina a etapa TRANSPORTE em lote
 // nas partes "Finalizado pelo Operador" (com KM válida). Fluxo normal vai a
 // "Revisado pelo Transporte"; Ônibus/VAN (Transporte é a etapa final) vão a
 // "Aprovado". Itens fora da regra são devolvidos em `recusadas`.
-export const aprovarLoteTransporte = asyncHandler(async (req, res) => {
-  const ids = normalizarIdsLote(req.body?.ids);
-  const atuante = req.atuante;
-  const imagem = req.body?.assinatura_dado
-    ? String(req.body.assinatura_dado)
-    : (atuante.assinatura_padrao || atuante.assinatura_url || null);
-  if (!imagem) {
-    return res.status(400).json({
-      error: 'Assinatura ausente',
-      message: 'Cadastre sua assinatura no Perfil ou desenhe-a para aprovar em lote.',
-    });
-  }
+export const aprovarLoteTransporte = asyncHandler(async (req, res) => responderLote(req, res, {
+  etapa: 'TRANSPORTE',
+  classificar: classificarLote,
+  statusOrigem: STATUS_FINALIZADO_OPERADOR,
+  acaoLog: 'ASSINATURA_TRANSPORTE_LOTE',
+  mensagemVazio: 'Nenhuma das Partes Diárias selecionadas está apta (precisam estar "Finalizado pelo Operador" com KM preenchida).',
+  destino: (p) => (ehFluxoSimplificadoTransporte(p.veiculo)
+    ? { status_aprovacao: 'Aprovado', status_relatorio: 'APROVADO', status_assinatura: 'ASSINADO' }
+    : { status_aprovacao: 'Revisado pelo Transporte', status_relatorio: 'REVISAO', status_assinatura: 'PENDENTE' }),
+}, 'Transporte'));
 
-  const partes = await prisma.parteDiaria.findMany({
-    where: { id: { in: ids }, deletado_em: null, veiculo: { deletado_em: null } },
-    select: {
-      id: true, tag: true, status_aprovacao: true, status_operacional: true, km_inicial: true, km_final: true,
-      assinaturas: { select: { etapa: true } },
-      veiculo: { select: { modelo: true } },
-    },
-  });
-  const { aptas, recusadas } = classificarLote(ids, partes);
-  if (!aptas.length) {
-    return res.status(409).json({
-      error: 'Nada a aprovar',
-      message: 'Nenhuma das Partes Diárias selecionadas está apta (precisam estar "Finalizado pelo Operador" com KM preenchida).',
-      aprovadas: [], recusadas,
-    });
-  }
-
-  const finais = aptas.filter((p) => ehFluxoSimplificadoTransporte(p.veiculo)).map((p) => p.id);
-  const revisadas = aptas.filter((p) => !ehFluxoSimplificadoTransporte(p.veiculo)).map((p) => p.id);
-  const agora = new Date();
-  const autor = atuante.nome;
-  const onde = (lista) => ({ id: { in: lista }, status_aprovacao: STATUS_FINALIZADO_OPERADOR, deletado_em: null });
-
-  await prisma.$transaction(async (tx) => {
-    await tx.parteDiariaAssinatura.createMany({
-      data: aptas.map((p) => ({
-        parte_id: p.id, etapa: 'TRANSPORTE', nome: atuante.nome, matricula: atuante.matricula,
-        assinatura_dado: imagem, assinado_em: agora,
-      })),
-      skipDuplicates: true,
-    });
-    if (revisadas.length) {
-      await tx.parteDiaria.updateMany({
-        where: onde(revisadas),
-        data: { status_aprovacao: 'Revisado pelo Transporte', status_relatorio: 'REVISAO', status_assinatura: 'PENDENTE', atualizado_por: autor },
-      });
-    }
-    if (finais.length) {
-      await tx.parteDiaria.updateMany({
-        where: onde(finais),
-        data: { status_aprovacao: 'Aprovado', status_relatorio: 'APROVADO', status_assinatura: 'ASSINADO', atualizado_por: autor },
-      });
-    }
-    await tx.parteDiariaLog.createMany({
-      data: aptas.map((p) => ({
-        parte_id: p.id, acao: 'ASSINATURA_TRANSPORTE_LOTE', autor,
-        detalhes: {
-          etapa: 'TRANSPORTE', lote: aptas.length, matricula: atuante.matricula,
-          status_aprovacao: finais.includes(p.id) ? 'Aprovado' : 'Revisado pelo Transporte',
-        },
-      })),
-    });
-  }, { timeout: 30000, maxWait: 15000 });
-
-  await registrarLogAtividade(req, {
-    acao: 'APROVAR_LOTE_TRANSPORTE',
-    modulo: 'ParteDiaria',
-    detalhes: { aprovadas: aptas.map((p) => p.id), recusadas: recusadas.map((r) => r.id) },
-  });
-
-  res.json({
-    data: {
-      aprovadas: aptas.map((p) => ({
-        id: p.id, tag: p.tag,
-        status_aprovacao: finais.includes(p.id) ? 'Aprovado' : 'Revisado pelo Transporte',
-      })),
-      recusadas,
-    },
-    message: `${aptas.length} Parte(s) Diária(s) assinada(s) pelo Transporte${recusadas.length ? `; ${recusadas.length} ignorada(s)` : ''}.`,
-  });
-});
+// POST /api/partes-diarias/aprovar-lote-planejamento (alias /api/rdo/...)
+// Body: { ids: [uuid], assinatura_dado? }. Gestão/Planejamento ou Master assinam
+// PLANEJADOR nas partes "Revisado pelo Transporte" SEM desvio de programação e
+// elas vão a "Aprovado". Itens com desvio voltam em `recusadas` (desvio: true)
+// para aprovação individual.
+export const aprovarLotePlanejamento = asyncHandler(async (req, res) => responderLote(req, res, {
+  etapa: 'PLANEJADOR',
+  classificar: classificarLotePlanejamento,
+  statusOrigem: 'Revisado pelo Transporte',
+  acaoLog: 'ASSINATURA_PLANEJADOR_LOTE',
+  mensagemVazio: 'Nenhuma das Partes Diárias selecionadas está apta (precisam estar "Revisado pelo Transporte" e sem desvio de programação).',
+  destino: () => ({ status_aprovacao: 'Aprovado', status_relatorio: 'APROVADO', status_assinatura: 'ASSINADO' }),
+}, 'Planejamento'));
 
 // GET /api/partes-diarias/:id/logs — auditoria (log de edicoes).
 export const listarLogs = asyncHandler(async (req, res) => {

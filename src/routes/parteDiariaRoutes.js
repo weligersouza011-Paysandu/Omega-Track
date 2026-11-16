@@ -17,11 +17,12 @@ import {
   listarLogs,
   apontamentoRapido,
   aprovarLoteTransporte,
+  aprovarLotePlanejamento,
 } from '../controllers/parteDiariaController.js';
 import { listarPendencias, ignorarPendencia, trocarOperadorPendencia } from '../controllers/pendenciasController.js';
 import { buscarRelatoriosPdfLote } from '../controllers/relatoriosPdfController.js';
 import { authApiKey } from '../middleware/auth.js';
-import { requerAdmin, requerMaster, requerMasterMatriz, requerTransporteOuMaster } from '../middleware/sessao.js';
+import { requerAdmin, requerMaster, requerMasterMatriz, requerPlanejamentoOuMaster, requerTransporteOuMaster } from '../middleware/sessao.js';
 
 const router = Router();
 
@@ -51,6 +52,8 @@ router.post('/', criarParteDiaria);
 router.post('/apontamento-rapido', requerMasterMatriz, apontamentoRapido);
 // Aprovacao em lote (etapa TRANSPORTE) — Transporte ou ADM Master.
 router.post('/aprovar-lote-transporte', requerTransporteOuMaster, aprovarLoteTransporte);
+// Aprovacao final em lote (etapa PLANEJADOR, sem desvio) — Gestao/Planejamento ou Master.
+router.post('/aprovar-lote-planejamento', requerPlanejamentoOuMaster, aprovarLotePlanejamento);
 router.post('/:id/assinar', authApiKey, assinarParteDiaria);
 // Fluxo de aprovacao em 3 etapas (formulario modelo Omega Service).
 router.post('/:id/assinaturas', assinarEtapa);

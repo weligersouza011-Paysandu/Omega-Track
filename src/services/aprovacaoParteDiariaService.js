@@ -85,3 +85,123 @@ export function classificarLote(ids, partes) {
   }
   return { aptas, recusadas };
 }
+
+// ---------------------------------------------------------------------------
+// Etapa final: Gestão / Planejamento (ou ADM Master).
+// ---------------------------------------------------------------------------
+
+export const MSG_DESVIO_LOTE = 'Item com desvio de programação — abra para revisar a justificativa e aprovar individualmente.';
+
+/** Gestão (Técnico de Planejamento) ou ADM Master. */
+export function podeAprovarLotePlanejamento(usuario) {
+  if (!usuario || usuario.tipo !== 'ADMINISTRADOR') return false;
+  return usuario.nivel === 'MASTER' || usuario.setor === 'GESTAO';
+}
+
+/** Desvio de programação = RDO programado que não seguiu a programação. */
+export function houveDesvioProgramacao(parte) {
+  return parte?.aderencia === false;
+}
+
+/**
+ * Aptas ao lote do Planejamento: "Revisado pelo Transporte", com assinatura
+ * do Transporte, ainda sem a do Planejamento e SEM desvio de programação
+ * (desvio exige conferência individual da justificativa).
+ */
+export function classificarLotePlanejamento(ids, partes) {
+  const porId = new Map(partes.map((p) => [p.id, p]));
+  const aptas = [];
+  const recusadas = [];
+  for (const id of ids) {
+    const p = porId.get(id);
+    if (!p) { recusadas.push({ id, motivo: 'Não encontrada ou excluída.' }); continue; }
+    const etapas = new Set((p.assinaturas || []).map((a) => String(a.etapa || '').toUpperCase()));
+    if (p.status_aprovacao !== STATUS_REVISADO_TRANSPORTE || !etapas.has('TRANSPORTE')) {
+      recusadas.push({ id, tag: p.tag, motivo: `Status atual "${p.status_aprovacao}" (precisa estar "${STATUS_REVISADO_TRANSPORTE}").` });
+      continue;
+    }
+    if (etapas.has('PLANEJADOR')) { recusadas.push({ id, tag: p.tag, motivo: 'Já assinada pelo Planejamento.' }); continue; }
+    if (houveDesvioProgramacao(p)) {
+      recusadas.push({ id, tag: p.tag, motivo: MSG_DESVIO_LOTE, desvio: true });
+      continue;
+    }
+    aptas.push(p);
+  }
+  return { aptas, recusadas };
+}
+
+// ---------------------------------------------------------------------------
+// Execução comum dos lotes (Transporte e Planejamento).
+// ---------------------------------------------------------------------------
+
+const SELECT_LOTE = {
+  id: true, tag: true, status_aprovacao: true, status_operacional: true,
+  km_inicial: true, km_final: true, aderencia: true,
+  assinaturas: { select: { etapa: true } },
+  veiculo: { select: { modelo: true } },
+};
+
+function erroHttp(status, message, extra = {}) {
+  const e = new Error(message);
+  e.statusCode = status;
+  Object.assign(e, extra);
+  return e;
+}
+
+/**
+ * Assina `etapa` nas partes aptas e atualiza o status via updateMany.
+ * @param classificar  (ids, partes) => { aptas, recusadas }
+ * @param destino      (parte) => { status_aprovacao, status_relatorio, status_assinatura }
+ * @param statusOrigem status exigido no updateMany (proteção contra corrida)
+ * @returns { aprovadas: [{id, tag, status_aprovacao}], recusadas }
+ */
+export async function executarLoteAprovacao(client, {
+  ids, atuante, imagem, etapa, classificar, destino, statusOrigem, acaoLog, mensagemVazio,
+}) {
+  const unicos = normalizarIdsLote(ids);
+  if (!imagem) {
+    throw erroHttp(400, 'Cadastre sua assinatura no Perfil ou desenhe-a para aprovar em lote.');
+  }
+  const partes = await client.parteDiaria.findMany({
+    where: { id: { in: unicos }, deletado_em: null, veiculo: { deletado_em: null } },
+    select: SELECT_LOTE,
+  });
+  const { aptas, recusadas } = classificar(unicos, partes);
+  if (!aptas.length) throw erroHttp(409, mensagemVazio, { aprovadas: [], recusadas });
+
+  // Agrupa por status de destino para um updateMany por grupo.
+  const grupos = new Map();
+  const aprovadas = aptas.map((p) => {
+    const dados = destino(p);
+    const chave = JSON.stringify(dados);
+    if (!grupos.has(chave)) grupos.set(chave, { dados, ids: [] });
+    grupos.get(chave).ids.push(p.id);
+    return { id: p.id, tag: p.tag, status_aprovacao: dados.status_aprovacao };
+  });
+  const agora = new Date();
+  const autor = atuante.nome;
+
+  await client.$transaction(async (tx) => {
+    await tx.parteDiariaAssinatura.createMany({
+      data: aptas.map((p) => ({
+        parte_id: p.id, etapa, nome: atuante.nome, matricula: atuante.matricula,
+        assinatura_dado: imagem, assinado_em: agora,
+      })),
+      skipDuplicates: true,
+    });
+    for (const { dados, ids: grupo } of grupos.values()) {
+      await tx.parteDiaria.updateMany({
+        where: { id: { in: grupo }, status_aprovacao: statusOrigem, deletado_em: null },
+        data: { ...dados, atualizado_por: autor },
+      });
+    }
+    await tx.parteDiariaLog.createMany({
+      data: aprovadas.map((a) => ({
+        parte_id: a.id, acao: acaoLog, autor,
+        detalhes: { etapa, lote: aptas.length, matricula: atuante.matricula, status_aprovacao: a.status_aprovacao },
+      })),
+    });
+  }, { timeout: 30000, maxWait: 15000 });
+
+  return { aprovadas, recusadas };
+}

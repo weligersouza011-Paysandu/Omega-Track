@@ -63,3 +63,102 @@ export function alternarSelecaoMestre(aptas, selecionados) {
   else aptas.forEach((p) => proximo.add(p.id));
   return proximo;
 }
+
+// ---------------------------------------------------------------------------
+// Etapa final: Gestão / Planejamento (ou ADM Master).
+// ---------------------------------------------------------------------------
+
+export const STATUS_REVISADO_TRANSPORTE = 'Revisado pelo Transporte';
+export const MSG_DESVIO_LOTE = 'Item com desvio de programação — abra para revisar a justificativa e aprovar individualmente';
+
+/** Gestão (Técnico de Planejamento) ou ADM Master. */
+export function podeAprovarLotePlanejamento(usuario) {
+  if (!usuario || usuario.tipo !== 'ADMINISTRADOR') return false;
+  return usuario.nivel === 'MASTER' || usuario.setor === 'GESTAO';
+}
+
+/** Desvio de programação (servidor envia o campo; RDO antigo cai na aderência). */
+export function houveDesvio(parte) {
+  if (typeof parte?.houve_desvio_programacao === 'boolean') return parte.houve_desvio_programacao;
+  return parte?.aderencia === false;
+}
+
+const statusDe = (parte) => parte?.status_aprovacao || parte?.status;
+
+/** "Revisado pelo Transporte", com Transporte assinado, sem Planejamento e sem desvio. */
+export function aptaParaLotePlanejamento(parte) {
+  if (!parte || statusDe(parte) !== STATUS_REVISADO_TRANSPORTE || houveDesvio(parte)) return false;
+  if (parte.assinaturas) {
+    const assinadas = etapas(parte);
+    if (!assinadas.has('TRANSPORTE') || assinadas.has('PLANEJADOR')) return false;
+  }
+  return true;
+}
+
+/** Em qual lote o item pode entrar para este usuário: 'transporte' | 'planejamento' | null. */
+export function loteDaParte(parte, usuario) {
+  if (podeAprovarLoteTransporte(usuario) && aptaParaLoteTransporte(parte)) return 'transporte';
+  if (podeAprovarLotePlanejamento(usuario) && aptaParaLotePlanejamento(parte)) return 'planejamento';
+  return null;
+}
+
+/** Tooltip do checkbox desabilitado (por que não entra em lote). */
+export function motivoForaDoLote(parte, usuario) {
+  const status = statusDe(parte);
+  if (podeAprovarLotePlanejamento(usuario) && status === STATUS_REVISADO_TRANSPORTE && houveDesvio(parte)) {
+    return MSG_DESVIO_LOTE;
+  }
+  if (status === STATUS_FINALIZADO_OPERADOR && podeAprovarLoteTransporte(usuario)) {
+    return 'KM Inicial/Final incompleta: o operador precisa completar a KM';
+  }
+  if (status === 'Aprovado') return 'Parte Diária já aprovada';
+  const etapasDoUsuario = [
+    podeAprovarLoteTransporte(usuario) && `"${STATUS_FINALIZADO_OPERADOR}"`,
+    podeAprovarLotePlanejamento(usuario) && `"${STATUS_REVISADO_TRANSPORTE}" sem desvio`,
+  ].filter(Boolean).join(' ou ');
+  return `Só entram na aprovação em lote as Partes Diárias ${etapasDoUsuario}`;
+}
+
+// ---------------------------------------------------------------------------
+// Filtros rápidos executivos da listagem.
+// ---------------------------------------------------------------------------
+
+export const FILTROS_RAPIDOS = [
+  { chave: 'todas', rotulo: 'Todas' },
+  { chave: 'aguardando-planejamento', rotulo: 'Aguardando Planejamento' },
+  { chave: 'com-desvio', rotulo: '⚠️ Com Desvio de Programação' },
+];
+
+export function passaFiltroRapido(parte, chave) {
+  if (chave === 'aguardando-planejamento') return statusDe(parte) === STATUS_REVISADO_TRANSPORTE && !houveDesvio(parte);
+  if (chave === 'com-desvio') return houveDesvio(parte);
+  return true;
+}
+
+/** Contadores das pílulas; `desvioPendentes` = com desvio ainda não aprovadas. */
+export function contarFiltrosRapidos(partes) {
+  const contagem = { todas: 0, 'aguardando-planejamento': 0, 'com-desvio': 0, desvioPendentes: 0 };
+  for (const p of partes || []) {
+    contagem.todas += 1;
+    if (passaFiltroRapido(p, 'aguardando-planejamento')) contagem['aguardando-planejamento'] += 1;
+    if (houveDesvio(p)) {
+      contagem['com-desvio'] += 1;
+      if (statusDe(p) !== 'Aprovado') contagem.desvioPendentes += 1;
+    }
+  }
+  return contagem;
+}
+
+/** Comparativo Programado → Realizado de um item com desvio. */
+export function comparativoDesvio(parte) {
+  const statusOp = String(parte?.status_operacional || parte?.status || '').trim();
+  const realizadoObra = parte?.obra_ref?.nome || parte?.obra || null;
+  return {
+    programado: parte?.obra_programada_ref?.nome || parte?.obra_programada || '—',
+    realizado: statusOp && statusOp !== 'Operação'
+      ? `${statusOp}${realizadoObra ? ` (${realizadoObra})` : ''}`
+      : (realizadoObra || 'Sem obra informada'),
+    categoria: parte?.categoria_desvio?.nome || null,
+    justificativa: String(parte?.justificativa_desvio || '').trim() || null,
+  };
+}
