@@ -7,18 +7,7 @@ import {
   salvarProgramacaoEmLote,
 } from '../controllers/programacaoRecursosController.js';
 import { iniciarManutencao, registrarRetornoManutencao } from '../controllers/manutencaoRecursosController.js';
-import { requerAdminAutenticado } from '../middleware/sessao.js';
-
-function requerGestaoTransporte(req, res, next) {
-  const usuario = req.atuante;
-  if (usuario?.nivel !== 'MASTER' && !['GESTAO', 'TRANSPORTE'].includes(usuario?.setor)) {
-    return res.status(403).json({
-      error: 'Sem permissao',
-      message: 'Apenas Gestao, Transporte ou ADM Master podem alterar a programacao.',
-    });
-  }
-  next();
-}
+import { requerAdminAutenticado, requerGestaoTransporte } from '../middleware/sessao.js';
 
 const router = Router();
 router.get('/', requerAdminAutenticado, listarProgramacao);

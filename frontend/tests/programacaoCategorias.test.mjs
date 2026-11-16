@@ -7,6 +7,7 @@ import { criarProgramacaoPdf } from '../src/utils/exportarProgramacaoPdf.js';
 const OBRA = '11111111-1111-4111-8111-111111111111';
 const equipamentos = [
   { tag: 'JI450', modelo: 'Caminhão Munck', obraId: OBRA },
+  { tag: 'ON-01', modelo: 'Ônibus', obraId: OBRA, operadorNome: 'Ana Silva', operadorTardeNome: 'Bruno Costa' },
   { tag: 'TER-01', modelo: 'Caminhonete', is_terceiro: true, empresaTerceira: 'Transportes XYZ', obraId: null },
   { tag: 'JI10', modelo: 'Caminhonete', obraId: OBRA },
   { tag: 'JI9', modelo: 'Caminhonete', obraId: null },
@@ -18,8 +19,8 @@ const equipamentos = [
 test('blocos seguem a relevância operacional e "Sem categoria" fica por último', () => {
   const blocos = agruparPorCategoria(equipamentos);
   assert.deepEqual(blocos.map((b) => b.nome),
-    ['Caminhonete', 'Caminhão Munck', 'Guindaste 30t', 'Retroescavadeira', SEM_CATEGORIA]);
-  assert.deepEqual(blocos.map((b) => b.icone), ['leve', 'caminhao', 'guindaste', 'maquina', 'outro']);
+    ['Caminhonete', 'Ônibus', 'Caminhão Munck', 'Guindaste 30t', 'Retroescavadeira', SEM_CATEGORIA]);
+  assert.deepEqual(blocos.map((b) => b.icone), ['leve', 'onibus', 'caminhao', 'guindaste', 'maquina', 'outro']);
 });
 
 test('dentro do bloco: frota própria antes de terceiros, TAG em ordem natural', () => {
@@ -58,7 +59,7 @@ test('PDF agrupa por categoria e identifica terceiros', () => {
     inicio = bruto.indexOf('stream', fim + 9);
   }
   const conteudo = textos.join('\n');
-  for (const trecho of ['CAMINHONETE', 'TERCEIRO', 'Transportes XYZ', 'RETROESCAVADEIRA']) {
+  for (const trecho of ['CAMINHONETE', 'TERCEIRO', 'Transportes XYZ', 'RETROESCAVADEIRA', 'Tarde: Bruno Costa']) {
     assert.ok(conteudo.includes(trecho), `PDF sem "${trecho}"`);
   }
   assert.ok(conteudo.indexOf('CAMINHONETE') < conteudo.indexOf('RETROESCAVADEIRA'), 'ordem das categorias');

@@ -140,7 +140,7 @@ function aplicarPendenciasProgramacao(corpo, fila) {
       const equipamento = porTag.get(alteracao.tag);
       if (!equipamento || equipamento.manutencaoAtiva) continue;
       equipamento.obraId = alteracao.obraId;
-      for (const prefixo of ['operador', 'supervisor']) {
+      for (const prefixo of ['operador', 'operadorTarde', 'supervisor']) {
         const campo = `${prefixo}Matricula`;
         if (alteracao.obraId === null) {
           equipamento[campo] = null;

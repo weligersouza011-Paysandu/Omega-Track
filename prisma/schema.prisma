@@ -332,6 +332,10 @@ model ProgramacaoRecurso {
   data                 DateTime @db.Date
   operador_matricula   String?  @db.VarChar(50)
   operador_nome        String?  @db.VarChar(255)
+  // Segundo motorista (turno da tarde) em ônibus/vans. O operador acima
+  // segue como motorista principal (manhã) para os demais veículos.
+  operador_tarde_matricula String? @db.VarChar(50)
+  operador_tarde_nome      String? @db.VarChar(255)
   supervisor_matricula String?  @db.VarChar(50)
   supervisor_nome      String?  @db.VarChar(255)
   created_at           DateTime @default(now()) @db.Timestamp(6)
@@ -376,6 +380,10 @@ model ProgramacaoRecursoTerceiro {
   data                 DateTime @db.Date
   operador_matricula   String?  @db.VarChar(50)
   operador_nome        String?  @db.VarChar(255)
+  // Segundo motorista (turno da tarde) em ônibus/vans. O operador acima
+  // segue como motorista principal (manhã) para os demais veículos.
+  operador_tarde_matricula String? @db.VarChar(50)
+  operador_tarde_nome      String? @db.VarChar(255)
   supervisor_matricula String?  @db.VarChar(50)
   supervisor_nome      String?  @db.VarChar(255)
   created_at           DateTime @default(now()) @db.Timestamp(6)

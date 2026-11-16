@@ -5,6 +5,7 @@
 // Regras: promover/rebaixar/excluir-MASTER exigem atuante MASTER; demais
 // operacoes exigem atuante admin. Banco vazio (bootstrap) libera o 1o cadastro.
 // ============================================================================
+import { randomBytes } from 'node:crypto';
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { hashSenha } from '../utils/senha.js';
@@ -152,6 +153,84 @@ export const criarLoteOperacionais = asyncHandler(async (req, res) => {
     detalhes: { criados, ignorados: ignorados.length, total_recebido: lista.length },
   });
   res.status(201).json({ data: { criados, ignorados } });
+});
+
+// ---------------------------------------------------------------------------
+// Cadastro rapido (Programacao de Recursos): Operador ou Supervisor com
+// apenas nome, matricula (opcional) e funcao. Cria um usuario OPERACIONAL e
+// devolve no mesmo formato da lista `pessoas` da programacao.
+// ---------------------------------------------------------------------------
+const FUNCOES_RAPIDAS = { OPERADOR: 'Operador', SUPERVISOR: 'Supervisor' };
+const PREFIXO_MATRICULA_PROVISORIA = 'PROV-';
+
+// Matricula provisoria nao sequencial: operacionais entram so com a matricula,
+// entao ela nao pode ser facil de adivinhar.
+function matriculaProvisoria() {
+  return `${PREFIXO_MATRICULA_PROVISORIA}${randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
+export const criarUsuarioRapido = asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const nome = String(body.nome ?? '').trim().replace(/\s+/g, ' ');
+  const funcao = FUNCOES_RAPIDAS[normUpper(body.funcao)];
+  const matriculaInformada = strOuNull(body.matricula);
+
+  if (!nome || nome.length > 255) {
+    return res.status(400).json({ error: 'Dados invalidos', message: 'Informe o nome (até 255 caracteres).' });
+  }
+  if (!funcao) {
+    return res.status(400).json({ error: 'Dados invalidos', message: 'Informe a função: OPERADOR ou SUPERVISOR.' });
+  }
+  if (matriculaInformada && (matriculaInformada.length > 50 || /\s/.test(matriculaInformada))) {
+    return res.status(400).json({ error: 'Dados invalidos', message: 'Matrícula inválida (até 50 caracteres, sem espaços).' });
+  }
+
+  let matricula = matriculaInformada;
+  if (matricula) {
+    const existente = await prisma.usuario.findUnique({
+      where: { matricula }, select: { nome: true },
+    });
+    if (existente) {
+      return res.status(409).json({
+        error: 'Matricula em uso',
+        message: `A matrícula ${matricula} já está cadastrada para ${existente.nome}.`,
+      });
+    }
+  } else {
+    for (let tentativa = 0; tentativa < 5 && !matricula; tentativa += 1) {
+      const candidata = matriculaProvisoria();
+      if (!await prisma.usuario.findUnique({ where: { matricula: candidata }, select: { id: true } })) {
+        matricula = candidata;
+      }
+    }
+    if (!matricula) {
+      return res.status(503).json({ error: 'Tente novamente', message: 'Não foi possível gerar uma matrícula. Tente novamente.' });
+    }
+  }
+
+  let criado;
+  try {
+    criado = await prisma.usuario.create({
+      data: { nome, matricula, funcao, tipo: 'OPERACIONAL' },
+      select: { id: true, matricula: true, nome: true, funcao: true, tipo: true },
+    });
+  } catch (erro) {
+    // Corrida: outra pessoa cadastrou a mesma matricula entre a checagem e o insert.
+    if (erro?.code === 'P2002') {
+      return res.status(409).json({ error: 'Matricula em uso', message: `A matrícula ${matricula} já está cadastrada.` });
+    }
+    throw erro;
+  }
+
+  await registrarLogAtividade(req, {
+    acao: 'CRIAR_USUARIO_RAPIDO',
+    modulo: 'Usuarios',
+    detalhes: {
+      id: criado.id, nome: criado.nome, matricula: criado.matricula, funcao: criado.funcao,
+      matricula_provisoria: !matriculaInformada, origem: 'Programacao de Recursos',
+    },
+  });
+  res.status(201).json({ data: { ...criado, matriculaProvisoria: !matriculaInformada } });
 });
 
 export const atualizarUsuario = asyncHandler(async (req, res) => {
