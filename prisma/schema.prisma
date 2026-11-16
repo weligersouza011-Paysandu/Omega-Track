@@ -316,6 +316,7 @@ model Obra {
 
   partes_diarias ParteDiaria[]
   programacoes   ProgramacaoRecurso[]
+  programacoes_terceiros ProgramacaoRecursoTerceiro[]
 
   @@index([ativo])
   @@index([nome])
@@ -343,6 +344,50 @@ model ProgramacaoRecurso {
   @@index([data])
   @@index([obra_id, data])
   @@map("programacao_recursos")
+}
+
+// Veiculos de empresas terceirizadas: existem SOMENTE para a Programacao de
+// Recursos. Tabela isolada de `mob_desmob` para nunca entrarem em Parte Diaria,
+// telemetria, documentacao, eficiencia ou KPIs da frota propria. Sem fluxo de
+// desmobilizacao: ao sair da operacao o registro e excluido (cascata nas alocacoes).
+model VeiculoTerceiro {
+  id               String   @id @default(uuid()) @db.Uuid
+  tag              String   @unique @db.VarChar(50)
+  tipo             String   @db.VarChar(100)
+  empresa_terceira String?  @db.VarChar(255)
+  placa            String?  @db.VarChar(20)
+  modelo           String?  @db.VarChar(100)
+  foto_url         String?  @db.Text
+  observacao       String?  @db.Text
+  created_at       DateTime @default(now()) @db.Timestamp(6)
+
+  programacoes ProgramacaoRecursoTerceiro[]
+
+  @@index([tipo])
+  @@map("veiculos_terceiros")
+}
+
+// Alocacao diaria de veiculo terceiro (espelha ProgramacaoRecurso, sem FK para
+// a frota propria).
+model ProgramacaoRecursoTerceiro {
+  id                   String   @id @default(uuid()) @db.Uuid
+  veiculo_terceiro_id  String   @db.Uuid
+  obra_id              String   @db.Uuid
+  data                 DateTime @db.Date
+  operador_matricula   String?  @db.VarChar(50)
+  operador_nome        String?  @db.VarChar(255)
+  supervisor_matricula String?  @db.VarChar(50)
+  supervisor_nome      String?  @db.VarChar(255)
+  created_at           DateTime @default(now()) @db.Timestamp(6)
+  updated_at           DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  veiculo VeiculoTerceiro @relation(fields: [veiculo_terceiro_id], references: [id], onDelete: Cascade)
+  obra    Obra            @relation(fields: [obra_id], references: [id], onDelete: Restrict)
+
+  @@unique([veiculo_terceiro_id, data])
+  @@index([data])
+  @@index([obra_id, data])
+  @@map("programacao_recursos_terceiros")
 }
 
 // Cada passagem pela oficina permanece no historico. Somente um registro
@@ -598,9 +643,6 @@ model PlanoAcaoTelemetria {
   @@index([status])
   @@map("planos_acao_telemetria")
 }
-
-
-
 
 // Parâmetros de preventiva por categoria de veículo (modelo) e contrato.
 // Categoria gravada normalizada (MAIÚSCULAS); `contrato` NULL = regra global.

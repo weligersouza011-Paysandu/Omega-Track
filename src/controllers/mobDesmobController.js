@@ -382,6 +382,14 @@ export const criarVeiculo = asyncHandler(async (req, res) => {
   // Regra de ouro: foto_veiculo aceita SOMENTE URL do Cloudinary (sem binario).
   validarUrlMidia(body.foto_veiculo, 'foto_veiculo');
 
+  // A Programacao identifica cada linha pela TAG: nao pode colidir com terceiros.
+  if (dados.tag && await prisma.veiculoTerceiro.findUnique({ where: { tag: dados.tag }, select: { id: true } })) {
+    return res.status(409).json({
+      error: 'TAG em uso',
+      message: `A TAG ${dados.tag} ja esta cadastrada como veiculo terceiro.`,
+    });
+  }
+
   const veiculo = await prisma.mobDesmob.create({
     data: {
       ...dados,

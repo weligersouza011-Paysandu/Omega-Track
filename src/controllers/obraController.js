@@ -136,12 +136,12 @@ export const deletarObra = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const atual = await prisma.obra.findUnique({
     where: { id },
-    include: { _count: { select: { programacoes: true } } },
+    include: { _count: { select: { programacoes: true, programacoes_terceiros: true } } },
   });
   if (!atual) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Obra nao encontrada.' });
   }
-  if (atual._count.programacoes > 0) {
+  if (atual._count.programacoes > 0 || atual._count.programacoes_terceiros > 0) {
     return res.status(409).json({
       error: 'Obra programada',
       message: 'Esta obra possui equipamentos programados. Remova as programacoes antes de exclui-la.',

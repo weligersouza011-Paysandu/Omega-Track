@@ -156,9 +156,10 @@ export default function ProgramacaoRecursosView({ sessao }) {
       if (filtro === 'programados' && (!equipamento.obraId || equipamento.manutencaoAtiva)) return false;
       if (filtro === 'livres' && (equipamento.obraId || equipamento.manutencaoAtiva)) return false;
       if (filtro === 'manutencao' && !equipamento.manutencaoAtiva) return false;
+      if (filtro === 'terceiros' && !equipamento.is_terceiro) return false;
       if (obraFiltro && equipamento.obraId !== obraFiltro) return false;
       if (!termo) return true;
-      return [equipamento.tag, equipamento.placa, equipamento.modelo, equipamento.contrato,
+      return [equipamento.tag, equipamento.placa, equipamento.modelo, equipamento.contrato, equipamento.modeloVeiculo,
         equipamento.operadorNome, equipamento.operadorMatricula,
         equipamento.supervisorNome, equipamento.supervisorMatricula]
         .some((valor) => String(valor || '').toLocaleLowerCase('pt-BR').includes(termo));
@@ -499,6 +500,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
           <option value="programados">Programados</option>
           <option value="livres">Sem programação</option>
           <option value="manutencao">Em manutenção</option>
+          <option value="terceiros">Terceiros</option>
         </select>
         <select className="input min-w-0" value={obraFiltro} onChange={(evento) => setObraFiltro(evento.target.value)}
           aria-label="Filtrar por obra">
@@ -550,13 +552,29 @@ export default function ProgramacaoRecursosView({ sessao }) {
                 <div key={equipamento.tag} className="p-4 space-y-3 hover:bg-omega-50/50">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-bold text-sm text-omega-900 break-words">{equipamento.modelo || 'Equipamento'}</div>
+                      <div className="font-bold text-sm text-omega-900 break-words flex flex-wrap items-center gap-1.5">
+                        {equipamento.modelo || 'Equipamento'}
+                        {equipamento.is_terceiro && (
+                          <span className="chip bg-violet-50 text-violet-700 !text-[10px] !py-0.5"
+                            title="Veículo de empresa terceirizada (somente programação)">
+                            Terceiro
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-omega-500 mt-0.5">
                         <span className="font-mono font-semibold text-omega-700">{equipamento.tag}</span>
                         {' · '}{equipamento.placa || 'Sem placa'}
-                        {equipamento.status && <span className="text-omega-400"> · {equipamento.status}</span>}
+                        {equipamento.is_terceiro
+                          ? equipamento.empresaTerceira && <span className="text-omega-400"> · {equipamento.empresaTerceira}</span>
+                          : equipamento.status && <span className="text-omega-400"> · {equipamento.status}</span>}
                       </div>
                     </div>
+                    {equipamento.is_terceiro ? (
+                      <span className={`chip shrink-0 ${Object.hasOwn(alteracoes, equipamento.tag) ? 'bg-amber-50 text-amber-700'
+                        : equipamento.obraId ? 'bg-emerald-50 text-emerald-700' : 'bg-omega-100 text-omega-600'}`}>
+                        {Object.hasOwn(alteracoes, equipamento.tag) ? 'Pendente' : equipamento.obraId ? 'Programado' : 'Livre'}
+                      </span>
+                    ) : (
                     <button type="button" onClick={() => abrirManutencao(equipamento)}
                       disabled={!podeGerenciar || totalAlteracoes > 0 || salvando || copiando || exportandoPdf || salvandoManutencao}
                       title={totalAlteracoes ? 'Salve ou descarte as alterações antes de mudar o status.'
@@ -574,6 +592,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
                         : Object.hasOwn(alteracoes, equipamento.tag) ? 'Pendente'
                         : equipamento.obraId ? 'Programado' : 'Livre'}</span>
                     </button>
+                    )}
                   </div>
                   {equipamento.manutencaoAtiva && (
                     <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-900 space-y-1">
