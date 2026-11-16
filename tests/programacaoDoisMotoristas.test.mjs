@@ -12,11 +12,13 @@ const ANTERIOR = new Date('2026-11-13T00:00:00.000Z');
 
 let usuarios;
 let gravados; // chamadas de escrita na programação
+let criadosNoBanco; // data enviada a usuario.create
 const pessoa = (matricula, nome) => ({ id: `u-${matricula}`, matricula, nome, funcao: 'Motorista', tipo: 'OPERACIONAL' });
 
 beforeEach(() => {
   usuarios = [GESTOR, AMBIENTAL, pessoa('100', 'Ana Manhã'), pessoa('101', 'Bruno Tarde'), pessoa('200', 'Carla Supervisora')];
   gravados = [];
+  criadosNoBanco = [];
 });
 
 const tardeNaOrigem = {
@@ -34,6 +36,7 @@ const banco = {
       ? usuarios.filter((u) => where.matricula.in.includes(u.matricula))
       : usuarios),
     create: async ({ data }) => {
+      criadosNoBanco.push(data);
       if (usuarios.some((u) => u.matricula === data.matricula)) throw Object.assign(new Error('unique'), { code: 'P2002' });
       const novo = { id: `u-${data.matricula}`, ...data };
       usuarios.push(novo);
@@ -188,7 +191,7 @@ test('copiar última programação leva o motorista da tarde junto', async () =>
 // ---------------------------------------------------------- cadastro rápido
 
 test('cadastro rápido de operador com matrícula informada', async () => {
-  const r = await api('/usuarios/rapido', { method: 'POST', body: { nome: '  Diego   Souza ', matricula: '4321', funcao: 'operador' } });
+  const r = await api('/usuarios/rapido', { method: 'POST', body: { nome: '  Diego   Souza ', matricula: '4321', funcao: 'Operador' } });
   assert.equal(r.status, 201);
   assert.deepEqual(
     { matricula: r.corpo.data.matricula, nome: r.corpo.data.nome, funcao: r.corpo.data.funcao, tipo: r.corpo.data.tipo, prov: r.corpo.data.matriculaProvisoria },
@@ -209,7 +212,7 @@ test('cadastro rápido de supervisor sem matrícula gera matrícula provisória 
 
 test('cadastro rápido valida dados, matrícula repetida e permissão', async () => {
   assert.equal((await api('/usuarios/rapido', { method: 'POST', body: { matricula: '1', funcao: 'OPERADOR' } })).status, 400);
-  assert.equal((await api('/usuarios/rapido', { method: 'POST', body: { nome: 'X', funcao: 'GERENTE' } })).status, 400);
+  assert.equal((await api('/usuarios/rapido', { method: 'POST', body: { nome: 'X', funcao: 'F'.repeat(101) } })).status, 400);
   assert.equal((await api('/usuarios/rapido', { method: 'POST', body: { nome: 'X', matricula: '1 2', funcao: 'OPERADOR' } })).status, 400);
 
   const repetida = await api('/usuarios/rapido', { method: 'POST', body: { nome: 'Outra Ana', matricula: '100', funcao: 'OPERADOR' } });
@@ -227,4 +230,22 @@ test('usuário criado no cadastro rápido já pode ser escalado como motorista d
   ] } });
   assert.equal(r.status, 200);
   assert.equal(gravados.find((g) => g.op === 'frota.upsert').args.create.operador_tarde_nome, 'Gil Motorista');
+});
+
+test('cadastro rápido = Usuário Operacional: função livre e nada administrativo', async () => {
+  const r = await api('/usuarios/rapido', { method: 'POST', body: {
+    matricula: '7788', nome: 'Hugo Munck', funcao: '  Operador   de Munck ',
+    // Tentativas de escalar privilégio são ignoradas:
+    tipo: 'ADMINISTRADOR', setor: 'GESTAO', nivel: 'MASTER', senha: '123456', senha_hash: 'x',
+  } });
+  assert.equal(r.status, 201);
+  assert.equal(r.corpo.data.funcao, 'Operador de Munck');
+  assert.equal(r.corpo.data.tipo, 'OPERACIONAL');
+  assert.deepEqual(criadosNoBanco.at(-1), { nome: 'Hugo Munck', matricula: '7788', funcao: 'Operador de Munck', tipo: 'OPERACIONAL' });
+});
+
+test('cadastro rápido sem função grava função vazia (como no cadastro operacional)', async () => {
+  const r = await api('/usuarios/rapido', { method: 'POST', body: { matricula: '7789', nome: 'Ivo Ajudante' } });
+  assert.equal(r.status, 201);
+  assert.equal(r.corpo.data.funcao, null);
 });

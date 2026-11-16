@@ -191,16 +191,23 @@ export default function ProgramacaoRecursosView({ sessao }) {
   }, [dadosDoDia, pessoasExtras]);
   const pessoasPorMatricula = new Map(pessoas.map((pessoa) => [pessoa.matricula, pessoa]));
 
-  function abrirNovoColaborador(tag, campo, funcao, nomeSugerido) {
-    setNovoColaborador({ tag, campo, funcao, nome: nomeSugerido || '' });
+  // Texto buscado no seletor: número vira matrícula, o resto vira nome.
+  function abrirNovoColaborador(tag, campo, funcao, textoBuscado = '') {
+    const texto = String(textoBuscado).trim();
+    const ehMatricula = /^[\w-]*\d[\w-]*$/.test(texto);
+    setNovoColaborador({ tag, campo, funcao, nome: ehMatricula ? '' : texto, matricula: ehMatricula ? texto : '' });
   }
+  const funcoesExistentes = useMemo(
+    () => [...new Set(pessoas.map((pessoa) => pessoa.funcao).filter(Boolean))],
+    [pessoas]
+  );
 
   function aoCriarColaborador(pessoa) {
     const destino = novoColaborador;
     setPessoasExtras((atuais) => [...atuais, pessoa]);
     setNovoColaborador(null);
     if (destino) alterarProgramacao(destino.tag, { [destino.campo]: pessoa.matricula });
-    setToast(`${pessoa.nome} cadastrado como ${String(pessoa.funcao || '').toLowerCase()} (matrícula ${pessoa.matricula})` +
+    setToast(`${pessoa.nome} cadastrado como usuário operacional${pessoa.funcao ? ` (${pessoa.funcao})` : ''}, matrícula ${pessoa.matricula}` +
       (destino ? ` e selecionado em ${destino.tag}. Salve a programação para gravar.` : '.'));
   }
   const equipamentosEditados = equipamentos.map((equipamento) => {
@@ -787,7 +794,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
                                           <PessoaSearchSelect id={id} rotulo={`motorista da ${rotulo.toLowerCase()}`}
                                             matricula={equipamento[campo]} nomeSalvo={nome} pessoas={pessoas}
                                             onChange={(matricula) => alterarProgramacao(equipamento.tag, { [campo]: matricula })}
-                                            onNovo={podeGerenciar ? (texto) => abrirNovoColaborador(equipamento.tag, campo, 'OPERADOR', texto) : undefined}
+                                            onNovo={podeGerenciar ? (texto) => abrirNovoColaborador(equipamento.tag, campo, 'Motorista', texto) : undefined}
                                             disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado} />
                                         </div>
                                       </div>
@@ -809,7 +816,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
                                 <PessoaSearchSelect id={`operador-${equipamento.tag}`} rotulo="operador"
                                   matricula={equipamento.operadorMatricula} nomeSalvo={equipamento.operadorNome}
                                   pessoas={pessoas} onChange={(operadorMatricula) => alterarProgramacao(equipamento.tag, { operadorMatricula })}
-                                  onNovo={podeGerenciar ? (texto) => abrirNovoColaborador(equipamento.tag, 'operadorMatricula', 'OPERADOR', texto) : undefined}
+                                  onNovo={podeGerenciar ? (texto) => abrirNovoColaborador(equipamento.tag, 'operadorMatricula', 'Operador', texto) : undefined}
                                   disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado} />
                               </div>
                             )}
@@ -818,7 +825,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
                               <PessoaSearchSelect id={`supervisor-${equipamento.tag}`} rotulo="supervisor"
                                 matricula={equipamento.supervisorMatricula} nomeSalvo={equipamento.supervisorNome}
                                 pessoas={pessoas} onChange={(supervisorMatricula) => alterarProgramacao(equipamento.tag, { supervisorMatricula })}
-                                onNovo={podeGerenciar ? (texto) => abrirNovoColaborador(equipamento.tag, 'supervisorMatricula', 'SUPERVISOR', texto) : undefined}
+                                onNovo={podeGerenciar ? (texto) => abrirNovoColaborador(equipamento.tag, 'supervisorMatricula', 'Supervisor', texto) : undefined}
                                 disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado} />
                             </div>
 
@@ -959,6 +966,8 @@ export default function ProgramacaoRecursosView({ sessao }) {
         aberto={!!novoColaborador}
         funcaoInicial={novoColaborador?.funcao}
         nomeInicial={novoColaborador?.nome}
+        matriculaInicial={novoColaborador?.matricula}
+        funcoesExistentes={funcoesExistentes}
         destino={novoColaborador?.tag}
         sessao={sessao}
         onFechar={() => setNovoColaborador(null)}

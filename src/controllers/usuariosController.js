@@ -156,11 +156,13 @@ export const criarLoteOperacionais = asyncHandler(async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Cadastro rapido (Programacao de Recursos): Operador ou Supervisor com
-// apenas nome, matricula (opcional) e funcao. Cria um usuario OPERACIONAL e
-// devolve no mesmo formato da lista `pessoas` da programacao.
+// Cadastro rapido (Programacao de Recursos) = mesmo "Usuario Operacional" da
+// Gestao de Usuarios: matricula, nome e funcao livre; tipo OPERACIONAL, sem
+// senha, setor ou nivel (nada administrativo, mesmo que venha no corpo).
+// Devolve no mesmo formato da lista `pessoas` da programacao.
 // ---------------------------------------------------------------------------
-const FUNCOES_RAPIDAS = { OPERADOR: 'Operador', SUPERVISOR: 'Supervisor' };
+// Compatibilidade: a versao anterior da tela enviava OPERADOR/SUPERVISOR.
+const FUNCOES_LEGADAS = { OPERADOR: 'Operador', SUPERVISOR: 'Supervisor', MOTORISTA: 'Motorista' };
 const PREFIXO_MATRICULA_PROVISORIA = 'PROV-';
 
 // Matricula provisoria nao sequencial: operacionais entram so com a matricula,
@@ -172,14 +174,15 @@ function matriculaProvisoria() {
 export const criarUsuarioRapido = asyncHandler(async (req, res) => {
   const body = req.body || {};
   const nome = String(body.nome ?? '').trim().replace(/\s+/g, ' ');
-  const funcao = FUNCOES_RAPIDAS[normUpper(body.funcao)];
+  const funcaoTexto = strOuNull(body.funcao)?.replace(/\s+/g, ' ') ?? null;
+  const funcao = funcaoTexto ? (FUNCOES_LEGADAS[funcaoTexto] || funcaoTexto) : null;
   const matriculaInformada = strOuNull(body.matricula);
 
   if (!nome || nome.length > 255) {
     return res.status(400).json({ error: 'Dados invalidos', message: 'Informe o nome (até 255 caracteres).' });
   }
-  if (!funcao) {
-    return res.status(400).json({ error: 'Dados invalidos', message: 'Informe a função: OPERADOR ou SUPERVISOR.' });
+  if (funcao && funcao.length > 100) {
+    return res.status(400).json({ error: 'Dados invalidos', message: 'A função aceita no máximo 100 caracteres.' });
   }
   if (matriculaInformada && (matriculaInformada.length > 50 || /\s/.test(matriculaInformada))) {
     return res.status(400).json({ error: 'Dados invalidos', message: 'Matrícula inválida (até 50 caracteres, sem espaços).' });
