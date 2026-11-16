@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, ImagePlus, Loader2, Plus, Trash2, Truck, X } fr
 import Modal from './Modal.jsx';
 import CampoListaComCriador from './CampoListaComCriador.jsx';
 import { authHeaders } from '../utils/sessao.js';
+import { EVENTO_SINCRONIZADO, MENSAGEM_SALVO_LOCAL, mensagemFalha, salvoNaFila } from '../offline/index.js';
 
 // Veículos de empresas terceirizadas: cadastro simples, usado SOMENTE como
 // opção alocável na Programação de Recursos (sem Parte Diária, telemetria,
@@ -45,8 +46,14 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
     }
   };
 
-  // Carrega já na montagem para o contador do gatilho ficar correto.
-  useEffect(() => { carregar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Carrega já na montagem para o contador do gatilho ficar correto, e de novo
+  // quando a fila offline é enviada (troca IDs locais pelos do servidor).
+  useEffect(() => {
+    carregar();
+    const recarregar = () => carregar();
+    window.addEventListener(EVENTO_SINCRONIZADO, recarregar);
+    return () => window.removeEventListener(EVENTO_SINCRONIZADO, recarregar);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mesmos tipos da frota + os já usados por terceiros (agrupamento na programação).
   const tipos = useMemo(
@@ -78,7 +85,7 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
       const { data } = await resp.json();
       setForm((atual) => ({ ...atual, foto_url: data.url }));
     } catch (e) {
-      setErroCadastro(e.message);
+      setErroCadastro(mensagemFalha(e, 'Falha no upload da foto.'));
     } finally {
       setEnviandoFoto(false);
     }
@@ -113,11 +120,11 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
       const { data } = await resp.json();
       setVeiculos((lista) => [...lista, data].sort((a, b) =>
         a.tipo.localeCompare(b.tipo, 'pt-BR') || a.tag.localeCompare(b.tag, 'pt-BR')));
-      onToast?.(`${data.tag} cadastrado como veículo terceiro.`);
+      onToast?.(salvoNaFila(resp) ? `${data.tag}: ${MENSAGEM_SALVO_LOCAL}` : `${data.tag} cadastrado como veículo terceiro.`);
       setModalCadastro(false);
       setForm(formInicial());
     } catch (e) {
-      setErroCadastro(e.message);
+      setErroCadastro(mensagemFalha(e, 'Falha ao cadastrar.'));
     } finally {
       setSalvando(false);
     }
@@ -133,10 +140,12 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
       });
       if (!resp.ok && resp.status !== 404) throw new Error(await lerErro(resp, 'Falha ao excluir'));
       setVeiculos((lista) => lista.filter((v) => v.id !== excluir.id));
-      onToast?.(`${excluir.tag} excluído dos veículos terceiros.`);
+      onToast?.(salvoNaFila(resp) && !excluir.pendenteSync
+        ? `Exclusão de ${excluir.tag}: ${MENSAGEM_SALVO_LOCAL}`
+        : `${excluir.tag} excluído dos veículos terceiros.`);
       setExcluir(null);
     } catch (e) {
-      onToast?.(e.message);
+      onToast?.(mensagemFalha(e, 'Falha ao excluir.'));
     } finally {
       setExcluindo(false);
     }
@@ -206,6 +215,12 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
                             <span className="w-7 h-7 rounded bg-omega-100 flex items-center justify-center text-omega-400"><Truck size={13} /></span>
                           )}
                           <span className="font-mono font-bold text-omega-900">{v.tag}</span>
+                          {v.pendenteSync && (
+                            <span className="rounded bg-blue-50 px-1.5 py-px text-[10px] font-semibold text-blue-700"
+                              title="Salvo localmente; será enviado quando houver conexão">
+                              Pendente
+                            </span>
+                          )}
                         </span>
                       </td>
                       <td className="px-2 py-2 text-omega-700">{v.tipo}</td>

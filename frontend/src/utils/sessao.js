@@ -1,4 +1,5 @@
 // Sessao do usuario logado (JWT 12h em localStorage).
+import { limparCacheLeituras } from '../offline/armazenamento.js';
 const CHAVE = 'omegatrack_sessao';
 
 export function lerSessao() {
@@ -22,6 +23,8 @@ export function encerrarSessao() {
   } catch {
     /* sem armazenamento */
   }
+  // Leituras guardadas para o modo offline não ficam para o próximo usuário.
+  limparCacheLeituras();
 }
 
 export async function fazerLogin(matricula, senha) {

@@ -53,7 +53,9 @@ if (hasFrontendBuild) {
     maxAge: '1d',
     immutable: true,
     setHeaders: (res, filePath) => {
-      if (filePath.endsWith('index.html')) {
+      // index.html, Service Worker e manifest sempre revalidados: senão o
+      // navegador prende o bundle antigo e o SW nunca recebe a nova versão.
+      if (/(index\.html|sw\.js|registerSW\.js|workbox-[\w-]+\.js|manifest\.webmanifest)$/.test(filePath)) {
         res.setHeader('Cache-Control', 'no-cache');
       }
     },

@@ -11,6 +11,7 @@ import PessoaSearchSelect from '../components/PessoaSearchSelect.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { ehMaster, podeEscrever } from '../utils/permissoes.js';
 import { agruparPorCategoria, categoriaDo, matizesDasObras } from '../utils/categoriasProgramacao.js';
+import { EVENTO_SINCRONIZADO, MENSAGEM_SALVO_LOCAL, mensagemFalha, salvoNaFila } from '../offline/index.js';
 
 const ICONES_CATEGORIA = {
   leve: Car, utilitario: Car, onibus: Bus, caminhao: Truck,
@@ -127,6 +128,14 @@ export default function ProgramacaoRecursosView({ sessao }) {
   }, [dia, sessao, versao]);
 
   const totalAlteracoes = Object.keys(alteracoes).length;
+
+  // Fila offline enviada: recarrega o dia com os dados oficiais do servidor
+  // (só quando não há edições não salvas na tela, para não atropelar o usuário).
+  useEffect(() => {
+    const recarregar = () => { if (!totalAlteracoes) setVersao((atual) => atual + 1); };
+    window.addEventListener(EVENTO_SINCRONIZADO, recarregar);
+    return () => window.removeEventListener(EVENTO_SINCRONIZADO, recarregar);
+  }, [totalAlteracoes]);
   useLayoutEffect(() => {
     if (!totalAlteracoes) return undefined;
     const avisar = (evento) => {
@@ -282,12 +291,14 @@ export default function ProgramacaoRecursosView({ sessao }) {
       });
       const corpo = await resposta.json().catch(() => ({}));
       if (!resposta.ok) throw new Error(corpo.message || `Erro ao salvar (${resposta.status})`);
-      setMensagemSalvar(`${corpo.data.salvas} alteração(ões) salvas em ${dataCurta(dia)}.`);
+      setMensagemSalvar(salvoNaFila(resposta)
+        ? `${MENSAGEM_SALVO_LOCAL} (${corpo.data.salvas} alteração(ões) em ${dataCurta(dia)}).`
+        : `${corpo.data.salvas} alteração(ões) salvas em ${dataCurta(dia)}.`);
       setAlteracoes({});
       setDados(null);
       setVersao((atual) => atual + 1);
     } catch (falha) {
-      setErroSalvar(falha.message || 'Não foi possível salvar a programação.');
+      setErroSalvar(mensagemFalha(falha, 'Não foi possível salvar a programação.'));
     } finally {
       setSalvando(false);
     }
@@ -332,7 +343,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
       setDados(null);
       setVersao((atual) => atual + 1);
     } catch (falha) {
-      setErroCopia(falha.message || 'Não foi possível copiar a programação.');
+      setErroCopia(mensagemFalha(falha, 'Não foi possível copiar a programação.'));
     } finally {
       setCopiando(false);
     }
@@ -351,7 +362,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
       const { exportarProgramacaoPdf } = await import('../utils/exportarProgramacaoPdf.js');
       await exportarProgramacaoPdf(corpo.data);
     } catch (falha) {
-      setErroPdf(falha.message || 'Não foi possível gerar o PDF da programação.');
+      setErroPdf(mensagemFalha(falha, 'Não foi possível gerar o PDF da programação.'));
     } finally {
       setExportandoPdf(false);
     }
@@ -415,7 +426,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
       setDados(null);
       setVersao((atual) => atual + 1);
     } catch (falha) {
-      setErroManutencao(falha.message || 'Não foi possível registrar a manutenção.');
+      setErroManutencao(mensagemFalha(falha, 'Não foi possível registrar a manutenção.'));
     } finally {
       setSalvandoManutencao(false);
     }
@@ -704,9 +715,12 @@ export default function ProgramacaoRecursosView({ sessao }) {
                                     title="Veículo de empresa terceirizada (somente programação)">
                                     Terceiro{equipamento.empresaTerceira ? ` • ${equipamento.empresaTerceira}` : ''}
                                   </span>
-                                ) : pendente ? (
+                                ) : null}
+                                {pendente ? (
                                   <span className="mt-0.5 block text-[10px] font-semibold text-amber-700">Alteração não salva</span>
-                                ) : equipamento.atualizadoEm ? (
+                                ) : equipamento.pendenteSync ? (
+                                  <span className="mt-0.5 block text-[10px] font-semibold text-blue-700">Salvo localmente • aguardando sincronização</span>
+                                ) : !equipamento.is_terceiro && equipamento.atualizadoEm ? (
                                   <span className="mt-0.5 block text-[10px] text-omega-400">Atualizado em {dataHora(equipamento.atualizadoEm)}</span>
                                 ) : null}
                               </div>

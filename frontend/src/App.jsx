@@ -18,6 +18,7 @@ import UsuariosView from './views/UsuariosView.jsx';
 import PerfilView from './views/PerfilView.jsx';
 import LoginView from './views/LoginView.jsx';
 import { lerSessao, encerrarSessao } from './utils/sessao.js';
+import { aoMudarSessao } from './offline/index.js';
 import { ehOperacional } from './utils/permissoes.js';
 
 const CHAVE_TEMA = 'omegatrack-tema';
@@ -51,7 +52,7 @@ export default function App() {
   }, [tema]);
 
   if (!sessao?.token) {
-    return <LoginView onLogin={(s) => setSessao(s)} tema={tema}
+    return <LoginView onLogin={(s) => { setSessao(s); aoMudarSessao(); }} tema={tema}
       onAlternarTema={() => setTema((atual) => atual === 'dark' ? 'light' : 'dark')} />;
   }
 

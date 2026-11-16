@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from '../components/Sidebar.jsx';
 import Header from '../components/Header.jsx';
+import BannerOffline from '../components/BannerOffline.jsx';
 
 export default function AppLayout({ sessao, onSair, tema, onAlternarTema }) {
   // Mobile (<768px): sidebar inicia fechada; abre como gaveta (drawer).
@@ -24,6 +25,7 @@ export default function AppLayout({ sessao, onSair, tema, onAlternarTema }) {
         <Header usuario={sessao?.usuario} onSair={onSair} onMenu={() => setSidebarOpen((v) => !v)}
           tema={tema} onAlternarTema={onAlternarTema} />
         <main className="flex-1 px-3 py-2 md:p-6 overflow-auto">
+          <BannerOffline />
           <Outlet />
         </main>
       </div>
