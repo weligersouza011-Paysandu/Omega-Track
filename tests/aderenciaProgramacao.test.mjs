@@ -43,6 +43,9 @@ test('avaliação: mesma obra = aderente; outra obra ou sem obra = desvio; sem p
   assert.equal(avaliarAderencia(prog, { obraTexto: '  obra   NORTE ' }).aderencia, true); // RDO antigo em texto
   assert.deepEqual(avaliarAderencia(null, { obraId: OBRA_A }), { obra_programada_id: null, obra_programada: null, aderencia: null });
   assert.equal(avaliarAderencia(prog, { obraId: OBRA_B }).obra_programada_id, OBRA_A);
+  // Manutenção/parada com a obra programada ainda preenchida continua sendo desvio.
+  assert.equal(avaliarAderencia(prog, { obraId: OBRA_A, statusOperacional: 'Manutenção Corretiva' }).aderencia, false);
+  assert.equal(avaliarAderencia(prog, { obraId: OBRA_A, statusOperacional: 'Operação' }).aderencia, true);
 });
 
 test('status de aderência e pendência de justificativa', () => {

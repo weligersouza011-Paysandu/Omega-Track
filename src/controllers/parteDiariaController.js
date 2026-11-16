@@ -790,7 +790,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   // nunca do cliente; desvio aceita categoria + justificativa.
   const avaliacao = avaliarAderencia(
     await buscarProgramacaoDoDia(prisma, tagFinal, diaRef),
-    { obraId: obraIdFinal, obraTexto: obra },
+    { obraId: obraIdFinal, obraTexto: obra, statusOperacional: statusOperacionalFinal },
   );
   const justificativa = await resolverJustificativa(prisma, avaliacao.aderencia, {
     categoriaId: req.body?.categoria_desvio_id,
@@ -1071,7 +1071,11 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   // Aderencia recalculada a cada edicao (data/obra podem ter mudado).
   const avaliacao = avaliarAderencia(
     await buscarProgramacaoDoDia(prisma, atual.tag, dados.data || atual.data),
-    { obraId: 'obra_id' in dados ? dados.obra_id : atual.obra_id, obraTexto: tem('obra') ? corpo.obra : atual.obra },
+    {
+      obraId: 'obra_id' in dados ? dados.obra_id : atual.obra_id,
+      obraTexto: tem('obra') ? corpo.obra : atual.obra,
+      statusOperacional: dados.status_operacional || atual.status_operacional,
+    },
   );
   Object.assign(dados, {
     aderencia: avaliacao.aderencia,

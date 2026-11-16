@@ -45,15 +45,17 @@ export async function buscarProgramacaoDoDia(client, tag, data) {
 /**
  * Compara a obra real do RDO com a programada. Usa o ID da obra quando o RDO
  * tem obra do cadastro; senao cai para o nome (RDOs antigos com texto livre).
- * Programado e sem obra no RDO (manutencao, indisponibilidade...) tambem e
- * desvio: o veiculo nao foi para a obra programada.
+ * Programado e sem obra no RDO, ou com status do dia diferente de Operacao
+ * (manutencao, indisponibilidade...), tambem e desvio: o veiculo nao
+ * trabalhou na obra programada.
  */
-export function avaliarAderencia(programacao, { obraId, obraTexto }) {
+export function avaliarAderencia(programacao, { obraId, obraTexto, statusOperacional = 'Operação' }) {
   if (!programacao?.obra) {
     return { obra_programada_id: null, obra_programada: null, aderencia: null };
   }
   let aderencia = false;
-  if (obraId) aderencia = obraId === programacao.obra.id;
+  if (statusOperacional && statusOperacional !== 'Operação') aderencia = false;
+  else if (obraId) aderencia = obraId === programacao.obra.id;
   else if (normalizarTexto(obraTexto)) aderencia = normalizarTexto(obraTexto) === normalizarTexto(programacao.obra.nome);
   return {
     obra_programada_id: programacao.obra.id,

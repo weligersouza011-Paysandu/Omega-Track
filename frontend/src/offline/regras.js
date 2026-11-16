@@ -12,6 +12,8 @@ const LEITURAS_CACHEAVEIS = [
   /^\/api\/parametros-preventiva(\?|\/|$)/,
   /^\/api\/manutencao\//,
   /^\/api\/partes-diarias(\?|$)/,
+  /^\/api\/partes-diarias\/obra-programada\?/,
+  /^\/api\/categorias-desvio(\?|$)/,
   /^\/api\/eficiencia(\?|\/|$)/,
 ];
 

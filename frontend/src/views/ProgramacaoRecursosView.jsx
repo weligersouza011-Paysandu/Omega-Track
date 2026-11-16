@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom';
 import {
   AlertTriangle, ArrowLeftRight, Building2, Bus, CalendarDays, Car, CheckCircle2, ChevronDown, ChevronLeft,
   ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock3, Construction, Copy, FileDown, Package,
-  RefreshCw, Save, Search, Sun, Sunset, Tractor, Truck, Wrench, X,
+  RefreshCw, Save, Search, Sun, Sunset, Tags, Tractor, Truck, Wrench, X,
 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import NovoColaboradorModal from '../components/NovoColaboradorModal.jsx';
+import CategoriasDesvioModal from '../components/CategoriasDesvioModal.jsx';
 import {
   alteracaoParaSalvar, ehOnibusOuVan, mesclarAlteracao, mudancaInverterTurnos,
 } from '../utils/programacaoEdicao.js';
@@ -105,6 +106,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
   const [pessoasExtras, setPessoasExtras] = useState([]);
   const [novoColaborador, setNovoColaborador] = useState(null);
   const [toast, setToast] = useState('');
+  const [categoriasAberto, setCategoriasAberto] = useState(false);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -522,6 +524,12 @@ export default function ProgramacaoRecursosView({ sessao }) {
           {exportandoPdf ? <RefreshCw size={16} className="animate-spin" /> : <FileDown size={16} />}
           {exportandoPdf ? 'Gerando PDF...' : 'Exportar PDF'}
         </button>
+        {podeGerenciar && (
+          <button type="button" className="btn-secondary" onClick={() => setCategoriasAberto(true)}
+            title="Motivos de desvio que o operador escolhe na Parte Diária">
+            <Tags size={16} /> Categorias de Desvio
+          </button>
+        )}
         {podeGerenciar && (
           <span className="text-xs text-omega-500">
             {totalAlteracoes > 0
@@ -961,6 +969,8 @@ export default function ProgramacaoRecursosView({ sessao }) {
           Equipamentos em manutenção serão ignorados e manterão suas atribuições atuais.
         </p>
       </Modal>
+
+      <CategoriasDesvioModal aberto={categoriasAberto} sessao={sessao} onFechar={() => setCategoriasAberto(false)} />
 
       <NovoColaboradorModal
         aberto={!!novoColaborador}
