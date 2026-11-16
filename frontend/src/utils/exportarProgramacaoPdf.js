@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { agruparPorCategoria } from './categoriasProgramacao.js';
 
 const LARGURA = 297;
 const ALTURA = 210;
@@ -6,6 +7,7 @@ const MARGEM = 16;
 const LARGURA_CONTEUDO = LARGURA - MARGEM * 2;
 const ALTURA_LINHA = 12;
 const LIMITE_TABELA = ALTURA - 15;
+const ALTURA_CATEGORIA = 7;
 
 const COR = {
   azulEscuro: [15, 29, 54],
@@ -22,6 +24,7 @@ const COR = {
   borda: [225, 231, 239],
   fundo: [247, 249, 252],
   branco: [255, 255, 255],
+  roxo: [109, 40, 217],
 };
 
 function preenchimento(pdf, cor) {
@@ -238,7 +241,12 @@ function linhaTabela(pdf, y, equipamento, obra, indice) {
     : obra?.nome || 'Sem programação', 93), 153, y + 4.7, {
     tamanho: 8, negrito: !!obra || !!manutencao, cor: manutencao ? COR.laranja : obra ? COR.texto : COR.amarelo,
   });
-  texto(pdf, cortar(pdf, equipamento.contrato || '—', 25), 253, y + 4.7, { tamanho: 8 });
+  if (equipamento.is_terceiro) {
+    texto(pdf, 'TERCEIRO', 253, y + 4.7, { tamanho: 7.5, negrito: true, cor: COR.roxo });
+    texto(pdf, cortar(pdf, equipamento.empresaTerceira || '—', 25), 253, y + 9.5, { tamanho: 7, cor: COR.secundario });
+  } else {
+    texto(pdf, cortar(pdf, equipamento.contrato || '—', 25), 253, y + 4.7, { tamanho: 8 });
+  }
   if (manutencao) {
     texto(pdf, cortar(pdf, `Saída: ${dataCurta(manutencao.dataSaida)} · Prev.: ${dataCurta(manutencao.previsaoRetorno)}`, 126), 19, y + 9.5, {
       tamanho: 7, cor: COR.laranja,
@@ -263,6 +271,21 @@ function linhaTabela(pdf, y, equipamento, obra, indice) {
   pdf.setDrawColor(...COR.borda);
   pdf.setLineWidth(0.15);
   pdf.line(MARGEM, y + ALTURA_LINHA, LARGURA - MARGEM, y + ALTURA_LINHA);
+}
+
+// Faixa de categoria antes das linhas do bloco (mesma ordem da tela).
+function faixaCategoria(pdf, y, grupo) {
+  const programados = grupo.itens.filter((item) => item.obraId && !item.manutencaoNoDia).length;
+  const manutencao = grupo.itens.filter((item) => item.manutencaoNoDia).length;
+  const livres = grupo.itens.length - programados - manutencao;
+  preenchimento(pdf, COR.fundo);
+  pdf.rect(MARGEM, y, LARGURA_CONTEUDO, ALTURA_CATEGORIA, 'F');
+  preenchimento(pdf, COR.azul);
+  pdf.rect(MARGEM, y, 1.2, ALTURA_CATEGORIA, 'F');
+  texto(pdf, cortar(pdf, grupo.nome.toUpperCase(), 150), 19, y + 4.8, { tamanho: 8, negrito: true, cor: COR.azulEscuro });
+  const resumo = `${grupo.itens.length} veículo(s) · ${programados} programado(s) · ${livres} livre(s)` +
+    (manutencao ? ` · ${manutencao} em manutenção` : '');
+  texto(pdf, resumo, LARGURA - MARGEM - 3, y + 4.8, { tamanho: 7, cor: COR.secundario, alinhar: 'right' });
 }
 
 function rodapes(pdf, emitidoEm) {
@@ -313,16 +336,23 @@ export function criarProgramacaoPdf(dados, agora = new Date(), logoDataUrl = nul
   const fimDistribuicao = distribuicao(pdf, equipamentos, obrasPorId);
   tituloTabela(pdf, fimDistribuicao + 8, equipamentos.length);
   let y = cabecalhoTabela(pdf, fimDistribuicao + 12);
-  equipamentos.forEach((equipamento, indice) => {
-    if (y + ALTURA_LINHA > LIMITE_TABELA) {
-      pdf.addPage();
-      cabecalho(pdf, dados.data, true, logoDataUrl);
-      tituloTabela(pdf, 33, equipamentos.length, true);
-      y = cabecalhoTabela(pdf, 37);
-    }
-    linhaTabela(pdf, y, equipamento, obrasPorId.get(equipamento.obraId), indice);
-    y += ALTURA_LINHA;
-  });
+  const novaPagina = () => {
+    pdf.addPage();
+    cabecalho(pdf, dados.data, true, logoDataUrl);
+    tituloTabela(pdf, 33, equipamentos.length, true);
+    y = cabecalhoTabela(pdf, 37);
+  };
+  for (const grupo of agruparPorCategoria(equipamentos)) {
+    // A faixa nunca fica sozinha no fim da página: exige espaço para ao menos uma linha.
+    if (y + ALTURA_CATEGORIA + ALTURA_LINHA > LIMITE_TABELA) novaPagina();
+    faixaCategoria(pdf, y, grupo);
+    y += ALTURA_CATEGORIA;
+    grupo.itens.forEach((equipamento, indice) => {
+      if (y + ALTURA_LINHA > LIMITE_TABELA) novaPagina();
+      linhaTabela(pdf, y, equipamento, obrasPorId.get(equipamento.obraId), indice);
+      y += ALTURA_LINHA;
+    });
+  }
   if (equipamentos.length === 0) {
     texto(pdf, 'Nenhum equipamento mobilizado para esta data.', MARGEM + 3, y + 7, {
       tamanho: 9, cor: COR.secundario,

@@ -17,6 +17,7 @@ import aguaRoutes from './aguaRoutes.js';
 import atosRoutes from './atosRoutes.js';
 import produtosQuimicosRoutes from './produtosQuimicosRoutes.js';
 import telemetriaRoutes from './telemetriaRoutes.js';
+import veiculosTerceirosRoutes from './veiculosTerceirosRoutes.js';
 
 const router = Router();
 
@@ -36,6 +37,7 @@ router.get('/', (req, res) => {
       documentacao_farol: '/api/documentacao-veiculos/farol',
       obras: '/api/obras (GET aberto; POST/PUT/DELETE restritos a Gestao/Transporte ou ADM Master)',
       programacao_recursos: 'GET /api/programacao-recursos?data=AAAA-MM-DD; PUT /api/programacao-recursos/lote { data, alteracoes: [{ tag, obraId|null, operadorMatricula?, supervisorMatricula? }] }; PUT/DELETE /:data/:tag; POST /copiar-ultima-programacao (Gestao/Transporte ou ADM Master)',
+      veiculos_terceiros: 'GET/POST /api/veiculos-terceiros { tag*, tipo*, empresa_terceira?, placa?, modelo?, foto_url?, observacao? }; PUT/DELETE /:id (admin; exclusao direta; aparecem SOMENTE na Programacao de Recursos com is_terceiro=true)',
       programacao_manutencoes: 'POST /api/programacao-recursos/manutencoes { tag, tipo: PREVENTIVA|CORRETIVA, dataSaida, previsaoRetorno, descricao }; PATCH /manutencoes/:id/retorno { dataRetorno }',
       partes_diarias: '/api/partes-diarias (POST/PUT aceitam formulario completo; POST limita 2 partes/dia por veiculo para todos os modelos, com bypass MASTER)',
       parte_assinaturas: 'POST /api/partes-diarias/:id/assinaturas { etapa: OPERADOR|TRANSPORTE|PLANEJADOR, nome, salvar_no_perfil? } (Onibus/VAN: apenas OPERADOR + TRANSPORTE; aprovacao automatica no Transporte; salvar_no_perfil=true persiste a imagem como assinatura padrao do usuario logado)',
@@ -112,5 +114,6 @@ router.use('/atos', atosRoutes);
 router.use('/ecogestao/produtos-quimicos', produtosQuimicosRoutes);
 router.use('/produtos-quimicos', produtosQuimicosRoutes);
 router.use('/telemetria', telemetriaRoutes);
+router.use('/veiculos-terceiros', veiculosTerceirosRoutes);
 
 export default router;

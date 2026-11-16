@@ -7,6 +7,7 @@ import VehicleFullModal from '../components/VehicleFullModal.jsx';
 import EditVehicleModal from '../components/EditVehicleModal.jsx';
 import ParametrosPreventiva from '../components/ParametrosPreventiva.jsx';
 import CampoListaComCriador from '../components/CampoListaComCriador.jsx';
+import VeiculosTerceirosPanel from '../components/VeiculosTerceirosPanel.jsx';
 import DashboardExecutivoView from './DashboardExecutivoView.jsx';
 import DocumentManagementView from './DocumentManagementView.jsx';
 import { veiculos as initialVeiculos } from '../data/mockData.js';
@@ -675,6 +676,9 @@ export default function MobDesmobView({ sessao }) {
           </div>
         </div>
       </div>
+
+      {/* Terceiros: recolhido por padrão, apenas para a Programação de Recursos. */}
+      <VeiculosTerceirosPanel sessao={sessao} tiposFrota={modelos} onToast={setToast} />
 
       {/* Modal / View de Tela Inteira para Detalhamento do Veículo */}
       {veiculoSelecionado && (

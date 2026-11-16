@@ -5,6 +5,43 @@ import { bloquearEquipamentos, tagsEmManutencao, erroEquipamentoEmManutencao } f
 
 const FILTRO_MOBILIZADOS = { status: 'Mobilizado', deletado_em: null };
 
+// Veiculos terceiros vivem em tabela propria (veiculos_terceiros) e entram
+// SOMENTE aqui, marcados com is_terceiro=true. A trava usa uma chave com
+// prefixo para nunca colidir com as TAGs da frota propria.
+const chaveTravaTerceiro = (id) => `terceiro:${id}`;
+
+const SELECT_PROGRAMACAO_DIA = {
+  id: true, obra_id: true, operador_matricula: true, operador_nome: true,
+  supervisor_matricula: true, supervisor_nome: true, updated_at: true,
+};
+
+function camposProgramacao(programacao) {
+  return {
+    obraId: programacao?.obra_id ?? null,
+    operadorMatricula: programacao?.operador_matricula ?? null,
+    operadorNome: programacao?.operador_nome ?? null,
+    supervisorMatricula: programacao?.supervisor_matricula ?? null,
+    supervisorNome: programacao?.supervisor_nome ?? null,
+    atualizadoEm: programacao?.updated_at ?? null,
+  };
+}
+
+// Ultimo dia (antes de `data`) com programacao da frota mobilizada ou de terceiros.
+async function ultimaDataProgramada(client, data) {
+  const frota = await client.programacaoRecurso.findFirst({
+    where: { data: { lt: data }, equipamento: FILTRO_MOBILIZADOS },
+    select: { data: true },
+    orderBy: { data: 'desc' },
+  });
+  const terceiros = await client.programacaoRecursoTerceiro.findFirst({
+    where: { data: { lt: data } },
+    select: { data: true },
+    orderBy: { data: 'desc' },
+  });
+  const datas = [frota?.data, terceiros?.data].filter(Boolean);
+  return datas.length ? new Date(Math.max(...datas.map((item) => item.getTime()))) : null;
+}
+
 function dataValida(valor) {
   if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return null;
   const data = new Date(`${valor}T00:00:00.000Z`);
@@ -63,7 +100,7 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
   const data = dataValida(req.query.data);
   if (!data) return erroData(res);
 
-  const [equipamentos, obras, pessoas, ultima] = await Promise.all([
+  const [equipamentos, terceiros, obras, pessoas, ultimaData] = await Promise.all([
     prisma.mobDesmob.findMany({
       where: FILTRO_MOBILIZADOS,
       select: {
@@ -72,6 +109,7 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
         modelo: true,
         contrato: true,
         status: true,
+        foto_veiculo: true,
         programacoes: {
           where: { data },
           select: {
@@ -90,6 +128,13 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
       },
       orderBy: [{ modelo: 'asc' }, { tag: 'asc' }],
     }),
+    prisma.veiculoTerceiro.findMany({
+      select: {
+        id: true, tag: true, tipo: true, empresa_terceira: true, placa: true, modelo: true, foto_url: true,
+        programacoes: { where: { data }, select: SELECT_PROGRAMACAO_DIA },
+      },
+      orderBy: [{ tipo: 'asc' }, { tag: 'asc' }],
+    }),
     prisma.obra.findMany({
       select: { id: true, nome: true, numero_contrato: true, ativo: true },
       orderBy: [{ ativo: 'desc' }, { nome: 'asc' }],
@@ -98,34 +143,47 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
       select: { matricula: true, nome: true, funcao: true, tipo: true },
       orderBy: { nome: 'asc' },
     }),
-    prisma.programacaoRecurso.findFirst({
-      where: { data: { lt: data }, equipamento: FILTRO_MOBILIZADOS },
-      select: { data: true },
-      orderBy: { data: 'desc' },
-    }),
+    ultimaDataProgramada(prisma, data),
   ]);
-  const totalUltima = ultima ? await prisma.programacaoRecurso.count({
-    where: { data: ultima.data, equipamento: FILTRO_MOBILIZADOS },
-  }) : 0;
+  const totalUltima = ultimaData ? (await Promise.all([
+    prisma.programacaoRecurso.count({ where: { data: ultimaData, equipamento: FILTRO_MOBILIZADOS } }),
+    prisma.programacaoRecursoTerceiro.count({ where: { data: ultimaData } }),
+  ])).reduce((total, parcial) => total + parcial, 0) : 0;
 
   res.json({
     data: {
       data: req.query.data,
-      ultimaProgramacao: ultima
-        ? { data: ultima.data.toISOString().slice(0, 10), totalProgramados: totalUltima }
+      ultimaProgramacao: ultimaData
+        ? { data: ultimaData.toISOString().slice(0, 10), totalProgramados: totalUltima }
         : null,
-      equipamentos: equipamentos.map(({ programacoes, manutencoes, ...equipamento }) => ({
-        ...equipamento,
-        manutencaoAtiva: formatarManutencao(manutencoes.find((item) => !item.data_retorno)),
-        manutencaoNoDia: formatarManutencao(manutencoes.find((item) =>
-          item.data_saida <= data && (!item.data_retorno || item.data_retorno > data))),
-        obraId: programacoes[0]?.obra_id ?? null,
-        operadorMatricula: programacoes[0]?.operador_matricula ?? null,
-        operadorNome: programacoes[0]?.operador_nome ?? null,
-        supervisorMatricula: programacoes[0]?.supervisor_matricula ?? null,
-        supervisorNome: programacoes[0]?.supervisor_nome ?? null,
-        atualizadoEm: programacoes[0]?.updated_at ?? null,
-      })),
+      // Lista unificada: [...frotaAtiva, ...veiculosTerceiros]. Terceiros usam o
+      // `tipo` como `modelo` para agrupar com os mesmos tipos da frota.
+      equipamentos: [
+        ...equipamentos.map(({ programacoes, manutencoes, foto_veiculo: fotoUrl, ...equipamento }) => ({
+          ...equipamento,
+          is_terceiro: false,
+          fotoUrl,
+          manutencaoAtiva: formatarManutencao(manutencoes.find((item) => !item.data_retorno)),
+          manutencaoNoDia: formatarManutencao(manutencoes.find((item) =>
+            item.data_saida <= data && (!item.data_retorno || item.data_retorno > data))),
+          ...camposProgramacao(programacoes[0]),
+        })),
+        ...terceiros.map(({ programacoes, ...terceiro }) => ({
+          tag: terceiro.tag,
+          placa: terceiro.placa,
+          modelo: terceiro.tipo,
+          contrato: terceiro.empresa_terceira,
+          status: 'Terceiro',
+          is_terceiro: true,
+          terceiroId: terceiro.id,
+          empresaTerceira: terceiro.empresa_terceira,
+          modeloVeiculo: terceiro.modelo,
+          fotoUrl: terceiro.foto_url,
+          manutencaoAtiva: null,
+          manutencaoNoDia: null,
+          ...camposProgramacao(programacoes[0]),
+        })),
+      ],
       pessoas,
       obras: obras.map((obra) => ({
         id: obra.id,
@@ -145,15 +203,16 @@ export const copiarUltimaProgramacao = asyncHandler(async (req, res) => {
     // A copia altera somente equipamentos mobilizados e preserva o historico dos demais.
     // Trava todos os mobilizados antes de ler a origem para manter a operacao consistente.
     const frota = await tx.mobDesmob.findMany({ where: FILTRO_MOBILIZADOS, select: { tag: true } });
-    await bloquearEquipamentos(tx, frota.map((item) => item.tag));
-    const ultima = await tx.programacaoRecurso.findFirst({
-      where: { data: { lt: data }, equipamento: FILTRO_MOBILIZADOS },
-      select: { data: true },
-      orderBy: { data: 'desc' },
-    });
-    if (!ultima) {
+    const terceiros = await tx.veiculoTerceiro.findMany({ select: { id: true } });
+    await bloquearEquipamentos(tx, [
+      ...frota.map((item) => item.tag),
+      ...terceiros.map((item) => chaveTravaTerceiro(item.id)),
+    ]);
+    const ultimaData = await ultimaDataProgramada(tx, data);
+    if (!ultimaData) {
       return { status: 409, message: 'Não há programação anterior a esta data para copiar.' };
     }
+    const ultima = { data: ultimaData };
     const dataOrigem = ultima.data.toISOString().slice(0, 10);
     if (req.body?.origemEsperada && req.body.origemEsperada !== dataOrigem) {
       return { status: 409, message: 'A programação de origem mudou. Atualize a página antes de copiar.' };
@@ -165,16 +224,23 @@ export const copiarUltimaProgramacao = asyncHandler(async (req, res) => {
         supervisor_matricula: true, supervisor_nome: true, obra: { select: { ativo: true } },
       },
     });
-    if (origem.length === 0) {
+    const origemTerceiros = await tx.programacaoRecursoTerceiro.findMany({
+      where: { data: ultima.data },
+      select: {
+        veiculo_terceiro_id: true, obra_id: true, operador_matricula: true, operador_nome: true,
+        supervisor_matricula: true, supervisor_nome: true, obra: { select: { ativo: true } },
+      },
+    });
+    if (origem.length === 0 && origemTerceiros.length === 0) {
       return { status: 409, message: 'A programação de origem mudou. Atualize a página antes de copiar.' };
     }
     const bloqueadas = await tagsEmManutencao(tx, frota.map((item) => item.tag));
     const bloqueadasSet = new Set(bloqueadas);
     const origemDisponivel = origem.filter((item) => !bloqueadasSet.has(item.tag));
-    if (!origemDisponivel.length) {
+    if (!origemDisponivel.length && !origemTerceiros.length) {
       return { status: 409, message: 'Todos os equipamentos da ultima programacao estao em manutencao.' };
     }
-    if (origemDisponivel.some((item) => !item.obra.ativo)) {
+    if ([...origemDisponivel, ...origemTerceiros].some((item) => !item.obra.ativo)) {
       return { status: 409, message: 'A última programação contém obra inativa. Ative essa obra antes de copiar.' };
     }
 
@@ -193,7 +259,19 @@ export const copiarUltimaProgramacao = asyncHandler(async (req, res) => {
         data,
       })),
     });
-    return { origem: dataOrigem, copiados: origemDisponivel.length, substituidos, ignoradosManutencao: origem.length - origemDisponivel.length };
+    const substituidosTerceiros = await tx.programacaoRecursoTerceiro.count({ where: { data } });
+    await tx.programacaoRecursoTerceiro.deleteMany({ where: { data } });
+    if (origemTerceiros.length) {
+      await tx.programacaoRecursoTerceiro.createMany({
+        data: origemTerceiros.map(({ obra, ...item }) => ({ id: randomUUID(), ...item, data })),
+      });
+    }
+    return {
+      origem: dataOrigem,
+      copiados: origemDisponivel.length + origemTerceiros.length,
+      substituidos: substituidos + substituidosTerceiros,
+      ignoradosManutencao: origem.length - origemDisponivel.length,
+    };
   });
 
   if (resultado.status) {
@@ -239,10 +317,14 @@ export const salvarProgramacaoEmLote = asyncHandler(async (req, res) => {
     }
   }
 
-  const [equipamentos, obras, pessoasPorMatricula] = await Promise.all([
+  const [equipamentos, terceiros, obras, pessoasPorMatricula] = await Promise.all([
     prisma.mobDesmob.findMany({
       where: { tag: { in: [...tags] }, ...FILTRO_MOBILIZADOS },
       select: { tag: true },
+    }),
+    prisma.veiculoTerceiro.findMany({
+      where: { tag: { in: [...tags] } },
+      select: { id: true, tag: true },
     }),
     prisma.obra.findMany({
       where: { id: { in: [...obrasIds] }, ativo: true },
@@ -250,7 +332,9 @@ export const salvarProgramacaoEmLote = asyncHandler(async (req, res) => {
     }),
     buscarPessoas(matriculas),
   ]);
-  if (equipamentos.length !== tags.size) {
+  const tagsFrota = equipamentos.map((item) => item.tag);
+  const terceiroPorTag = new Map(terceiros.map((item) => [item.tag, item.id]));
+  if (equipamentos.length + terceiros.length !== tags.size) {
     return res.status(404).json({
       error: 'Equipamento nao encontrado',
       message: 'Um ou mais equipamentos não estão mobilizados ou disponíveis na frota.',
@@ -270,19 +354,39 @@ export const salvarProgramacaoEmLote = asyncHandler(async (req, res) => {
   }
 
   const resultado = await prisma.$transaction(async (tx) => {
-    await bloquearEquipamentos(tx, [...tags]);
+    await bloquearEquipamentos(tx, [...tagsFrota, ...[...terceiroPorTag.values()].map(chaveTravaTerceiro)]);
     const mobilizados = await tx.mobDesmob.count({
-      where: { tag: { in: [...tags] }, ...FILTRO_MOBILIZADOS },
+      where: { tag: { in: tagsFrota }, ...FILTRO_MOBILIZADOS },
     });
-    if (mobilizados !== tags.size) return { indisponiveis: true };
-    const bloqueadas = await tagsEmManutencao(tx, [...tags]);
+    const terceirosVigentes = await tx.veiculoTerceiro.count({
+      where: { id: { in: [...terceiroPorTag.values()] } },
+    });
+    if (mobilizados !== tagsFrota.length || terceirosVigentes !== terceiroPorTag.size) return { indisponiveis: true };
+    const bloqueadas = await tagsEmManutencao(tx, tagsFrota);
     if (bloqueadas.length) return { bloqueadas };
-    const remover = alteracoes.filter((item) => item.obraId === null).map((item) => item.tag);
+    const remover = alteracoes.filter((item) => item.obraId === null && !terceiroPorTag.has(item.tag))
+      .map((item) => item.tag);
     if (remover.length) {
       await tx.programacaoRecurso.deleteMany({ where: { data, tag: { in: remover } } });
     }
+    const removerTerceiros = alteracoes.filter((item) => item.obraId === null && terceiroPorTag.has(item.tag))
+      .map((item) => terceiroPorTag.get(item.tag));
+    if (removerTerceiros.length) {
+      await tx.programacaoRecursoTerceiro.deleteMany({
+        where: { data, veiculo_terceiro_id: { in: removerTerceiros } },
+      });
+    }
     for (const item of alteracoes) {
       if (item.obraId === null) continue;
+      const terceiroId = terceiroPorTag.get(item.tag);
+      if (terceiroId) {
+        await tx.programacaoRecursoTerceiro.upsert({
+          where: { veiculo_terceiro_id_data: { veiculo_terceiro_id: terceiroId, data } },
+          create: { veiculo_terceiro_id: terceiroId, data, obra_id: item.obraId, ...dadosPessoas(item, pessoasPorMatricula) },
+          update: { obra_id: item.obraId, ...dadosPessoas(item, pessoasPorMatricula) },
+        });
+        continue;
+      }
       await tx.programacaoRecurso.upsert({
         where: { tag_data: { tag: item.tag, data } },
         create: { tag: item.tag, data, obra_id: item.obraId, ...dadosPessoas(item, pessoasPorMatricula) },
