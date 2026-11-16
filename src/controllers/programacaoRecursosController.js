@@ -109,6 +109,7 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
         modelo: true,
         contrato: true,
         status: true,
+        foto_veiculo: true,
         programacoes: {
           where: { data },
           select: {
@@ -158,9 +159,10 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
       // Lista unificada: [...frotaAtiva, ...veiculosTerceiros]. Terceiros usam o
       // `tipo` como `modelo` para agrupar com os mesmos tipos da frota.
       equipamentos: [
-        ...equipamentos.map(({ programacoes, manutencoes, ...equipamento }) => ({
+        ...equipamentos.map(({ programacoes, manutencoes, foto_veiculo: fotoUrl, ...equipamento }) => ({
           ...equipamento,
           is_terceiro: false,
+          fotoUrl,
           manutencaoAtiva: formatarManutencao(manutencoes.find((item) => !item.data_retorno)),
           manutencaoNoDia: formatarManutencao(manutencoes.find((item) =>
             item.data_saida <= data && (!item.data_retorno || item.data_retorno > data))),

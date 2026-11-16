@@ -359,3 +359,50 @@ html.dark .mapa-telemetria .leaflet-tooltip {
   color: #e2e8f0;
   border-color: #334155;
 }
+
+/* ============================================================================
+   Programação de Recursos — blocos por categoria (UX para reunião).
+   Superfícies em camadas suaves; cor por obra via --obra-h (matiz estável).
+   ============================================================================ */
+.prog-bloco { background: #fbfcfd; border: 1px solid rgb(148 163 184 / 22%); }
+.prog-bloco-cabecalho { background: #f3f5f8; }
+.prog-linha + .prog-linha { border-top: 1px solid rgb(148 163 184 / 16%); }
+.prog-linha:hover { background: rgb(241 245 249 / 70%); }
+.prog-linha-pendente { box-shadow: inset 3px 0 0 #f59e0b; }
+
+.prog-tag { background: #0f172a; color: #f8fafc; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.prog-avatar { background: #e2e8f0; color: #475569; }
+
+.prog-obra-pill {
+  background: hsl(var(--obra-h) 65% 95%);
+  color: hsl(var(--obra-h) 50% 26%);
+  border: 1px solid hsl(var(--obra-h) 45% 82%);
+  border-left: 4px solid hsl(var(--obra-h) 55% 50%);
+}
+.prog-obra-livre {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px dashed rgb(148 163 184 / 45%);
+}
+.prog-obra-livre:not(:disabled):hover {
+  color: #2563eb;
+  border-color: #2563eb;
+  background: rgb(37 99 235 / 6%);
+}
+.prog-chip-filtro[aria-pressed="true"] { background: #0f172a; color: #f8fafc; border-color: #0f172a; }
+
+html.dark .app-layout .prog-bloco { background: #131c2e; border-color: rgb(51 65 85 / 70%); }
+html.dark .app-layout .prog-bloco-cabecalho { background: #172238; }
+html.dark .app-layout .prog-linha + .prog-linha { border-top-color: rgb(51 65 85 / 55%); }
+html.dark .app-layout .prog-linha:hover { background: rgb(30 41 59 / 60%); }
+html.dark .app-layout .prog-tag { background: #e2e8f0; color: #0f172a; }
+html.dark .app-layout .prog-avatar { background: #1e293b; color: #94a3b8; }
+html.dark .app-layout .prog-obra-pill {
+  background: hsl(var(--obra-h) 30% 18%);
+  color: hsl(var(--obra-h) 70% 84%);
+  border-color: hsl(var(--obra-h) 25% 30%);
+  border-left-color: hsl(var(--obra-h) 60% 58%);
+}
+html.dark .app-layout .prog-obra-livre { color: #64748b; border-color: rgb(100 116 139 / 45%); }
+html.dark .app-layout .prog-obra-livre:not(:disabled):hover { color: #93c5fd; border-color: #60a5fa; background: rgb(96 165 250 / 8%); }
+html.dark .app-layout .prog-chip-filtro[aria-pressed="true"] { background: #e2e8f0; color: #0f172a; border-color: #e2e8f0; }

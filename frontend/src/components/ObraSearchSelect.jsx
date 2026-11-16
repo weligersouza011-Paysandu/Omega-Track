@@ -6,7 +6,12 @@ function normalizar(valor) {
   return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
-export default function ObraSearchSelect({ id, obraAtual, obrasAtivas, disabled, onChange }) {
+// `botaoClassName`/`botaoStyle` permitem trocar o visual do gatilho (ex.: pill
+// colorido na Programação); `rotuloVazio` é o texto quando não há obra.
+export default function ObraSearchSelect({
+  id, obraAtual, obrasAtivas, disabled, onChange,
+  rotuloVazio = 'Sem programação', botaoClassName, botaoStyle,
+}) {
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState('');
   const [indiceAtivo, setIndiceAtivo] = useState(-1);
@@ -114,13 +119,14 @@ export default function ObraSearchSelect({ id, obraAtual, obrasAtivas, disabled,
       <button ref={botaoRef} id={id} type="button" disabled={disabled}
         onClick={() => aberto ? setAberto(false) : abrir()}
         aria-haspopup="listbox" aria-expanded={aberto} aria-controls={aberto ? listaId : undefined}
-        className="input w-full flex items-center justify-between gap-2 text-left disabled:opacity-50 disabled:cursor-not-allowed">
-        <span className={`truncate ${obraAtual ? 'text-omega-900' : 'text-omega-500'}`}>
+        style={botaoStyle}
+        className={botaoClassName || 'input w-full flex items-center justify-between gap-2 text-left disabled:opacity-50 disabled:cursor-not-allowed'}>
+        <span className={`truncate ${botaoClassName ? '' : obraAtual ? 'text-omega-900' : 'text-omega-500'}`}>
           {obraAtual
             ? `${obraAtual.nome}${obraAtual.ativo ? '' : ' (inativa)'}${obraAtual.numeroContrato ? ` · ${obraAtual.numeroContrato}` : ''}`
-            : 'Sem programação'}
+            : rotuloVazio}
         </span>
-        <ChevronDown size={16} className="shrink-0 text-omega-400" />
+        <ChevronDown size={16} className={`shrink-0 ${botaoClassName ? 'opacity-60' : 'text-omega-400'}`} />
       </button>
 
       {aberto && posicao && createPortal(

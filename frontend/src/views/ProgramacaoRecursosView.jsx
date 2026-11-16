@@ -1,14 +1,46 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertTriangle, Building2, CalendarDays, CheckCircle2, ChevronLeft,
-  ChevronRight, Clock3, Copy, FileDown, RefreshCw, Save, Search, Truck, Wrench,
+  AlertTriangle, Building2, Bus, CalendarDays, Car, CheckCircle2, ChevronDown, ChevronLeft,
+  ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock3, Construction, Copy, FileDown, Package,
+  RefreshCw, Save, Search, Tractor, Truck, Wrench, X,
 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import ObraSearchSelect from '../components/ObraSearchSelect.jsx';
 import PessoaSearchSelect from '../components/PessoaSearchSelect.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { ehMaster, podeEscrever } from '../utils/permissoes.js';
+import { agruparPorCategoria, categoriaDo, matizesDasObras } from '../utils/categoriasProgramacao.js';
+
+const ICONES_CATEGORIA = {
+  leve: Car, utilitario: Car, onibus: Bus, caminhao: Truck,
+  guindaste: Construction, maquina: Tractor, outro: Package,
+};
+
+const FILTROS_RAPIDOS = [
+  { chave: 'todos', rotulo: 'Todos' },
+  { chave: 'livres', rotulo: 'Somente livres' },
+  { chave: 'programados', rotulo: 'Programados' },
+  { chave: 'manutencao', rotulo: 'Em manutenção' },
+  { chave: 'proprios', rotulo: 'Frota própria' },
+  { chave: 'terceiros', rotulo: 'Terceiros' },
+];
+
+// Foto 44x44 do veículo; sem foto (ou falha ao carregar) mostra o ícone da categoria.
+function AvatarVeiculo({ fotoUrl, Icone }) {
+  const [falhou, setFalhou] = useState(false);
+  if (fotoUrl && !falhou) {
+    return (
+      <img src={fotoUrl} alt="" loading="lazy" onError={() => setFalhou(true)}
+        className="h-11 w-11 shrink-0 rounded-xl object-cover bg-omega-100" />
+    );
+  }
+  return (
+    <span className="prog-avatar h-11 w-11 shrink-0 rounded-xl flex items-center justify-center" aria-hidden="true">
+      <Icone size={20} strokeWidth={1.75} />
+    </span>
+  );
+}
 
 function dataLocal(data = new Date()) {
   const ano = data.getFullYear();
@@ -55,6 +87,8 @@ export default function ProgramacaoRecursosView({ sessao }) {
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('todos');
   const [obraFiltro, setObraFiltro] = useState('');
+  const [categoriaFiltro, setCategoriaFiltro] = useState('');
+  const [recolhidos, setRecolhidos] = useState(() => new Set());
   const [versao, setVersao] = useState(0);
   const [copiando, setCopiando] = useState(false);
   const [confirmarCopia, setConfirmarCopia] = useState(false);
@@ -150,21 +184,50 @@ export default function ProgramacaoRecursosView({ sessao }) {
   const obrasEmUso = new Set(equipamentosEditados.filter((equipamento) => !equipamento.manutencaoAtiva)
     .map((equipamento) => equipamento.obraId).filter(Boolean)).size;
 
+  const obrasPorId = new Map(obras.map((obra) => [obra.id, obra]));
+  const matizPorObra = useMemo(() => matizesDasObras(obras), [obras]);
+  const categorias = useMemo(
+    () => agruparPorCategoria(equipamentos).map((grupo) => grupo.nome),
+    [equipamentos]
+  );
+  const contagemFiltros = {
+    todos: equipamentosEditados.length,
+    livres: totalLivres,
+    programados: totalProgramados,
+    manutencao: totalManutencao,
+    proprios: equipamentosEditados.filter((equipamento) => !equipamento.is_terceiro).length,
+    terceiros: equipamentosEditados.filter((equipamento) => equipamento.is_terceiro).length,
+  };
+
   const visiveis = useMemo(() => {
     const termo = busca.trim().toLocaleLowerCase('pt-BR');
     return equipamentosEditados.filter((equipamento) => {
       if (filtro === 'programados' && (!equipamento.obraId || equipamento.manutencaoAtiva)) return false;
       if (filtro === 'livres' && (equipamento.obraId || equipamento.manutencaoAtiva)) return false;
       if (filtro === 'manutencao' && !equipamento.manutencaoAtiva) return false;
+      if (filtro === 'proprios' && equipamento.is_terceiro) return false;
       if (filtro === 'terceiros' && !equipamento.is_terceiro) return false;
+      if (categoriaFiltro && categoriaDo(equipamento) !== categoriaFiltro) return false;
       if (obraFiltro && equipamento.obraId !== obraFiltro) return false;
       if (!termo) return true;
       return [equipamento.tag, equipamento.placa, equipamento.modelo, equipamento.contrato, equipamento.modeloVeiculo,
+        obrasPorId.get(equipamento.obraId)?.nome,
         equipamento.operadorNome, equipamento.operadorMatricula,
         equipamento.supervisorNome, equipamento.supervisorMatricula]
         .some((valor) => String(valor || '').toLocaleLowerCase('pt-BR').includes(termo));
     });
-  }, [equipamentosEditados, busca, filtro, obraFiltro]);
+  }, [equipamentosEditados, busca, filtro, categoriaFiltro, obraFiltro, obras]);
+  const blocos = useMemo(() => agruparPorCategoria(visiveis), [visiveis]);
+  const filtrando = Boolean(busca.trim() || filtro !== 'todos' || categoriaFiltro || obraFiltro);
+  const ehHoje = dia === dataLocal();
+
+  function alternarBloco(nome) {
+    setRecolhidos((atuais) => {
+      const proximos = new Set(atuais);
+      if (proximos.has(nome)) proximos.delete(nome); else proximos.add(nome);
+      return proximos;
+    });
+  }
 
   function alterarProgramacao(tag, mudanca) {
     if (!dadosDoDia || salvando || copiando || exportandoPdf || salvandoManutencao || !podeGerenciar) return;
@@ -372,13 +435,16 @@ export default function ProgramacaoRecursosView({ sessao }) {
           </p>
         </div>
 
-        <div className="card w-full shrink-0 p-3 sm:w-fit lg:w-[340px]">
+        <div className={`card w-full shrink-0 p-3 sm:w-fit lg:w-[340px] ${ehHoje ? 'border-t-4 !border-t-omega-accent' : ''}`}>
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-lg bg-omega-100 text-omega-accent flex items-center justify-center shrink-0">
               <CalendarDays size={17} />
             </div>
             <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-wider font-bold text-omega-400">Dia selecionado</div>
+              <div className="text-[10px] uppercase tracking-wider font-bold text-omega-400 flex items-center gap-1.5">
+                Dia selecionado
+                {ehHoje && <span className="rounded bg-omega-accent px-1.5 py-px text-[9px] text-white">HOJE</span>}
+              </div>
               <div className="text-sm font-bold text-omega-900 capitalize leading-tight">{dataPorExtenso(dia)}</div>
             </div>
           </div>
@@ -488,25 +554,40 @@ export default function ProgramacaoRecursosView({ sessao }) {
         ))}
       </div>
 
-      <div className="card p-3 grid grid-cols-2 lg:grid-cols-[minmax(0,1fr)_11rem_15rem] gap-3 lg:items-center">
-        <div className="relative col-span-2 lg:col-span-1 min-w-0">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-omega-400" />
-          <input className="input pl-9" value={busca} onChange={(evento) => setBusca(evento.target.value)}
-            placeholder="Buscar TAG, placa, tipo ou contrato" aria-label="Buscar equipamentos" />
+      <div className="card p-3 space-y-3">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtros rápidos">
+          {FILTROS_RAPIDOS.map(({ chave, rotulo }) => (
+            <button key={chave} type="button" aria-pressed={filtro === chave}
+              onClick={() => setFiltro(chave)}
+              className="prog-chip-filtro inline-flex items-center gap-1.5 rounded-full border border-omega-200 px-3 py-1.5 text-xs font-semibold text-omega-700 hover:bg-omega-50 transition-colors">
+              {rotulo}
+              <span className="tabular-nums opacity-70">{contagemFiltros[chave]}</span>
+            </button>
+          ))}
         </div>
-        <select className="input min-w-0" value={filtro} onChange={(evento) => setFiltro(evento.target.value)}
-          aria-label="Filtrar programação">
-          <option value="todos">Todos</option>
-          <option value="programados">Programados</option>
-          <option value="livres">Sem programação</option>
-          <option value="manutencao">Em manutenção</option>
-          <option value="terceiros">Terceiros</option>
-        </select>
-        <select className="input min-w-0" value={obraFiltro} onChange={(evento) => setObraFiltro(evento.target.value)}
-          aria-label="Filtrar por obra">
-          <option value="">Todas as obras</option>
-          {obras.map((obra) => <option key={obra.id} value={obra.id}>{obra.nome}</option>)}
-        </select>
+        <div className="grid grid-cols-2 lg:grid-cols-[minmax(0,1fr)_14rem_15rem_auto] gap-2 lg:items-center">
+          <div className="relative col-span-2 lg:col-span-1 min-w-0">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-omega-400" />
+            <input className="input pl-9" value={busca} onChange={(evento) => setBusca(evento.target.value)}
+              placeholder="Buscar TAG, placa, obra, operador ou supervisor" aria-label="Buscar equipamentos" />
+          </div>
+          <select className="input min-w-0" value={categoriaFiltro} onChange={(evento) => setCategoriaFiltro(evento.target.value)}
+            aria-label="Filtrar por categoria">
+            <option value="">Todas as categorias</option>
+            {categorias.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+          </select>
+          <select className="input min-w-0" value={obraFiltro} onChange={(evento) => setObraFiltro(evento.target.value)}
+            aria-label="Filtrar por obra">
+            <option value="">Todas as obras</option>
+            {obras.map((obra) => <option key={obra.id} value={obra.id}>{obra.nome}</option>)}
+          </select>
+          {filtrando && (
+            <button type="button" className="btn-secondary !py-2 text-xs col-span-2 lg:col-span-1 justify-center"
+              onClick={() => { setBusca(''); setFiltro('todos'); setCategoriaFiltro(''); setObraFiltro(''); }}>
+              <X size={14} /> Limpar
+            </button>
+          )}
+        </div>
       </div>
 
       {!carregando && !erro && equipamentos.length > 0 && obrasAtivas.length === 0 && (
@@ -516,16 +597,25 @@ export default function ProgramacaoRecursosView({ sessao }) {
         </div>
       )}
 
-      <div className="card overflow-hidden">
+      <div className={`card overflow-hidden ${ehHoje ? 'border-t-4 !border-t-omega-accent' : ''}`}>
         <div className="px-4 py-3 border-b border-omega-100 bg-omega-50/50 flex flex-wrap items-center gap-2">
           <Building2 size={16} className="text-omega-500" />
           <span className="text-sm font-bold text-omega-900">Alocação diária</span>
+          {ehHoje && <span className="rounded bg-omega-accent px-1.5 py-px text-[10px] font-bold text-white">HOJE</span>}
           <span className="text-xs text-omega-500 ml-auto">
-            {visiveis.length} equipamento(s) · {obrasEmUso} obra(s) em uso
+            {visiveis.length} equipamento(s) · {blocos.length} categoria(s) · {obrasEmUso} obra(s) em uso
           </span>
+          {blocos.length > 1 && (
+            <button type="button" className="btn-secondary !px-2 !py-1 !text-xs"
+              onClick={() => setRecolhidos(recolhidos.size >= blocos.length ? new Set() : new Set(blocos.map((bloco) => bloco.nome)))}>
+              {recolhidos.size >= blocos.length
+                ? <><ChevronsUpDown size={14} /> Expandir todos</>
+                : <><ChevronsDownUp size={14} /> Recolher todos</>}
+            </button>
+          )}
         </div>
 
-        <div className="md:max-h-[clamp(420px,calc(100dvh-240px),720px)] md:overflow-y-auto md:overscroll-contain md:[contain:paint]">
+        <div className="md:max-h-[clamp(420px,calc(100dvh-240px),760px)] md:overflow-y-auto md:overscroll-contain md:[contain:paint]">
         {carregando || !dadosDoDia && !erro ? (
           <div className="p-10 flex items-center justify-center gap-2 text-sm text-omega-500">
             <RefreshCw size={18} className="animate-spin" /> Carregando programação...
@@ -545,93 +635,140 @@ export default function ProgramacaoRecursosView({ sessao }) {
         ) : visiveis.length === 0 ? (
           <div className="p-10 text-center text-sm text-omega-500">Nenhum equipamento corresponde aos filtros.</div>
         ) : (
-          <div className="divide-y divide-omega-100">
-            {visiveis.map((equipamento) => {
-              const obraAtual = obras.find((obra) => obra.id === equipamento.obraId);
+          <div className="p-2 sm:p-3 space-y-3">
+            {blocos.map((bloco) => {
+              const Icone = ICONES_CATEGORIA[bloco.icone] || Package;
+              const recolhido = recolhidos.has(bloco.nome) && !busca.trim();
+              const emManutencao = bloco.itens.filter((item) => item.manutencaoAtiva).length;
+              const programados = bloco.itens.filter((item) => item.obraId && !item.manutencaoAtiva).length;
+              const livres = bloco.itens.length - programados - emManutencao;
+              const qtdTerceiros = bloco.itens.filter((item) => item.is_terceiro).length;
+              const percentual = bloco.itens.length ? Math.round((programados / bloco.itens.length) * 100) : 0;
               return (
-                <div key={equipamento.tag} className="p-4 space-y-3 hover:bg-omega-50/50">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-bold text-sm text-omega-900 break-words flex flex-wrap items-center gap-1.5">
-                        {equipamento.modelo || 'Equipamento'}
-                        {equipamento.is_terceiro && (
-                          <span className="chip bg-violet-50 text-violet-700 !text-[10px] !py-0.5"
-                            title="Veículo de empresa terceirizada (somente programação)">
-                            Terceiro
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-omega-500 mt-0.5">
-                        <span className="font-mono font-semibold text-omega-700">{equipamento.tag}</span>
-                        {' · '}{equipamento.placa || 'Sem placa'}
-                        {equipamento.is_terceiro
-                          ? equipamento.empresaTerceira && <span className="text-omega-400"> · {equipamento.empresaTerceira}</span>
-                          : equipamento.status && <span className="text-omega-400"> · {equipamento.status}</span>}
-                      </div>
-                    </div>
-                    {equipamento.is_terceiro ? (
-                      <span className={`chip shrink-0 ${Object.hasOwn(alteracoes, equipamento.tag) ? 'bg-amber-50 text-amber-700'
-                        : equipamento.obraId ? 'bg-emerald-50 text-emerald-700' : 'bg-omega-100 text-omega-600'}`}>
-                        {Object.hasOwn(alteracoes, equipamento.tag) ? 'Pendente' : equipamento.obraId ? 'Programado' : 'Livre'}
+                <section key={bloco.nome} className="prog-bloco rounded-xl overflow-hidden" aria-label={bloco.nome}>
+                  <button type="button" onClick={() => alternarBloco(bloco.nome)} aria-expanded={!recolhido}
+                    className="prog-bloco-cabecalho w-full flex items-center gap-3 px-3 py-2.5 text-left">
+                    <span className="h-9 w-9 shrink-0 rounded-lg bg-white text-omega-accent flex items-center justify-center shadow-sm">
+                      <Icone size={18} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-base font-extrabold text-omega-900 truncate">{bloco.nome}</span>
+                      <span className="block text-xs text-omega-500 tabular-nums">
+                        {bloco.itens.length} veículo{bloco.itens.length === 1 ? '' : 's'}
+                        {' • '}<span className="font-semibold text-emerald-700">{programados} programado{programados === 1 ? '' : 's'}</span>
+                        {' / '}<span className={livres ? 'font-semibold text-amber-700' : ''}>{livres} livre{livres === 1 ? '' : 's'}</span>
+                        {emManutencao > 0 && <> • <span className="font-semibold text-orange-700">{emManutencao} em manutenção</span></>}
+                        {qtdTerceiros > 0 && <> • <span className="text-violet-700">{qtdTerceiros} terceiro{qtdTerceiros === 1 ? '' : 's'}</span></>}
                       </span>
-                    ) : (
-                    <button type="button" onClick={() => abrirManutencao(equipamento)}
-                      disabled={!podeGerenciar || totalAlteracoes > 0 || salvando || copiando || exportandoPdf || salvandoManutencao}
-                      title={totalAlteracoes ? 'Salve ou descarte as alterações antes de mudar o status.'
-                        : equipamento.manutencaoAtiva ? 'Registrar retorno da manutenção' : 'Enviar para manutenção'}
-                      aria-label={`${equipamento.tag}: ${equipamento.manutencaoAtiva
-                        ? `Manutenção ${equipamento.manutencaoAtiva.tipo === 'PREVENTIVA' ? 'Preventiva' : 'Corretiva'}. Registrar retorno`
-                        : 'Alterar status para manutenção'}`}
-                      className={`chip shrink-0 inline-flex items-center gap-1.5 text-left max-w-[55%] sm:max-w-none ${equipamento.manutencaoAtiva
-                        ? 'bg-orange-50 text-orange-800'
-                        : Object.hasOwn(alteracoes, equipamento.tag) ? 'bg-amber-50 text-amber-700'
-                        : equipamento.obraId ? 'bg-emerald-50 text-emerald-700' : 'bg-omega-100 text-omega-600'} ${podeGerenciar ? 'hover:ring-2 hover:ring-omega-200 disabled:cursor-not-allowed' : ''}`}>
-                      {equipamento.manutencaoAtiva && <Wrench size={13} className="shrink-0" />}
-                      <span className="truncate">{equipamento.manutencaoAtiva
-                        ? `Manutenção ${equipamento.manutencaoAtiva.tipo === 'PREVENTIVA' ? 'Preventiva' : 'Corretiva'}`
-                        : Object.hasOwn(alteracoes, equipamento.tag) ? 'Pendente'
-                        : equipamento.obraId ? 'Programado' : 'Livre'}</span>
-                    </button>
-                    )}
-                  </div>
-                  {equipamento.manutencaoAtiva && (
-                    <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-900 space-y-1">
-                      <p className="font-semibold">Saída: {dataCurta(equipamento.manutencaoAtiva.dataSaida)} · Previsão de retorno: {dataCurta(equipamento.manutencaoAtiva.previsaoRetorno)}</p>
-                      <p className="whitespace-pre-wrap break-words">{equipamento.manutencaoAtiva.descricao}</p>
-                      <p>Programação bloqueada até registrar o retorno pelo status acima.</p>
+                    </span>
+                    <span className="hidden sm:block w-24 shrink-0" aria-hidden="true">
+                      <span className="block h-1.5 rounded-full bg-omega-100 overflow-hidden">
+                        <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${percentual}%` }} />
+                      </span>
+                      <span className="mt-0.5 block text-right text-[10px] font-bold text-omega-500 tabular-nums">{percentual}%</span>
+                    </span>
+                    <ChevronDown size={18} className={`shrink-0 text-omega-400 transition-transform ${recolhido ? '-rotate-90' : ''}`} />
+                  </button>
+
+                  {!recolhido && (
+                    <div>
+                      <div className="hidden lg:grid lg:grid-cols-[minmax(15rem,1.15fr)_minmax(14rem,1.35fr)_minmax(11rem,1fr)_minmax(11rem,1fr)_8.5rem] gap-3 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-omega-400">
+                        <span>Veículo</span><span>Obra / frente</span><span>Operador</span><span>Supervisor</span><span className="text-right">Status</span>
+                      </div>
+                      {bloco.itens.map((equipamento) => {
+                        const obraAtual = obrasPorId.get(equipamento.obraId);
+                        const pendente = Object.hasOwn(alteracoes, equipamento.tag);
+                        const manutencao = equipamento.manutencaoAtiva;
+                        const travado = salvando || copiando || exportandoPdf || carregando;
+                        const rotuloStatus = manutencao
+                          ? `Manutenção ${manutencao.tipo === 'PREVENTIVA' ? 'Preventiva' : 'Corretiva'}`
+                          : pendente ? 'Pendente' : equipamento.obraId ? 'Programado' : 'Livre';
+                        const corStatus = manutencao ? 'bg-orange-50 text-orange-800'
+                          : pendente ? 'bg-amber-50 text-amber-700'
+                          : equipamento.obraId ? 'bg-emerald-50 text-emerald-700' : 'bg-omega-100 text-omega-600';
+                        return (
+                          <div key={equipamento.tag}
+                            className={`prog-linha grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 px-3 py-2.5 lg:grid-cols-[minmax(15rem,1.15fr)_minmax(14rem,1.35fr)_minmax(11rem,1fr)_minmax(11rem,1fr)_8.5rem] lg:items-center ${pendente ? 'prog-linha-pendente' : ''}`}>
+                            <div className="min-w-0 flex items-center gap-3 lg:order-1">
+                              <AvatarVeiculo fotoUrl={equipamento.fotoUrl} Icone={Icone} />
+                              <div className="min-w-0">
+                                <span className="prog-tag inline-block rounded-md px-2 py-0.5 text-[15px] font-black leading-6">
+                                  {equipamento.tag}
+                                </span>
+                                <div className="mt-0.5 text-xs text-omega-500 truncate">
+                                  {[equipamento.is_terceiro ? equipamento.modeloVeiculo : null, equipamento.placa || 'Sem placa']
+                                    .filter(Boolean).join(' · ')}
+                                </div>
+                                {equipamento.is_terceiro ? (
+                                  <span className="mt-0.5 inline-block max-w-full truncate rounded bg-violet-50 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-violet-700"
+                                    title="Veículo de empresa terceirizada (somente programação)">
+                                    Terceiro{equipamento.empresaTerceira ? ` • ${equipamento.empresaTerceira}` : ''}
+                                  </span>
+                                ) : pendente ? (
+                                  <span className="mt-0.5 block text-[10px] font-semibold text-amber-700">Alteração não salva</span>
+                                ) : equipamento.atualizadoEm ? (
+                                  <span className="mt-0.5 block text-[10px] text-omega-400">Atualizado em {dataHora(equipamento.atualizadoEm)}</span>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="justify-self-end self-start lg:self-center lg:order-5">
+                              {equipamento.is_terceiro ? (
+                                <span className={`chip ${corStatus}`}>{rotuloStatus}</span>
+                              ) : (
+                                <button type="button" onClick={() => abrirManutencao(equipamento)}
+                                  disabled={!podeGerenciar || totalAlteracoes > 0 || salvando || copiando || exportandoPdf || salvandoManutencao}
+                                  title={totalAlteracoes ? 'Salve ou descarte as alterações antes de mudar o status.'
+                                    : manutencao ? 'Registrar retorno da manutenção' : 'Enviar para manutenção'}
+                                  aria-label={`${equipamento.tag}: ${manutencao ? `${rotuloStatus}. Registrar retorno` : 'Alterar status para manutenção'}`}
+                                  className={`chip inline-flex items-center gap-1.5 text-left max-w-[9rem] ${corStatus} ${podeGerenciar ? 'hover:ring-2 hover:ring-omega-200 disabled:cursor-not-allowed' : ''}`}>
+                                  {manutencao && <Wrench size={13} className="shrink-0" />}
+                                  <span className="truncate">{rotuloStatus}</span>
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="min-w-0 col-span-2 lg:col-span-1 lg:order-2">
+                              <label htmlFor={`obra-${equipamento.tag}`} className="block mb-1 text-[10px] uppercase tracking-wider font-bold text-omega-500 lg:sr-only">
+                                Obra / frente
+                              </label>
+                              <ObraSearchSelect id={`obra-${equipamento.tag}`}
+                                obraAtual={obraAtual} obrasAtivas={obrasAtivas}
+                                rotuloVazio={manutencao ? 'Bloqueado (manutenção)' : podeGerenciar ? '+ Alocar' : 'Livre'}
+                                botaoClassName={`w-full min-h-[2.5rem] rounded-lg px-3 py-2 text-sm flex items-center justify-between gap-2 text-left transition-colors disabled:cursor-not-allowed ${obraAtual ? 'prog-obra-pill font-semibold' : 'prog-obra-livre font-medium'} ${manutencao ? 'opacity-60' : ''}`}
+                                botaoStyle={obraAtual ? { '--obra-h': matizPorObra.get(obraAtual.id) ?? 210 } : undefined}
+                                onChange={(obraId) => alterarProgramacao(equipamento.tag, { obraId })}
+                                disabled={!podeGerenciar || !!manutencao || travado || (!obrasAtivas.length && !equipamento.obraId)} />
+                            </div>
+                            <div className="min-w-0 col-span-2 sm:col-span-1 lg:order-3">
+                              <label htmlFor={`operador-${equipamento.tag}`} className="block mb-1 text-[10px] uppercase tracking-wider font-bold text-omega-500 lg:sr-only">Operador</label>
+                              <PessoaSearchSelect id={`operador-${equipamento.tag}`} rotulo="operador"
+                                matricula={equipamento.operadorMatricula} nomeSalvo={equipamento.operadorNome}
+                                pessoas={pessoas} onChange={(operadorMatricula) => alterarProgramacao(equipamento.tag, { operadorMatricula })}
+                                disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado} />
+                            </div>
+                            <div className="min-w-0 col-span-2 sm:col-span-1 lg:order-4">
+                              <label htmlFor={`supervisor-${equipamento.tag}`} className="block mb-1 text-[10px] uppercase tracking-wider font-bold text-omega-500 lg:sr-only">Supervisor</label>
+                              <PessoaSearchSelect id={`supervisor-${equipamento.tag}`} rotulo="supervisor"
+                                matricula={equipamento.supervisorMatricula} nomeSalvo={equipamento.supervisorNome}
+                                pessoas={pessoas} onChange={(supervisorMatricula) => alterarProgramacao(equipamento.tag, { supervisorMatricula })}
+                                disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado} />
+                            </div>
+
+                            {manutencao && (
+                              <div className="col-span-full lg:order-6 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-900">
+                                <span className="font-semibold">Saída: {dataCurta(manutencao.dataSaida)} · Previsão de retorno: {dataCurta(manutencao.previsaoRetorno)}</span>
+                                <span className="mx-1.5 opacity-50">|</span>
+                                <span className="whitespace-pre-wrap break-words">{manutencao.descricao}</span>
+                                <span className="block mt-0.5 opacity-80">Programação bloqueada até registrar o retorno pelo status.</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 sm:gap-3">
-                    <div className="min-w-0 sm:col-span-2 xl:col-span-1">
-                      <label htmlFor={`obra-${equipamento.tag}`} className="block mb-1 text-[11px] uppercase tracking-wider font-bold text-omega-500">
-                        Obra programada
-                      </label>
-                      <ObraSearchSelect id={`obra-${equipamento.tag}`}
-                        obraAtual={obraAtual} obrasAtivas={obrasAtivas}
-                        onChange={(obraId) => alterarProgramacao(equipamento.tag, { obraId })}
-                        disabled={!podeGerenciar || !!equipamento.manutencaoAtiva || salvando || copiando || exportandoPdf || carregando || (!obrasAtivas.length && !equipamento.obraId)} />
-                    </div>
-                    <div className="min-w-0">
-                      <label htmlFor={`operador-${equipamento.tag}`} className="block mb-1 text-[11px] uppercase tracking-wider font-bold text-omega-500">Operador</label>
-                      <PessoaSearchSelect id={`operador-${equipamento.tag}`} rotulo="operador"
-                        matricula={equipamento.operadorMatricula} nomeSalvo={equipamento.operadorNome}
-                        pessoas={pessoas} onChange={(operadorMatricula) => alterarProgramacao(equipamento.tag, { operadorMatricula })}
-                        disabled={!podeGerenciar || !!equipamento.manutencaoAtiva || !equipamento.obraId || salvando || copiando || exportandoPdf || carregando} />
-                    </div>
-                    <div className="min-w-0">
-                      <label htmlFor={`supervisor-${equipamento.tag}`} className="block mb-1 text-[11px] uppercase tracking-wider font-bold text-omega-500">Supervisor</label>
-                      <PessoaSearchSelect id={`supervisor-${equipamento.tag}`} rotulo="supervisor"
-                        matricula={equipamento.supervisorMatricula} nomeSalvo={equipamento.supervisorNome}
-                        pessoas={pessoas} onChange={(supervisorMatricula) => alterarProgramacao(equipamento.tag, { supervisorMatricula })}
-                        disabled={!podeGerenciar || !!equipamento.manutencaoAtiva || !equipamento.obraId || salvando || copiando || exportandoPdf || carregando} />
-                    </div>
-                  </div>
-                  {Object.hasOwn(alteracoes, equipamento.tag) ? (
-                    <p className="text-[11px] font-semibold text-amber-700">Alteração não salva</p>
-                  ) : equipamento.atualizadoEm ? (
-                    <p className="text-[11px] text-omega-400">Atualizado em {dataHora(equipamento.atualizadoEm)}</p>
-                  ) : null}
-                </div>
+                </section>
               );
             })}
           </div>
@@ -642,7 +779,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
       <p className="text-xs text-omega-500">
         Cada equipamento pode estar em uma obra por dia, com operador e supervisor. As escolhas só são gravadas no banco ao clicar em “Salvar programação”.
         Escolha “Sem programação” para liberar o dia. Clique no status do equipamento para registrar manutenção ou retorno.
-        O PDF inclui a programação salva dos equipamentos mobilizados.
+        Cada obra mantém a mesma cor em todos os blocos. O PDF inclui a programação salva da frota mobilizada e dos terceiros, agrupada por categoria.
       </p>
 
       <Modal open={!!manutencaoModal} onClose={() => !salvandoManutencao && setManutencaoModal(null)}
