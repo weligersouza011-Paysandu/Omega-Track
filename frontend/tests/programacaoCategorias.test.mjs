@@ -8,6 +8,7 @@ const OBRA = '11111111-1111-4111-8111-111111111111';
 const equipamentos = [
   { tag: 'JI450', modelo: 'Caminhão Munck', obraId: OBRA },
   { tag: 'ON-01', modelo: 'Ônibus', obraId: OBRA, operadorNome: 'Ana Silva', operadorTardeNome: 'Bruno Costa' },
+  { tag: 'JI99', modelo: 'Caminhonete', obraId: OBRA, operadorNome: 'Caio Leve', operadorTardeNome: 'Nao Deve Aparecer' },
   { tag: 'TER-01', modelo: 'Caminhonete', is_terceiro: true, empresaTerceira: 'Transportes XYZ', obraId: null },
   { tag: 'JI10', modelo: 'Caminhonete', obraId: OBRA },
   { tag: 'JI9', modelo: 'Caminhonete', obraId: null },
@@ -25,7 +26,7 @@ test('blocos seguem a relevância operacional e "Sem categoria" fica por último
 
 test('dentro do bloco: frota própria antes de terceiros, TAG em ordem natural', () => {
   const [leves] = agruparPorCategoria(equipamentos);
-  assert.deepEqual(leves.itens.map((e) => e.tag), ['JI9', 'JI10', 'TER-01']);
+  assert.deepEqual(leves.itens.map((e) => e.tag), ['JI9', 'JI10', 'JI99', 'TER-01']);
 });
 
 test('cores das obras são estáveis e bem separadas', () => {
@@ -59,8 +60,9 @@ test('PDF agrupa por categoria e identifica terceiros', () => {
     inicio = bruto.indexOf('stream', fim + 9);
   }
   const conteudo = textos.join('\n');
-  for (const trecho of ['CAMINHONETE', 'TERCEIRO', 'Transportes XYZ', 'RETROESCAVADEIRA', 'Tarde: Bruno Costa']) {
+  for (const trecho of ['CAMINHONETE', 'TERCEIRO', 'Transportes XYZ', 'RETROESCAVADEIRA', '/ Tarde: Bruno Costa', 'Operador: Caio Leve']) {
     assert.ok(conteudo.includes(trecho), `PDF sem "${trecho}"`);
   }
+  assert.ok(!conteudo.includes('Nao Deve Aparecer'), 'tarde só para ônibus/van');
   assert.ok(conteudo.indexOf('CAMINHONETE') < conteudo.indexOf('RETROESCAVADEIRA'), 'ordem das categorias');
 });

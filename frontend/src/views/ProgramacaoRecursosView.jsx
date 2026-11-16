@@ -1,11 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertTriangle, Building2, Bus, CalendarDays, Car, CheckCircle2, ChevronDown, ChevronLeft,
+  AlertTriangle, ArrowLeftRight, Building2, Bus, CalendarDays, Car, CheckCircle2, ChevronDown, ChevronLeft,
   ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock3, Construction, Copy, FileDown, Package,
-  RefreshCw, Save, Search, Tractor, Truck, Wrench, X,
+  RefreshCw, Save, Search, Sun, Sunset, Tractor, Truck, Wrench, X,
 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
+import NovoColaboradorModal from '../components/NovoColaboradorModal.jsx';
+import {
+  alteracaoParaSalvar, ehOnibusOuVan, mesclarAlteracao, mudancaInverterTurnos,
+} from '../utils/programacaoEdicao.js';
 import ObraSearchSelect from '../components/ObraSearchSelect.jsx';
 import PessoaSearchSelect from '../components/PessoaSearchSelect.jsx';
 import { authHeaders } from '../utils/sessao.js';
@@ -98,6 +102,15 @@ export default function ProgramacaoRecursosView({ sessao }) {
   const [exportandoPdf, setExportandoPdf] = useState(false);
   const [erroPdf, setErroPdf] = useState('');
   const [manutencaoModal, setManutencaoModal] = useState(null);
+  const [pessoasExtras, setPessoasExtras] = useState([]);
+  const [novoColaborador, setNovoColaborador] = useState(null);
+  const [toast, setToast] = useState('');
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(''), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
   const [salvandoManutencao, setSalvandoManutencao] = useState(false);
   const [erroManutencao, setErroManutencao] = useState('');
   const [mensagemManutencao, setMensagemManutencao] = useState('');
@@ -168,8 +181,28 @@ export default function ProgramacaoRecursosView({ sessao }) {
 
   const dadosDoDia = dados?.data === dia ? dados : null;
   const equipamentos = dadosDoDia?.equipamentos || [];
-  const pessoas = dadosDoDia?.pessoas || [];
+  // Pessoas do servidor + as cadastradas agora pelo "Novo Operador / Supervisor"
+  // (aparecem no dropdown na hora, sem recarregar e sem perder edições).
+  const pessoas = useMemo(() => {
+    const doServidor = dadosDoDia?.pessoas || [];
+    const conhecidas = new Set(doServidor.map((pessoa) => pessoa.matricula));
+    return [...doServidor, ...pessoasExtras.filter((pessoa) => !conhecidas.has(pessoa.matricula))]
+      .sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+  }, [dadosDoDia, pessoasExtras]);
   const pessoasPorMatricula = new Map(pessoas.map((pessoa) => [pessoa.matricula, pessoa]));
+
+  function abrirNovoColaborador(tag, campo, funcao, nomeSugerido) {
+    setNovoColaborador({ tag, campo, funcao, nome: nomeSugerido || '' });
+  }
+
+  function aoCriarColaborador(pessoa) {
+    const destino = novoColaborador;
+    setPessoasExtras((atuais) => [...atuais, pessoa]);
+    setNovoColaborador(null);
+    if (destino) alterarProgramacao(destino.tag, { [destino.campo]: pessoa.matricula });
+    setToast(`${pessoa.nome} cadastrado como ${String(pessoa.funcao || '').toLowerCase()} (matrícula ${pessoa.matricula})` +
+      (destino ? ` e selecionado em ${destino.tag}. Salve a programação para gravar.` : '.'));
+  }
   const equipamentosEditados = equipamentos.map((equipamento) => {
     const editado = alteracoes[equipamento.tag];
     if (!editado || equipamento.manutencaoAtiva) return equipamento;
@@ -178,6 +211,8 @@ export default function ProgramacaoRecursosView({ sessao }) {
       ...editado,
       operadorNome: editado.operadorMatricula
         ? pessoasPorMatricula.get(editado.operadorMatricula)?.nome || equipamento.operadorNome : null,
+      operadorTardeNome: editado.operadorTardeMatricula
+        ? pessoasPorMatricula.get(editado.operadorTardeMatricula)?.nome || equipamento.operadorTardeNome : null,
       supervisorNome: editado.supervisorMatricula
         ? pessoasPorMatricula.get(editado.supervisorMatricula)?.nome || equipamento.supervisorNome : null,
     };
@@ -244,22 +279,10 @@ export default function ProgramacaoRecursosView({ sessao }) {
     if (!original || original.manutencaoAtiva) return;
     setAlteracoes((atuais) => {
       const proximas = { ...atuais };
-      const editado = {
-        obraId: original.obraId || null,
-        operadorMatricula: original.operadorMatricula || null,
-        supervisorMatricula: original.supervisorMatricula || null,
-        ...atuais[tag],
-        ...mudanca,
-      };
-      if (!editado.obraId) {
-        editado.operadorMatricula = null;
-        editado.supervisorMatricula = null;
-      }
-      if (editado.obraId === (original.obraId || null) &&
-          editado.operadorMatricula === (original.operadorMatricula || null) &&
-          editado.supervisorMatricula === (original.supervisorMatricula || null)) {
-        delete proximas[tag];
-      } else proximas[tag] = editado;
+      const editado = mesclarAlteracao(original, atuais[tag],
+        typeof mudanca === 'function' ? mudanca(original, atuais[tag]) : mudanca);
+      if (editado) proximas[tag] = editado;
+      else delete proximas[tag];
       return proximas;
     });
     setErroSalvar('');
@@ -269,17 +292,8 @@ export default function ProgramacaoRecursosView({ sessao }) {
 
   async function salvarProgramacao() {
     if (!podeGerenciar || !dadosDoDia || !totalAlteracoes || salvando || copiando || exportandoPdf || salvandoManutencao) return;
-    const alteracoesParaSalvar = Object.entries(alteracoes).map(([tag, valores]) => {
-      const original = equipamentos.find((equipamento) => equipamento.tag === tag);
-      const alteracao = { tag, obraId: valores.obraId };
-      if (valores.operadorMatricula !== (original?.operadorMatricula || null)) {
-        alteracao.operadorMatricula = valores.operadorMatricula;
-      }
-      if (valores.supervisorMatricula !== (original?.supervisorMatricula || null)) {
-        alteracao.supervisorMatricula = valores.supervisorMatricula;
-      }
-      return alteracao;
-    });
+    const alteracoesParaSalvar = Object.entries(alteracoes).map(([tag, valores]) =>
+      alteracaoParaSalvar(tag, equipamentos.find((equipamento) => equipamento.tag === tag), valores));
     setSalvando(true);
     setErroSalvar('');
     setMensagemSalvar('');
@@ -684,7 +698,7 @@ export default function ProgramacaoRecursosView({ sessao }) {
                   {!recolhido && (
                     <div>
                       <div className="hidden lg:grid lg:grid-cols-[minmax(15rem,1.15fr)_minmax(14rem,1.35fr)_minmax(11rem,1fr)_minmax(11rem,1fr)_8.5rem] gap-3 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-omega-400">
-                        <span>Veículo</span><span>Obra / frente</span><span>Operador</span><span>Supervisor</span><span className="text-right">Status</span>
+                        <span>Veículo</span><span>Obra / frente</span><span>Operador / Motorista</span><span>Supervisor</span><span className="text-right">Status</span>
                       </div>
                       {bloco.itens.map((equipamento) => {
                         const obraAtual = obrasPorId.get(equipamento.obraId);
@@ -754,18 +768,57 @@ export default function ProgramacaoRecursosView({ sessao }) {
                                 onChange={(obraId) => alterarProgramacao(equipamento.tag, { obraId })}
                                 disabled={!podeGerenciar || !!manutencao || travado || (!obrasAtivas.length && !equipamento.obraId)} />
                             </div>
-                            <div className="min-w-0 col-span-2 sm:col-span-1 lg:order-3">
-                              <label htmlFor={`operador-${equipamento.tag}`} className="block mb-1 text-[10px] uppercase tracking-wider font-bold text-omega-500 lg:sr-only">Operador</label>
-                              <PessoaSearchSelect id={`operador-${equipamento.tag}`} rotulo="operador"
-                                matricula={equipamento.operadorMatricula} nomeSalvo={equipamento.operadorNome}
-                                pessoas={pessoas} onChange={(operadorMatricula) => alterarProgramacao(equipamento.tag, { operadorMatricula })}
-                                disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado} />
-                            </div>
+                            {ehOnibusOuVan(equipamento.modelo) ? (
+                              <div className="min-w-0 col-span-2 sm:col-span-1 lg:order-3">
+                                <span className="block mb-1 text-[10px] uppercase tracking-wider font-bold text-omega-500 lg:sr-only">Motoristas</span>
+                                <div className="flex items-stretch gap-1.5">
+                                  <div className="min-w-0 flex-1 space-y-1.5">
+                                    {[
+                                      { campo: 'operadorMatricula', nome: equipamento.operadorNome, id: `operador-${equipamento.tag}`, rotulo: 'Manhã', Icone: Sun, cor: 'text-amber-500' },
+                                      { campo: 'operadorTardeMatricula', nome: equipamento.operadorTardeNome, id: `operador-tarde-${equipamento.tag}`, rotulo: 'Tarde', Icone: Sunset, cor: 'text-orange-600' },
+                                    ].map(({ campo, nome, id, rotulo, Icone: IconeTurno, cor }) => (
+                                      <div key={campo} className="flex items-center gap-1.5">
+                                        <label htmlFor={id} title={`Motorista da ${rotulo.toLowerCase()}`}
+                                          className="w-12 shrink-0 flex flex-col items-center leading-none text-[9px] font-bold uppercase tracking-wide text-omega-500">
+                                          <IconeTurno size={14} className={cor} aria-hidden="true" />
+                                          <span className="mt-0.5">{rotulo}</span>
+                                        </label>
+                                        <div className="min-w-0 flex-1">
+                                          <PessoaSearchSelect id={id} rotulo={`motorista da ${rotulo.toLowerCase()}`}
+                                            matricula={equipamento[campo]} nomeSalvo={nome} pessoas={pessoas}
+                                            onChange={(matricula) => alterarProgramacao(equipamento.tag, { [campo]: matricula })}
+                                            onNovo={podeGerenciar ? (texto) => abrirNovoColaborador(equipamento.tag, campo, 'OPERADOR', texto) : undefined}
+                                            disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado} />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <button type="button"
+                                    onClick={() => alterarProgramacao(equipamento.tag, mudancaInverterTurnos)}
+                                    disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado ||
+                                      (!equipamento.operadorMatricula && !equipamento.operadorTardeMatricula)}
+                                    title="Inverter turnos (Manhã ↔ Tarde)" aria-label={`${equipamento.tag}: inverter turnos (Manhã ↔ Tarde)`}
+                                    className="shrink-0 w-8 rounded-lg border border-omega-200 flex items-center justify-center text-omega-500 hover:text-omega-accent hover:bg-omega-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <ArrowLeftRight size={15} />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="min-w-0 col-span-2 sm:col-span-1 lg:order-3">
+                                <label htmlFor={`operador-${equipamento.tag}`} className="block mb-1 text-[10px] uppercase tracking-wider font-bold text-omega-500 lg:sr-only">Operador</label>
+                                <PessoaSearchSelect id={`operador-${equipamento.tag}`} rotulo="operador"
+                                  matricula={equipamento.operadorMatricula} nomeSalvo={equipamento.operadorNome}
+                                  pessoas={pessoas} onChange={(operadorMatricula) => alterarProgramacao(equipamento.tag, { operadorMatricula })}
+                                  onNovo={podeGerenciar ? (texto) => abrirNovoColaborador(equipamento.tag, 'operadorMatricula', 'OPERADOR', texto) : undefined}
+                                  disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado} />
+                              </div>
+                            )}
                             <div className="min-w-0 col-span-2 sm:col-span-1 lg:order-4">
                               <label htmlFor={`supervisor-${equipamento.tag}`} className="block mb-1 text-[10px] uppercase tracking-wider font-bold text-omega-500 lg:sr-only">Supervisor</label>
                               <PessoaSearchSelect id={`supervisor-${equipamento.tag}`} rotulo="supervisor"
                                 matricula={equipamento.supervisorMatricula} nomeSalvo={equipamento.supervisorNome}
                                 pessoas={pessoas} onChange={(supervisorMatricula) => alterarProgramacao(equipamento.tag, { supervisorMatricula })}
+                                onNovo={podeGerenciar ? (texto) => abrirNovoColaborador(equipamento.tag, 'supervisorMatricula', 'SUPERVISOR', texto) : undefined}
                                 disabled={!podeGerenciar || !!manutencao || !equipamento.obraId || travado} />
                             </div>
 
@@ -901,6 +954,26 @@ export default function ProgramacaoRecursosView({ sessao }) {
           Equipamentos em manutenção serão ignorados e manterão suas atribuições atuais.
         </p>
       </Modal>
+
+      <NovoColaboradorModal
+        aberto={!!novoColaborador}
+        funcaoInicial={novoColaborador?.funcao}
+        nomeInicial={novoColaborador?.nome}
+        destino={novoColaborador?.tag}
+        sessao={sessao}
+        onFechar={() => setNovoColaborador(null)}
+        onCriado={aoCriarColaborador}
+      />
+
+      {toast && (
+        <div role="status" className="fixed bottom-5 right-5 z-[60] max-w-md flex items-start gap-2 pl-3 pr-2 py-2.5 rounded-xl bg-omega-900 text-white shadow-2xl text-sm font-semibold">
+          <CheckCircle2 size={17} className="text-status-verde shrink-0 mt-0.5" />
+          <span>{toast}</span>
+          <button type="button" onClick={() => setToast('')} aria-label="Fechar aviso" className="shrink-0 hover:bg-white/15 rounded-full p-0.5">
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
