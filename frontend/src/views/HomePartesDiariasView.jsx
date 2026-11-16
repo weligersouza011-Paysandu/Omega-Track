@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Search, Eye, Pencil, Trash2, X, RefreshCw, AlertTriangle,
-  CheckCircle2, ClipboardList, Filter, FileText, Loader2, ChevronDown, CalendarClock, FileSpreadsheet,
+  CheckCircle2, ClipboardList, Filter, FileText, Loader2, ChevronDown, CalendarClock, FileSpreadsheet, FolderArchive,
 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
 import ParteDiariaForm from '../components/ParteDiariaForm.jsx';
 import RelatorioParteDiariaPreview from '../components/RelatorioParteDiariaPreview.jsx';
 import PendenciasParteDiariaView from './PendenciasParteDiariaView.jsx';
+import ExportarRelatoriosPdfModal from '../components/ExportarRelatoriosPdfModal.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { podeVerTodasPartes, ehMaster } from '../utils/permissoes.js';
 import { formatarDataSemTimezone as formatarData } from '../utils/datas.js';
@@ -91,6 +92,7 @@ export default function HomePartesDiariasView({ sessao }) {
   // Relatório oficial PDF/HTML
   const [relatorioPreview, setRelatorioPreview] = useState(null);
   const [carregandoRelatorioId, setCarregandoRelatorioId] = useState(null);
+  const [exportacaoPdfAberta, setExportacaoPdfAberta] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -395,6 +397,11 @@ export default function HomePartesDiariasView({ sessao }) {
           <span className="text-[11px] text-omega-500 ml-auto">
             {visiveis.length}{paginacao.total > visiveis.length ? ` de ${paginacao.total}` : ''} registro(s){!visaoTotal ? ' • meus lançamentos' : ''}
           </span>
+          <button type="button" onClick={() => setExportacaoPdfAberta(true)}
+            className="btn-secondary !py-2 text-xs"
+            title="Selecionar um período e baixar um PDF por relatório, separado por obra">
+            <FolderArchive size={15} /> Baixar PDFs por obra
+          </button>
           {filtroData && (
             <button type="button" onClick={exportarExcel}
               disabled={exportando || carregando || !!erro}
@@ -748,6 +755,14 @@ export default function HomePartesDiariasView({ sessao }) {
       )}
 
       {/* Visualização e exportação direta do Relatório Oficial (PDF / Impressão) */}
+      {exportacaoPdfAberta && (
+        <ExportarRelatoriosPdfModal sessao={sessao} dataInicial={filtroData}
+          onFechar={() => setExportacaoPdfAberta(false)}
+          onConcluido={({ total, obras }) => {
+            setExportacaoPdfAberta(false);
+            setToast(`ZIP exportado com ${total} PDF(s), separado(s) em ${obras} pasta(s) por obra.`);
+          }} />
+      )}
       {relatorioPreview && (
         <RelatorioParteDiariaPreview
           relatorio={relatorioPreview}

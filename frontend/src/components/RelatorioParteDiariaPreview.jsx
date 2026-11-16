@@ -260,7 +260,7 @@ function ColGroup({ widths }) {
 // ═════════════════════════════════════════════════════════════════════════════
 // Componente principal
 // ═════════════════════════════════════════════════════════════════════════════
-export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
+export default function RelatorioParteDiariaPreview({ relatorio, onFechar, somenteConteudo = false, conteudoRef }) {
   const printRef = useRef(null);
   const overlayRef = useRef(null);
   const [gerandoPdf, setGerandoPdf] = useState(false);
@@ -311,39 +311,14 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
       window.scrollTo(0, 0);
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-      const html2pdfModule = await import('html2pdf.js');
-      const html2pdf = html2pdfModule.default || html2pdfModule;
+      const { gerarPdfRelatorio } = await import('../utils/gerarPdfRelatorio.js');
 
       const tagPrincipal = tag || (equipamentos || [])[0]?.tag_patrimonio || 'RELATORIO';
       const tagLimpa = String(tagPrincipal).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
       const dataLimpa = data ? String(data).slice(0, 10).replace(/[^a-zA-Z0-9_-]/g, '_') : 'DATA';
       const nomeArquivo = `Parte_Diaria_${tagLimpa}_${dataLimpa}.pdf`;
 
-      const opt = {
-        margin: [8, 8, 8, 8],
-        filename: nomeArquivo,
-        // PNG: sem artefatos de compressão em textos/tabelas (JPEG borrava).
-        image: { type: 'png' },
-        html2canvas: {
-          scale: 3, // High-DPI (~300 DPI) — texto nítido, sem pixelado
-          useCORS: true, // logo/imagens carregam corretamente
-          scrollY: 0, // ignora deslocamento vertical do scroll
-          scrollX: 0,
-          windowWidth: 1200, // viewport fixo e amplo na captura
-          dpi: 300,
-          letterRendering: true,
-          logging: false,
-        },
-        jsPDF: {
-          unit: 'mm',
-          format: 'a4',
-          orientation: 'portrait',
-          compress: true,
-        },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-      };
-
-      await html2pdf().set(opt).from(printRef.current).save();
+      await gerarPdfRelatorio(printRef.current, { nomeArquivo });
     } catch (err) {
       console.error('Erro ao gerar PDF diretamente:', err);
       window.print();
@@ -469,7 +444,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
       `}</style>
 
       {/* ── Overlay backdrop ─────────────────────────────────────────────── */}
-      <div ref={overlayRef} style={{
+      <div ref={overlayRef} style={somenteConteudo ? { width: 794 } : {
         position: 'fixed', inset: 0, zIndex: 9000,
         background: 'rgba(15,23,42,0.72)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
@@ -478,7 +453,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
       }}>
 
         {/* ── Barra de ações (não imprime) ──────────────────────────────── */}
-        <div className="omega-no-print" style={{
+        {!somenteConteudo && <div className="omega-no-print" style={{
           position: 'fixed', top: 14, right: 14, zIndex: 9200,
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
@@ -536,14 +511,14 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
           >
             <X size={18} />
           </button>
-        </div>
+        </div>}
 
         {/* ══════════════════════════════════════════════════════════════════
             ÁREA IMPRIMÍVEL — largura A4 (794 px @ 96 dpi)
             ══════════════════════════════════════════════════════════════════ */}
         <div
           id="omega-pd-print"
-          ref={printRef}
+          ref={conteudoRef || printRef}
           style={{
             width: '100%', maxWidth: 794, minHeight: 1123,
             margin: '0 auto',
@@ -563,7 +538,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
             alignItems: 'center', marginBottom: 8, gap: 12,
             boxSizing: 'border-box',
           }}>
-            <span style={{ fontSize: 12, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <span style={{ fontSize: 12, lineHeight: '20px', padding: '2px 0', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               Parte Diária <strong style={{ color: '#0f172a' }}>{dataFormatada}</strong> n° <strong style={{ color: '#0f172a' }}>{numRelatorio}</strong>
             </span>
             <span style={{
@@ -591,6 +566,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                   boxSizing: 'border-box',
                 }}>
                   <img
+                    crossOrigin="anonymous"
                     src="/logo/0.png"
                     alt="Omega Service"
                     style={{ maxHeight: 80, width: 'auto', objectFit: 'contain', margin: '0 auto', display: 'block' }}
@@ -850,18 +826,21 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
               <tbody>
                 <SectionHeader title="Fotos" count={fotos.length} />
                 <tr>
-                  <td style={{ ...BASE_CELL, padding: '4px 8px' }}>
+                  <td colSpan={99} style={{ ...BASE_CELL, padding: '4px 8px' }}>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, boxSizing: 'border-box' }}>
                       {fotos.map((foto, i) => (
-                        <div key={i} style={{ textAlign: 'center', boxSizing: 'border-box' }}>
-                          <img
-                            src={foto.url}
-                            alt={foto.legenda || `Foto ${i + 1}`}
-                            style={{
-                              width: 210, height: 158, objectFit: 'cover',
-                              borderRadius: 4, border: '1px solid #cbd5e1', display: 'block',
-                            }}
-                          />
+                        <div key={i} style={{ flex: '0 0 210px', maxWidth: '100%', textAlign: 'center', boxSizing: 'border-box' }}>
+                          <div style={{ height: 158, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <img
+                              crossOrigin="anonymous"
+                              src={foto.url}
+                              alt={foto.legenda || `Foto ${i + 1}`}
+                              style={{
+                                maxWidth: 210, maxHeight: 158, width: 'auto', height: 'auto',
+                                borderRadius: 4, border: '1px solid #cbd5e1', display: 'block',
+                              }}
+                            />
+                          </div>
                           {foto.legenda && (
                             <div style={{ fontSize: 10, color: '#0f172a', marginTop: 3, maxWidth: 210 }}>
                               {foto.legenda}
@@ -903,6 +882,7 @@ export default function RelatorioParteDiariaPreview({ relatorio, onFechar }) {
                             }}>
                               {imgSrc && (
                                 <img
+                                  crossOrigin="anonymous"
                                   src={imgSrc}
                                   alt={`Assinatura ${a.etapa}`}
                                   style={{ maxHeight: 72, maxWidth: '100%', width: 'auto', objectFit: 'contain', display: 'block' }}
