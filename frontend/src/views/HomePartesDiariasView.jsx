@@ -972,7 +972,7 @@ export default function HomePartesDiariasView({ sessao }) {
       </Modal>
 
       {/* Barra flutuante da aprovação em lote (Transporte / Planejamento / Master) */}
-      {podeLote && aba === 'partes-diarias' && totalSelecionado > 0 && !formState.aberto && (
+      {podeLote && aba === 'partes-diarias' && totalSelecionado > 0 && !formState.aberto && !exportacaoPdfAberta && (
         <div role="region" aria-label="Aprovação em lote"
           className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[55] w-[calc(100%-2rem)] max-w-3xl flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-omega-900 text-white shadow-2xl px-4 py-3">
           <span className="text-sm font-semibold">{totalSelecionado} selecionada(s)</span>
@@ -1028,7 +1028,7 @@ export default function HomePartesDiariasView({ sessao }) {
       )}
 
       {/* FAB mobile: nova Parte Diária (oculto com o modal aberto e na aba de pendências) */}
-      {aba === 'partes-diarias' && !formState.aberto && totalSelecionado === 0 && (
+      {aba === 'partes-diarias' && !formState.aberto && !exportacaoPdfAberta && totalSelecionado === 0 && (
         <button
           onClick={abrirNovo}
           title="Adicionar Parte Diária"

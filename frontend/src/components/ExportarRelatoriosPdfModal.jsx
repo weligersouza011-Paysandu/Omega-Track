@@ -95,15 +95,21 @@ export default function ExportarRelatoriosPdfModal({ sessao, dataInicial, onFech
         <fieldset disabled={exportando} className="space-y-2">
           <legend className="text-sm font-semibold text-omega-700">Status dos relatórios</legend>
           <button type="button" className="text-sm font-semibold text-omega-accent disabled:opacity-50"
-            onClick={() => setStatuses(statuses.length === STATUS_RELATORIOS_PDF.length ? [] : [...STATUS_RELATORIOS_PDF])}>
+            onClick={() => {
+              setStatuses(statuses.length === STATUS_RELATORIOS_PDF.length ? [] : [...STATUS_RELATORIOS_PDF]);
+              setErro('');
+            }}>
             {statuses.length === STATUS_RELATORIOS_PDF.length ? 'Limpar seleção' : 'Selecionar todos'}
           </button>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {STATUS_RELATORIOS_PDF.map((status) => <label key={status}
               className="flex items-center gap-2 rounded-xl border border-omega-200 px-3 py-2 text-sm text-omega-700">
               <input type="checkbox" checked={statuses.includes(status)} disabled={exportando}
-                onChange={(evento) => setStatuses((atuais) => evento.target.checked
-                  ? [...atuais, status] : atuais.filter((atual) => atual !== status))}
+                onChange={(evento) => {
+                  const marcado = evento.target.checked;
+                  setStatuses((atuais) => marcado ? [...atuais, status] : atuais.filter((atual) => atual !== status));
+                  setErro('');
+                }}
                 className="h-4 w-4 shrink-0 accent-omega-accent" />
               {status}
             </label>)}
