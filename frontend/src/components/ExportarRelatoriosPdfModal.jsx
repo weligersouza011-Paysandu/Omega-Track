@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Download, FolderArchive, Loader2 } from 'lucide-react';
 import Modal from './Modal.jsx';
 import { hojeISO } from '../utils/datas.js';
-import { validarPeriodoRelatorios } from '../utils/relatoriosPeriodo.js';
+import { STATUS_RELATORIOS_PDF, validarPeriodoRelatorios } from '../utils/relatoriosPeriodo.js';
 
 export default function ExportarRelatoriosPdfModal({ sessao, dataInicial, onFechar, onConcluido }) {
   const hoje = hojeISO();
   const [dataInicio, setDataInicio] = useState(dataInicial || `${hoje.slice(0, 7)}-01`);
   const [dataFim, setDataFim] = useState(dataInicial || hoje);
+  const [statuses, setStatuses] = useState([...STATUS_RELATORIOS_PDF]);
   const [exportando, setExportando] = useState(false);
   const [erro, setErro] = useState('');
   const [progresso, setProgresso] = useState(null);
@@ -18,7 +19,10 @@ export default function ExportarRelatoriosPdfModal({ sessao, dataInicial, onFech
   const exportar = async (evento) => {
     evento.preventDefault();
     if (controllerRef.current) return;
-    const periodo = { dataInicio, dataFim };
+    const periodo = {
+      dataInicio, dataFim,
+      statuses: statuses.length === STATUS_RELATORIOS_PDF.length ? undefined : statuses,
+    };
     try {
       validarPeriodoRelatorios(periodo);
     } catch (falha) {
@@ -88,10 +92,27 @@ export default function ExportarRelatoriosPdfModal({ sessao, dataInicial, onFech
               onChange={(evento) => setDataFim(evento.target.value)} className="input mt-1" />
           </label>
         </div>
+        <fieldset disabled={exportando} className="space-y-2">
+          <legend className="text-sm font-semibold text-omega-700">Status dos relatórios</legend>
+          <button type="button" className="text-sm font-semibold text-omega-accent disabled:opacity-50"
+            onClick={() => setStatuses(statuses.length === STATUS_RELATORIOS_PDF.length ? [] : [...STATUS_RELATORIOS_PDF])}>
+            {statuses.length === STATUS_RELATORIOS_PDF.length ? 'Limpar seleção' : 'Selecionar todos'}
+          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {STATUS_RELATORIOS_PDF.map((status) => <label key={status}
+              className="flex items-center gap-2 rounded-xl border border-omega-200 px-3 py-2 text-sm text-omega-700">
+              <input type="checkbox" checked={statuses.includes(status)} disabled={exportando}
+                onChange={(evento) => setStatuses((atuais) => evento.target.checked
+                  ? [...atuais, status] : atuais.filter((atual) => atual !== status))}
+                className="h-4 w-4 shrink-0 accent-omega-accent" />
+              {status}
+            </label>)}
+          </div>
+        </fieldset>
         <div className="rounded-xl border border-omega-200 bg-omega-50 p-3 flex gap-3 text-sm text-omega-700">
           <FolderArchive size={21} className="shrink-0 text-omega-accent" />
           <div className="space-y-1">
-            <p>Inclui as duas datas e todos os status do período, com o mesmo modelo oficial, fotos e assinaturas.</p>
+            <p>Inclui as duas datas e os status selecionados, com fotos e assinaturas.</p>
             <p>Os filtros da tabela não limitam o download. Relatórios sem obra ficam na pasta “Sem obra”.</p>
             {sessao?.usuario?.tipo === 'OPERACIONAL' && <p>Serão incluídos somente os seus relatórios.</p>}
           </div>

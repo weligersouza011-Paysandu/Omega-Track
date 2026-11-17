@@ -2,6 +2,13 @@ import { authHeaders } from './sessao.js';
 import { filtrarPartesDiarias } from './partesDiarias.js';
 import { extrairPartesData } from './datas.js';
 
+export const STATUS_RELATORIOS_PDF = [
+  'Em Preenchimento',
+  'Finalizado pelo Operador',
+  'Revisado pelo Transporte',
+  'Aprovado',
+];
+
 export function verificarCancelamento(signal) {
   if (signal?.aborted) throw new DOMException('Exportação cancelada.', 'AbortError');
 }
@@ -12,11 +19,15 @@ function dataValida(valor) {
   return !Number.isNaN(data.getTime()) && data.toISOString().slice(0, 10) === valor;
 }
 
-export function validarPeriodoRelatorios({ dataInicio, dataFim } = {}) {
+export function validarPeriodoRelatorios({ dataInicio, dataFim, statuses } = {}) {
   if (!dataValida(dataInicio) || !dataValida(dataFim)) {
     throw new Error('Informe as datas inicial e final do período.');
   }
   if (dataInicio > dataFim) throw new Error('A data final deve ser igual ou posterior à data inicial.');
+  if (statuses !== undefined && (!Array.isArray(statuses) || !statuses.length
+    || statuses.some((status) => !STATUS_RELATORIOS_PDF.includes(status)))) {
+    throw new Error('Selecione pelo menos um status válido para baixar os relatórios.');
+  }
 }
 
 function diaRelatorio(parte) {
@@ -50,9 +61,11 @@ export async function carregarPartesDoPeriodo(sessao, periodo, { signal } = {}) 
     if (!Number.isSafeInteger(paginas) || paginas < 1) throw new Error('Paginação de relatórios inválida.');
   }
   verificarCancelamento(signal);
+  const statuses = periodo.statuses ? new Set(periodo.statuses) : null;
   return filtrarPartesDiarias([...partes.values()], sessao.usuario).filter((parte) => {
     const dia = diaRelatorio(parte);
-    return dia >= periodo.dataInicio && dia <= periodo.dataFim;
+    return dia >= periodo.dataInicio && dia <= periodo.dataFim
+      && (!statuses || statuses.has(parte.status_aprovacao || parte.status));
   });
 }
 
@@ -117,7 +130,7 @@ export async function processarRelatoriosEmLotes(sessao, periodo, {
 } = {}) {
   onProgresso({ etapa: 'consulta', concluidos: 0, total: 0 });
   const partes = await carregarPartesDoPeriodo(sessao, periodo, { signal });
-  if (!partes.length) throw new Error('Nenhum relatório encontrado para o período selecionado.');
+  if (!partes.length) throw new Error('Nenhum relatório encontrado para o período e os status selecionados.');
   const arquivos = planejarArquivosRelatorios(partes);
   const consultar = async (inicio) => {
     verificarCancelamento(signal);

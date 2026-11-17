@@ -22,6 +22,13 @@ test('período inclui um único dia e valida datas reais, bissextos e ordem', ()
   assert.throws(() => validarPeriodoRelatorios({ dataInicio: '2026-11-16', dataFim: '2026-11-01' }), /data final/);
 });
 
+test('seleção de status exige ao menos um status de aprovação válido', () => {
+  assert.doesNotThrow(() => validarPeriodoRelatorios({ ...periodo, statuses: ['Aprovado', 'Revisado pelo Transporte'] }));
+  for (const statuses of [[], ['inexistente'], ['Aprovado', 'Operação'], 'Aprovado', null]) {
+    assert.throws(() => validarPeriodoRelatorios({ ...periodo, statuses }), /Selecione pelo menos um status/);
+  }
+});
+
 test('consulta todas as páginas, inclui os limites e os status, sem duplicar relatórios', async (t) => {
   const chamadas = [];
   const controller = new AbortController();
@@ -55,6 +62,54 @@ test('operacional exporta apenas os próprios registros e uma sessão é obrigat
   ]));
   assert.deepEqual((await carregarPartesDoPeriodo(operacional, periodo)).map((p) => p.id), ['parte-1']);
   await assert.rejects(carregarPartesDoPeriodo({}, periodo), /Faça login/);
+});
+
+test('exportação combina os status selecionados com período, todas as páginas e acesso do operacional', async (t) => {
+  const operacional = { token: 'operacional', usuario: { tipo: 'OPERACIONAL', matricula: '00123', nome: 'João Silva' } };
+  const registros = [
+    { ...parte, id: 'aprovado', status_aprovacao: 'Aprovado' },
+    { ...parte, id: 'preenchendo', status_aprovacao: 'Em Preenchimento' },
+    { ...parte, id: 'finalizado', status_aprovacao: 'Finalizado pelo Operador' },
+    { ...parte, id: 'revisado', status_aprovacao: 'Revisado pelo Transporte', data: periodo.dataFim },
+    { ...parte, id: 'legado', status: 'Aprovado' },
+    { ...parte, id: 'outro', status_aprovacao: 'Aprovado', operador: '999', funcionario: 'Outra Pessoa' },
+    { ...parte, id: 'fora', status_aprovacao: 'Aprovado', data: '2026-11-17' },
+  ];
+  const idsConsultados = [], processados = [];
+  t.mock.method(globalThis, 'fetch', async (url, opcoes) => {
+    if (opcoes.method === 'POST') {
+      const { ids } = JSON.parse(opcoes.body);
+      idsConsultados.push(...ids);
+      return resposta(registros.filter((registro) => ids.includes(registro.id)));
+    }
+    const pagina = Number(new URL(url, 'http://localhost').searchParams.get('page'));
+    return resposta(pagina === 1 ? registros.slice(0, 3) : registros.slice(3), 2);
+  });
+  const pacote = await processarRelatoriosEmLotes(operacional, {
+    ...periodo, statuses: ['Aprovado', 'Revisado pelo Transporte'],
+  }, { processarLote: async (arquivos, { total }) => {
+    assert.equal(total, 3);
+    processados.push(...arquivos.map((arquivo) => arquivo.relatorio.id));
+  } });
+  assert.deepEqual(idsConsultados.sort(), ['aprovado', 'legado', 'revisado']);
+  assert.deepEqual(processados.sort(), ['aprovado', 'legado', 'revisado']);
+  assert.equal(pacote.total, 3);
+  const apenasFinalizados = await carregarPartesDoPeriodo(operacional, {
+    ...periodo, statuses: ['Finalizado pelo Operador'],
+  });
+  assert.deepEqual(apenasFinalizados.map((registro) => registro.id), ['finalizado']);
+});
+
+test('nenhum relatório com os status escolhidos informa o filtro sem iniciar os lotes', async (t) => {
+  let consultasLote = 0;
+  t.mock.method(globalThis, 'fetch', async (_, opcoes) => {
+    if (opcoes.method === 'POST') consultasLote += 1;
+    return resposta([{ ...parte, status_aprovacao: 'Em Preenchimento' }]);
+  });
+  await assert.rejects(processarRelatoriosEmLotes(sessao, {
+    ...periodo, statuses: ['Aprovado'],
+  }), /Nenhum relatório encontrado para o período e os status selecionados/);
+  assert.equal(consultasLote, 0);
 });
 
 test('pastas e arquivos permanecem distintos para obras homônimas e partes da mesma TAG/dia', () => {
