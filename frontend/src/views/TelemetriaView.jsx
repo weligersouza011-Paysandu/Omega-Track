@@ -4,7 +4,8 @@
 // KPIs (com variação contra a janela anterior), histórico de eventos com busca,
 // severidade e pílulas por tipo, seleção e exclusão em lote, Top 5 de veículos,
 // alerta de risco do dia, exportação CSV e importação da planilha da plataforma
-// (prévia antes de gravar + planilha modelo). Dados: /api/telemetria.
+// (prévia antes de gravar + planilha modelo), aba de trajeto (mapa + tabela por
+// período e horário) e alerta de placas sem cadastro na frota. Dados: /api/telemetria.
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -31,6 +32,7 @@ import {
   Search,
   Zap,
   LayoutDashboard,
+  Route,
 } from 'lucide-react';
 import StatCard from '../components/StatCard.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
@@ -42,11 +44,14 @@ import { formatarDataHora, lerJson, obterHeaders } from '../utils/telemetriaApi.
 import FadigaDetectadaTab from '../components/telemetria/FadigaDetectadaTab.jsx';
 import VelocidadeTab from '../components/telemetria/VelocidadeTab.jsx';
 import SeletorSemanas from '../components/telemetria/SeletorSemanas.jsx';
+import TrajetoTab from '../components/telemetria/TrajetoTab.jsx';
+import AlertaPlacasNaoCadastradas from '../components/telemetria/AlertaPlacasNaoCadastradas.jsx';
 
 const ABAS = [
   { id: 'geral', label: 'Visão Geral', icone: LayoutDashboard },
   { id: 'fadiga', label: 'Fadiga Detectada', icone: Moon },
   { id: 'velocidade', label: 'Excesso de Velocidade', icone: Gauge },
+  { id: 'trajeto', label: 'Trajeto & Rastreabilidade', icone: Route },
 ];
 
 // Pílulas da tela -> eventos gravados (Fadiga inclui a parada obrigatória não cumprida).
@@ -606,6 +611,9 @@ export default function TelemetriaView() {
         </div>
       </div>
 
+      {/* Placas sem vínculo com a frota: excluir atualiza cartões, tabela e trajeto. */}
+      <AlertaPlacasNaoCadastradas usuario={usuario} versao={versao} onExcluido={atualizar} />
+
       <div className="flex gap-1 overflow-x-auto border-b border-omega-200" role="tablist">
         {ABAS.map(({ id, label, icone: Icone }) => (
           <button
@@ -626,6 +634,8 @@ export default function TelemetriaView() {
       {aba === 'fadiga' && <FadigaDetectadaTab semanas={semanasParam} busca="" podeGerenciar={podeGerenciar} pronto={semanasProntas} />}
 
       {aba === 'velocidade' && <VelocidadeTab semanas={semanasParam} podeGerenciar={podeGerenciar} pronto={semanasProntas} />}
+
+      {aba === 'trajeto' && <TrajetoTab versao={versao} />}
 
       {aba === 'geral' && (<>
       {erro && (

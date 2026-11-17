@@ -9,6 +9,10 @@ import { salvarAssinaturaPadrao } from '../services/assinaturaService.js';
 import {
   avaliarAderencia, buscarProgramacaoDoDia, diaUtc, resolverJustificativa, statusAderencia,
 } from '../services/aderenciaProgramacaoService.js';
+import {
+  classificarLote, classificarLotePlanejamento, executarLoteAprovacao, houveDesvioProgramacao,
+  pendenciaKmFinalizacao, STATUS_EM_PREENCHIMENTO, STATUS_FINALIZADO_OPERADOR,
+} from '../services/aprovacaoParteDiariaService.js';
 
 // ============================================================================
 // Parte Diaria (Veiculos Leves) — modelo Omega Service
@@ -519,6 +523,10 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
       include: {
         veiculo: { select: { placa: true, modelo: true, status: true } },
         obra_ref: { select: { id: true, nome: true, numero_contrato: true } },
+        // Auditoria de desvios e lote: obra programada, categoria e etapas assinadas.
+        obra_programada_ref: { select: { id: true, nome: true } },
+        categoria_desvio: { select: { id: true, nome: true } },
+        assinaturas: { select: { etapa: true } },
         _count: {
           select: {
             mao_obra: true,
@@ -538,7 +546,7 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
 
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({
-    data: partes,
+    data: partes.map((p) => ({ ...p, houve_desvio_programacao: houveDesvioProgramacao(p) })),
     pagination: {
       page: Number(page),
       limit: Number(limit),
@@ -708,6 +716,11 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   validarHorario(intervalo_saida ?? undefined, 'intervalo_saida');
   // Trava do odômetro (preventiva: só exige KM Final > 0, sem comparação).
   validarQuilometragem(km_inicial, km_final, statusOperacionalFinal);
+  // "Finalizado pelo Operador" só com KM Inicial e Final > 0.
+  const statusAprovacaoCriacao = status_aprovacao === STATUS_FINALIZADO_OPERADOR
+    && pendenciaKmFinalizacao(km_inicial, km_final, statusOperacionalFinal)
+    ? STATUS_EM_PREENCHIMENTO
+    : (status_aprovacao || STATUS_EM_PREENCHIMENTO);
 
   if (status_relatorio && !STATUS_RELATORIO_VALIDOS.includes(status_relatorio)) {
     return res.status(400).json({
@@ -832,8 +845,10 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
           intervalo_entrada: strOuNull(intervalo_entrada),
           intervalo_saida: strOuNull(intervalo_saida),
           status_operacional: statusOperacionalFinal,
-          status_aprovacao: status_aprovacao || 'Em Preenchimento',
-          status_relatorio: status_relatorio || statusAprovacaoParaRelatorio(status_aprovacao || 'Em Preenchimento'),
+          status_aprovacao: statusAprovacaoCriacao,
+          status_relatorio: statusAprovacaoCriacao === (status_aprovacao || 'Em Preenchimento')
+            ? (status_relatorio || statusAprovacaoParaRelatorio(statusAprovacaoCriacao))
+            : statusAprovacaoParaRelatorio(statusAprovacaoCriacao),
           possui_pendencia: calcularPendencia(filhos.atividades),
           obra_id: obraIdFinal,
           planejador: strOuNull(planejador),
@@ -1089,6 +1104,24 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
     }),
   });
 
+  // Finalizado pelo Operador exige KM Inicial e Final > 0: se a KM ficou
+  // incompleta, o RDO volta para Em Preenchimento e a assinatura do operador
+  // e retirada (ele assina de novo depois de completar a KM).
+  let avisoKm = null;
+  const statusAprovacaoFinal = dados.status_aprovacao || atual.status_aprovacao;
+  if (statusAprovacaoFinal === STATUS_FINALIZADO_OPERADOR) {
+    avisoKm = pendenciaKmFinalizacao(
+      tem('km_inicial') ? corpo.km_inicial : atual.km_inicial,
+      tem('km_final') ? corpo.km_final : atual.km_final,
+      dados.status_operacional || atual.status_operacional,
+    );
+    if (avisoKm) {
+      dados.status_aprovacao = STATUS_EM_PREENCHIMENTO;
+      dados.status_relatorio = statusAprovacaoParaRelatorio(STATUS_EM_PREENCHIMENTO);
+      dados.status_assinatura = 'PENDENTE';
+    }
+  }
+
   const autor = autorDaRequisicao(req, corpo);
   if (autor) dados.atualizado_por = autor;
 
@@ -1119,6 +1152,10 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
   try {
     await prisma.$transaction(async (tx) => {
       await tx.parteDiaria.update({ where: { id }, data: dados });
+      if (avisoKm) {
+        await tx.parteDiariaAssinatura.deleteMany({ where: { parte_id: id, etapa: 'OPERADOR' } });
+        await registrarLog(tx, id, 'FINALIZACAO_REVERTIDA_KM', autor, { motivo: avisoKm });
+      }
     // Sincronizacao explicita por colecao (delete + recreate).
     if (temLista('mao_obra')) {
         await tx.parteDiariaMaoObra.deleteMany({ where: { parte_id: id } });
@@ -1218,7 +1255,7 @@ export const atualizarParteDiaria = asyncHandler(async (req, res) => {
       colecoes: colecoes.filter((c) => temLista(c)),
     },
   });
-  res.json({ data: enriquecerAssinaturas(completo) });
+  res.json({ data: enriquecerAssinaturas(completo), ...(avisoKm ? { aviso: avisoKm } : {}) });
 });
 
 export const deletarParteDiaria = asyncHandler(async (req, res) => {
@@ -1695,6 +1732,14 @@ export const assinarEtapa = asyncHandler(async (req, res) => {
   const etapaNorm = String(etapa).toUpperCase();
   const autor = autorDaRequisicao(req, req.body || {}) || String(nome).trim();
 
+  // A assinatura do operador finaliza o RDO: exige KM Inicial e Final > 0.
+  if (etapaNorm === 'OPERADOR') {
+    const pendenciaKm = pendenciaKmFinalizacao(existe.km_inicial, existe.km_final, existe.status_operacional);
+    if (pendenciaKm) {
+      return res.status(400).json({ error: 'KM incompleta', message: pendenciaKm });
+    }
+  }
+
   const assinaturaDadoStr = assinaturaDadoFinal ? String(assinaturaDadoFinal) : null;
 
   // Flag opcional do modal: salva a mesma imagem como assinatura padrao do
@@ -1785,6 +1830,63 @@ export const removerAssinatura = asyncHandler(async (req, res) => {
   const completo = await prisma.parteDiaria.findUnique({ where: { id }, include: INCLUDE_COMPLETO });
   res.json({ data: enriquecerAssinaturas(completo) });
 });
+
+// Executa um lote e responde (409 com `recusadas` quando nada estava apto).
+async function responderLote(req, res, opcoes, rotulo) {
+  const atuante = req.atuante;
+  const imagem = req.body?.assinatura_dado
+    ? String(req.body.assinatura_dado)
+    : (atuante.assinatura_padrao || atuante.assinatura_url || null);
+  let resultado;
+  try {
+    resultado = await executarLoteAprovacao(prisma, { ids: req.body?.ids, atuante, imagem, ...opcoes });
+  } catch (e) {
+    if (e.statusCode === 409) {
+      return res.status(409).json({ error: 'Nada a aprovar', message: e.message, aprovadas: [], recusadas: e.recusadas || [] });
+    }
+    throw e;
+  }
+  const { aprovadas, recusadas } = resultado;
+  await registrarLogAtividade(req, {
+    acao: opcoes.acaoLog === 'ASSINATURA_PLANEJADOR_LOTE' ? 'APROVAR_LOTE_PLANEJAMENTO' : 'APROVAR_LOTE_TRANSPORTE',
+    modulo: 'ParteDiaria',
+    detalhes: { aprovadas: aprovadas.map((a) => a.id), recusadas: recusadas.map((r) => r.id) },
+  });
+  return res.json({
+    data: { aprovadas, recusadas },
+    message: `${aprovadas.length} Parte(s) Diária(s) assinada(s) pelo ${rotulo}${recusadas.length ? `; ${recusadas.length} ignorada(s)` : ''}.`,
+  });
+}
+
+// POST /api/partes-diarias/aprovar-lote-transporte (alias /api/rdo/...)
+// Body: { ids: [uuid], assinatura_dado? }. Assina a etapa TRANSPORTE em lote
+// nas partes "Finalizado pelo Operador" (com KM válida). Fluxo normal vai a
+// "Revisado pelo Transporte"; Ônibus/VAN (Transporte é a etapa final) vão a
+// "Aprovado". Itens fora da regra são devolvidos em `recusadas`.
+export const aprovarLoteTransporte = asyncHandler(async (req, res) => responderLote(req, res, {
+  etapa: 'TRANSPORTE',
+  classificar: classificarLote,
+  statusOrigem: STATUS_FINALIZADO_OPERADOR,
+  acaoLog: 'ASSINATURA_TRANSPORTE_LOTE',
+  mensagemVazio: 'Nenhuma das Partes Diárias selecionadas está apta (precisam estar "Finalizado pelo Operador" com KM preenchida).',
+  destino: (p) => (ehFluxoSimplificadoTransporte(p.veiculo)
+    ? { status_aprovacao: 'Aprovado', status_relatorio: 'APROVADO', status_assinatura: 'ASSINADO' }
+    : { status_aprovacao: 'Revisado pelo Transporte', status_relatorio: 'REVISAO', status_assinatura: 'PENDENTE' }),
+}, 'Transporte'));
+
+// POST /api/partes-diarias/aprovar-lote-planejamento (alias /api/rdo/...)
+// Body: { ids: [uuid], assinatura_dado? }. Gestão/Planejamento ou Master assinam
+// PLANEJADOR nas partes "Revisado pelo Transporte" SEM desvio de programação e
+// elas vão a "Aprovado". Itens com desvio voltam em `recusadas` (desvio: true)
+// para aprovação individual.
+export const aprovarLotePlanejamento = asyncHandler(async (req, res) => responderLote(req, res, {
+  etapa: 'PLANEJADOR',
+  classificar: classificarLotePlanejamento,
+  statusOrigem: 'Revisado pelo Transporte',
+  acaoLog: 'ASSINATURA_PLANEJADOR_LOTE',
+  mensagemVazio: 'Nenhuma das Partes Diárias selecionadas está apta (precisam estar "Revisado pelo Transporte" e sem desvio de programação).',
+  destino: () => ({ status_aprovacao: 'Aprovado', status_relatorio: 'APROVADO', status_assinatura: 'ASSINADO' }),
+}, 'Planejamento'));
 
 // GET /api/partes-diarias/:id/logs — auditoria (log de edicoes).
 export const listarLogs = asyncHandler(async (req, res) => {

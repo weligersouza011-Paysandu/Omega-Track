@@ -19,6 +19,9 @@
 //   PATCH  /:id/tratativa  -> { status_tratativa, medida_aplicada?, observacao? }
 //   POST   /excluir-lote | DELETE /lote -> { ids }
 //   DELETE /:id            -> Exclusão de evento
+//   GET    /trajeto        -> ?veiculo=&dataInicio=&dataFim=&horaInicio=&horaFim= (janela diária em -03:00)
+//   GET    /placas-nao-cadastradas -> Placas da telemetria sem vínculo com a frota
+//   DELETE /por-placa/:placa -> Exclui todos os eventos da placa (Master, Gestão, Transporte; JWT)
 // ============================================================================
 import { Router } from 'express';
 import multer from 'multer';
@@ -31,6 +34,9 @@ import {
   excluirEventoTelemetria,
   excluirEventosTelemetriaLote,
   listarSemanasTelemetria,
+  trajetoTelemetria,
+  placasNaoCadastradas,
+  excluirEventosPorPlaca,
 } from '../controllers/telemetriaController.js';
 import {
   analiseFadiga,
@@ -43,7 +49,7 @@ import {
   excluirPlano,
 } from '../controllers/telemetriaFadigaController.js';
 import { analiseVelocidade, validarVelocidade, matrizVelocidade } from '../controllers/telemetriaVelocidadeController.js';
-import { requerAdmin } from '../middleware/sessao.js';
+import { requerAdmin, requerMasterGestaoTransporte } from '../middleware/sessao.js';
 
 const router = Router();
 
@@ -78,6 +84,9 @@ function receberPlanilha(req, res, next) {
 router.get('/', requerAdmin, listarEventosTelemetria);
 router.get('/resumo', requerAdmin, resumoTelemetria);
 router.get('/semanas', requerAdmin, listarSemanasTelemetria);
+router.get('/trajeto', requerAdmin, trajetoTelemetria);
+router.get('/placas-nao-cadastradas', requerAdmin, placasNaoCadastradas);
+router.delete('/por-placa/:placa', requerMasterGestaoTransporte, excluirEventosPorPlaca);
 
 // Fadiga detectada (farol, ocorrências, mapa) e planos de ação do Anexo I.
 router.get('/fadiga', requerAdmin, analiseFadiga);

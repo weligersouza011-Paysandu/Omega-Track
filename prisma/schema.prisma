@@ -648,6 +648,8 @@ model EventoTelemetria {
   @@index([data_hora])
   @@index([motorista, evento, data_hora])
   @@index([status_tratativa, prazo_tratativa])
+  @@index([tag_placa, data_hora]) // Trajeto por veículo (placa exata + período)
+  @@index([tag, data_hora])
   @@map("eventos_telemetria")
 }
 

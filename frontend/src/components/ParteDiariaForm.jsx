@@ -14,6 +14,7 @@ import { podeAlterarStatusOperacional, ehMaster } from '../utils/permissoes.js';
 import {
   avaliarDesvio, camposDesvioPayload, JUSTIFICATIVA_MAX, pendenciaDesvio,
 } from '../utils/desvioProgramacao.js';
+import { pendenciaKmFinalizacao } from '../utils/aprovacaoLote.js';
 
 const NOVA_CATEGORIA = '__nova_categoria__';
 
@@ -1195,6 +1196,9 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       if (!resp.ok) throw new Error(corpo.erro || corpo.message || corpo.details || `Falha ao salvar (API ${resp.status})`);
       sujoRef.current = false;
       aplicarResposta(corpo.data);
+      // KM ficou incompleta num RDO finalizado: o servidor voltou para
+      // Em Preenchimento e retirou a assinatura do operador.
+      if (corpo.aviso) setErro(corpo.aviso);
       if (silencioso) {
         setAutosave(`salvo ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
       }
@@ -1566,6 +1570,16 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
       setErro(`${msgDesvio} antes de assinar.`);
       executarScrollParaElemento('campo-desvio');
       return;
+    }
+    // A assinatura do operador finaliza o RDO: KM Inicial e Final > 0.
+    if (String(etapa).toUpperCase() === 'OPERADOR') {
+      const f = formRef.current;
+      const msgKm = pendenciaKmFinalizacao(f.km_inicial, f.km_final, f.status_operacional);
+      if (msgKm) {
+        setErro(msgKm);
+        executarScrollParaElemento('campo-km-final');
+        return;
+      }
     }
     setErro(null);
     setModalAssin({ etapa, rotulo });
