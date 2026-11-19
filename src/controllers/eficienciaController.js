@@ -50,6 +50,7 @@
 // ============================================================================
 import XLSX from 'xlsx';
 import prisma from '../config/database.js';
+import { chaveLocacao } from '../utils/locacao.js';
 import { filtroContrato as whereContrato, contratoDoEscopo, contratoParaGravar, contratosDisponiveis } from '../middleware/escopo.js';
 import { asyncHandler } from '../middleware/error.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
@@ -268,6 +269,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
 
   const filtroTag = normalizar(req.query.tag);
   const filtroModelo = normalizar(req.query.modelo);
+  const filtroLocacao = chaveLocacao(req.query.locacao);
   // O contrato nao e mais um filtro livre: vale o escopo do usuario (Master escolhe ?contrato=).
   const filtroContrato = null;
   const situacao = (normalizar(req.query.situacao) || 'MOB').toUpperCase(); // MOB | DESMOB | TODOS
@@ -280,7 +282,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   // ---------------------------------------------------------------------------
   const veiculosTodos = await comRetryConexao(() => prisma.mobDesmob.findMany({
     where: { deletado_em: null, ...whereContrato(req) },
-    select: { tag: true, placa: true, modelo: true, contrato: true, status: true, data_mob: true, data_desmob: true },
+    select: { tag: true, placa: true, modelo: true, contrato: true, locacao: true, status: true, data_mob: true, data_desmob: true },
     orderBy: { tag: 'asc' },
   }), 3, 700, 'eficiencia');
 
@@ -288,12 +290,14 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
     tags: veiculosTodos.map((v) => ({ tag: v.tag, placa: v.placa, modelo: v.modelo || null, contrato: v.contrato || null })),
     modelos: [...new Set(veiculosTodos.map((v) => normalizar(v.modelo)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
     contratos: await contratosDisponiveis(req),
+    locacoes: [...new Set(veiculosTodos.map((v) => v.locacao).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
   };
 
   const veiculos = veiculosTodos.filter((v) => {
     if (filtroTag && normalizar(v.tag) !== filtroTag) return false;
     if (filtroModelo && normalizar(v.modelo) !== filtroModelo) return false;
     if (filtroContrato && normalizar(v.contrato) !== filtroContrato) return false;
+    if (filtroLocacao && chaveLocacao(v.locacao) !== filtroLocacao) return false;
     if (situacao === 'MOB' && v.status === 'Desmobilizado') return false;
     if (situacao === 'DESMOB' && v.status !== 'Desmobilizado') return false;
     return true;
@@ -355,6 +359,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
       placa: v.placa,
       modelo: normalizar(v.modelo) || 'Sem modelo',
       contrato: normalizar(v.contrato) || null,
+      locacao: v.locacao || null,
       status: v.status || null,
       ...zerado(),
     });
@@ -514,6 +519,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
         tag: filtroTag || null,
         modelo: filtroModelo || null,
         contrato: contratoDoEscopo(req) ?? null,
+        locacao: filtroLocacao ? (req.query.locacao ? String(req.query.locacao).trim() : null) : null,
         situacao,
       },
       indicadores: {
@@ -583,6 +589,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
   const filtroTag = normalizar(req.query.tag);
   const filtroModelo = normalizar(req.query.modelo);
   const filtroContrato = null; // escopo do usuario (whereContrato)
+  const filtroLocacao = chaveLocacao(req.query.locacao);
   // Padrao TODOS: todas as TAGs com apontamento no mes. MOB/DESMOB refinam
   // esse conjunto pelo status atual (historico importado sem cadastro so
   // aparece em TODOS).
@@ -613,7 +620,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
 
   const veiculosTodos = await comRetryConexao(() => prisma.mobDesmob.findMany({
     where: { deletado_em: null, ...whereContrato(req) },
-    select: { tag: true, placa: true, modelo: true, contrato: true, status: true, data_mob: true, data_desmob: true },
+    select: { tag: true, placa: true, modelo: true, contrato: true, locacao: true, status: true, data_mob: true, data_desmob: true },
     orderBy: { tag: 'asc' },
   }), 3, 700, 'eficiencia');
 
@@ -623,6 +630,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
     if (filtroTag && normalizar(v.tag) !== filtroTag) return false;
     if (filtroModelo && normalizar(v.modelo) !== filtroModelo) return false;
     if (filtroContrato && normalizar(v.contrato) !== filtroContrato) return false;
+    if (filtroLocacao && chaveLocacao(v.locacao) !== filtroLocacao) return false;
     return true;
   });
   const tagsUniverso = new Set(universo.map((v) => normalizar(v.tag)));
@@ -660,7 +668,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
   const partes = partesBrutas.filter((p) => {
     const tagKey = normalizar(p.tag);
     if (veiculosPorTag.has(tagKey)) return tagsUniverso.has(tagKey);
-    return !filtroModelo && !filtroContrato;
+    return !filtroModelo && !filtroContrato && !filtroLocacao;
   });
   const tagsComRegistro = new Map(); // tagKey -> tag original
   for (const p of partes) {
@@ -766,6 +774,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
       placa: v.placa,
       modelo: normalizar(v.modelo) || 'Sem modelo',
       contrato: normalizar(v.contrato) || null,
+      locacao: v.locacao || null,
       status: v.status || null,
       data_mob: v.data_mob ? isoDeData(v.data_mob) : null,
       data_desmob: v.data_desmob ? isoDeData(v.data_desmob) : null,
@@ -802,6 +811,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
         tag: filtroTag || null,
         modelo: filtroModelo || null,
         contrato: contratoDoEscopo(req) ?? null,
+        locacao: filtroLocacao ? (req.query.locacao ? String(req.query.locacao).trim() : null) : null,
         situacao,
       },
     },

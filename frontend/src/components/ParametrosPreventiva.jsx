@@ -3,7 +3,7 @@ import { Plus, Pencil, Trash2, Loader2, AlertTriangle, Settings2 } from 'lucide-
 import Modal from './Modal.jsx';
 import { lerSessao, authHeaders } from '../utils/sessao.js';
 import { podeEscrever } from '../utils/permissoes.js';
-import { soDigitosContrato } from '../utils/contrato.js';
+import { contratoDeLancamento } from '../utils/contrato.js';
 
 // ============================================================================
 // Aba "Parâmetros de Preventiva" (Mobilização & Frota): CRUD dos limites de
@@ -11,7 +11,7 @@ import { soDigitosContrato } from '../utils/contrato.js';
 // ou ADM Master (reforçado no backend); demais perfis visualizam.
 // ============================================================================
 
-const MODAL_VAZIO = { categoria: '', contrato: '', km_limite_preventiva: '' };
+const MODAL_VAZIO = { categoria: '', locacao: '', km_limite_preventiva: '' };
 
 export default function ParametrosPreventiva({ veiculos = [], onToast }) {
   const sessao = useMemo(() => lerSessao(), []);
@@ -25,6 +25,8 @@ export default function ParametrosPreventiva({ veiculos = [], onToast }) {
   const [salvando, setSalvando] = useState(false);
   const [erroModal, setErroModal] = useState(null);
   const [excluindo, setExcluindo] = useState(null);
+
+  const locacoes = useMemo(() => [...new Set((veiculos || []).map((v) => String(v.locacao || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [veiculos]);
 
   const modelos = useMemo(() => {
     const set = new Set();
@@ -62,7 +64,7 @@ export default function ParametrosPreventiva({ veiculos = [], onToast }) {
     setErroModal(null);
     setModal({
       categoria: p.categoria || '',
-      contrato: p.contrato || '',
+      locacao: p.locacao || '',
       km_limite_preventiva: p.km_limite_preventiva ?? '',
       editando: true,
     });
@@ -78,6 +80,12 @@ export default function ParametrosPreventiva({ veiculos = [], onToast }) {
       setErroModal('O limite deve ser um número inteiro maior que zero.');
       return;
     }
+    // A regra vale para o contrato em que se esta lancando (Master em "Todos" precisa escolher um).
+    const contratoRegra = contratoDeLancamento(sessao?.usuario);
+    if (!contratoRegra) {
+      setErroModal('Escolha um contrato no filtro do topo para salvar a regra.');
+      return;
+    }
     setSalvando(true);
     setErroModal(null);
     try {
@@ -86,7 +94,8 @@ export default function ParametrosPreventiva({ veiculos = [], onToast }) {
         headers: authHeaders(sessao),
         body: JSON.stringify({
           categoria: modal.categoria,
-          contrato: modal.contrato || null,
+          contrato: contratoRegra,
+          locacao: modal.locacao || null,
           km_limite_preventiva: limite,
         }),
       });
@@ -103,7 +112,7 @@ export default function ParametrosPreventiva({ veiculos = [], onToast }) {
   };
 
   const excluir = async (p) => {
-    const alvo = p.contrato ? `${p.categoria} (${p.contrato})` : p.categoria;
+    const alvo = p.locacao ? `${p.categoria} (${p.locacao})` : p.categoria;
     if (!window.confirm(`Excluir o parâmetro "${alvo}"? Os veículos voltam ao limite padrão.`)) return;
     setExcluindo(p.id);
     try {
@@ -162,7 +171,7 @@ export default function ParametrosPreventiva({ veiculos = [], onToast }) {
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wider text-omega-400 border-b border-omega-100">
                 <th className="px-4 py-3">Categoria / Tipo</th>
-                <th className="px-4 py-3">Contrato</th>
+                <th className="px-4 py-3">Locação</th>
                 <th className="px-4 py-3 text-right">Limite (km)</th>
                 {podeGerenciar && <th className="px-4 py-3 text-right">Ações</th>}
               </tr>
@@ -177,7 +186,7 @@ export default function ParametrosPreventiva({ veiculos = [], onToast }) {
               {parametros.map((p) => (
                 <tr key={p.id} className="hover:bg-omega-50/60">
                   <td className="px-4 py-3 font-bold text-omega-900">{p.categoria}</td>
-                  <td className="px-4 py-3 text-omega-500 text-xs">{p.contrato || <span className="chip bg-omega-100 text-omega-500">Global (todos)</span>}</td>
+                  <td className="px-4 py-3 text-omega-500 text-xs">{p.contrato ? (p.locacao || <span className="chip bg-omega-100 text-omega-500">Todo o contrato {p.contrato}</span>) : <span className="chip bg-omega-100 text-omega-500">Global (todos)</span>}</td>
                   <td className="px-4 py-3 text-right font-extrabold tabular-nums text-omega-900">{Number(p.km_limite_preventiva).toLocaleString('pt-BR')}</td>
                   {podeGerenciar && (
                     <td className="px-4 py-3">
@@ -234,13 +243,16 @@ export default function ParametrosPreventiva({ veiculos = [], onToast }) {
             </datalist>
           </div>
           <div>
-            <label className="label">Contrato <span className="text-omega-400 font-normal">(opcional — vazio = todos)</span></label>
+            <label className="label">Locação <span className="text-omega-400 font-normal">(opcional — vazio = todo o contrato)</span></label>
             <input
-              value={modal?.contrato || ''}
-              onChange={(e) => setModal({ ...modal, contrato: soDigitosContrato(e.target.value) })}
-              className="input" inputMode="numeric" maxLength={3}
-              placeholder="Ex: 251 (vazio = regra global, só ADM Master)"
+              value={modal?.locacao || ''}
+              onChange={(e) => setModal({ ...modal, locacao: e.target.value })}
+              className="input" maxLength={60} autoComplete="off" list="param-locacoes"
+              placeholder="Ex: Serra Norte"
             />
+            <datalist id="param-locacoes">
+              {locacoes.map((l) => <option key={l} value={l} />)}
+            </datalist>
           </div>
           <div>
             <label className="label">KM Limite para Preventiva <span className="text-status-vermelho">*</span></label>

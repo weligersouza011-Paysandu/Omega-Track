@@ -19,13 +19,22 @@ Resumo das regras, de como operar e do roteiro de entrada em produção.
 - **Paginação:** listagens têm teto de 500 itens por página (`?page=&limit=`); as telas que precisam de todos os
   registros buscam página a página.
 
-## Migrations (0038–0041)
+## Locação (dentro do contrato)
+O que o sistema antigo chamava de "contrato" (Eletromecânica, Serra Leste) eram as **locações** do contrato 251. Cada veículo tem uma
+`locacao` opcional; a lista de locações de um contrato vem dos próprios veículos (nome normalizado: sem acento/caixa, sem duplicar).
+Ela é **obrigatória no cadastro** só nos contratos que já usam locações. Indicador: `GET /api/mob-desmob/locacoes`
+(mobilizados/desmobilizados por locação) e o filtro lateral da Frota, o Dashboard Executivo e a Eficiência (`?locacao=`).
+Regras de preventiva valem por **locação > contrato > global**. Ao transferir um veículo de contrato, a locação passa a ser a do contrato novo.
+Valores antigos sem correspondência (ex.: "CT-251", "Sondagem") ficam **sem locação** e aparecem como "Sem locação" para ajuste na Frota.
+
+## Migrations (0038–0042)
 | Migration | O que faz |
 |---|---|
 | 0038 | setor `PLANEJADOR` |
 | 0039 | coluna `contrato` (3 dígitos, com CHECK) em todas as tabelas de dados; **tudo que existe vira `251`**; histórico de contrato por veículo; backup dos valores antigos em `contrato_legado_backup` |
 | 0040 | remove o `DEFAULT '251'` transitório (a aplicação passa a gravar o contrato) |
 | 0041 | índices compostos por contrato |
+| 0042 | **locação** (Serra Norte / Serra Leste) em veículos, abastecimentos e regras de preventiva; restaura do `contrato_legado_backup` os nomes antigos (Eletromecânica → Serra Norte; Serra Leste → Serra Leste) |
 
 ## Roteiro de entrada em produção
 1. **Backup** do banco antes de qualquer coisa.

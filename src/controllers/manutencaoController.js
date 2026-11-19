@@ -24,7 +24,7 @@ export const projecaoFrota = asyncHandler(async (req, res) => {
   const veiculos = await prisma.mobDesmob.findMany({
     where: { status: { not: 'Desmobilizado' }, deletado_em: null, ...filtroContrato(req) },
     orderBy: { tag: 'asc' },
-    select: { tag: true, placa: true, modelo: true, contrato: true, status: true, km_limite_preventiva: true, km_ultima_preventiva: true },
+    select: { tag: true, placa: true, modelo: true, contrato: true, locacao: true, status: true, km_limite_preventiva: true, km_ultima_preventiva: true },
   });
   if (veiculos.length === 0) {
     return res.json({ data: [], meta: { gerado_em: new Date().toISOString(), janela_dias: JANELA_MEDIA_DIAS, total: 0 } });
@@ -43,15 +43,18 @@ export const projecaoFrota = asyncHandler(async (req, res) => {
   const parametros = await prisma.parametroPreventiva.findMany();
   const porCategoria = new Map();
   for (const p of parametros) {
-    porCategoria.set(`${p.categoria}||${p.contrato || ''}`, p);
+    porCategoria.set(`${p.categoria}||${p.contrato || ''}||${p.locacao || ''}`, p);
   }
-  const limiteDe = (modelo, contrato, limiteVeiculo) => {
+  const limiteDe = (modelo, contrato, locacao, limiteVeiculo) => {
     const cat = String(modelo || '').trim().toUpperCase();
     const cont = String(contrato || '').trim();
+    const loc = String(locacao || '').trim();
     if (cat) {
-      const exato = cont ? porCategoria.get(`${cat}||${cont}`) : null;
+      const daLocacao = cont && loc ? porCategoria.get(`${cat}||${cont}||${loc}`) : null;
+      if (daLocacao) return { km_limite: daLocacao.km_limite_preventiva, origem_limite: 'categoria+locacao' };
+      const exato = cont ? porCategoria.get(`${cat}||${cont}||`) : null;
       if (exato) return { km_limite: exato.km_limite_preventiva, origem_limite: 'categoria+contrato' };
-      const global = porCategoria.get(`${cat}||`);
+      const global = porCategoria.get(`${cat}||||`);
       if (global) return { km_limite: global.km_limite_preventiva, origem_limite: 'categoria' };
     }
     const lv = Number(limiteVeiculo);
@@ -80,7 +83,7 @@ export const projecaoFrota = asyncHandler(async (req, res) => {
     const leituras = porTag.get(chave) || [];
     const leiturasMedia = leituras.filter((l) => new Date(l.data) >= desdeMedia);
     const mediaCalculada = mediaKmDia(leiturasMedia);
-    const resolvido = limiteDe(v.modelo, v.contrato, v.km_limite_preventiva);
+    const resolvido = limiteDe(v.modelo, v.contrato, v.locacao, v.km_limite_preventiva);
     const prev = preventivas.get(chave);
     const ancora = escolherAncoraPreventiva(prev, v.km_ultima_preventiva);
     const kmLeitura = leituras.length > 0 ? leituras[leituras.length - 1].km : null;

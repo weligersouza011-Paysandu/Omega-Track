@@ -24,7 +24,7 @@ import MatrizCalendarioMensal from '../components/MatrizCalendarioMensal.jsx';
 // indisponibilidade), gauge de eficiencia geral, barras por TAG e por modelo,
 // evolucao mensal e interdições por veiculo.
 //
-// Os filtros globais desta secao (TAG/Modelo/Contrato/MOB-DESMOB/datas)
+// Os filtros globais desta secao (TAG/Modelo/Locação/MOB-DESMOB/datas)
 // afetam SOMENTE este painel superior. A Matriz Calendario inferior e
 // totalmente independente: tem seletor de mes proprio e nao recebe filtros
 // desta view.
@@ -299,8 +299,8 @@ function CorpoTooltipInterdicao({ detalhes }) {
 
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10px]">
         <div>
-          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Contrato</div>
-          <div className="truncate font-semibold text-slate-200">{detalhes.contrato || '—'}</div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Locação</div>
+          <div className="truncate font-semibold text-slate-200">{detalhes.locacao || '—'}</div>
         </div>
         <div>
           <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Situação</div>
@@ -416,7 +416,7 @@ function InterdicoesPainel({ itens, maxAltura = 'min-h-[280px] max-h-[280px]' })
 // ---------------------------------------------------------------------------
 // Filtro de situacao vazio = MOB + DESMOB (historico completo): veiculos
 // desmobilizados com apontamentos no periodo continuam visiveis no BI.
-const FILTROS_INICIAIS = { tag: '', modelo: '', contrato: '', situacao: '' };
+const FILTROS_INICIAIS = { tag: '', modelo: '', locacao: '', situacao: '' };
 // Periodo padrao: inicio do historico importado (01/01/2026) ate hoje, para o
 // grafico mensal exibir o ano completo (Jan a Out) ao abrir o painel.
 const PERIODO_INICIAL = { inicio: '2026-01-01', fim: hojeISO() };
@@ -434,7 +434,7 @@ export default function GestaoEficienciaView({ sessao }) {
     const params = new URLSearchParams();
     if (filtros.tag) params.set('tag', filtros.tag);
     if (filtros.modelo) params.set('modelo', filtros.modelo);
-    if (filtros.contrato) params.set('contrato', filtros.contrato);
+    if (filtros.locacao) params.set('locacao', filtros.locacao);
     params.set('situacao', filtros.situacao || 'TODOS');
     if (periodo.inicio) params.set('dataInicio', periodo.inicio);
     if (periodo.fim) params.set('dataFim', periodo.fim);
@@ -472,7 +472,7 @@ export default function GestaoEficienciaView({ sessao }) {
     [opcoes],
   );
   const opcoesModelo = useMemo(() => (opcoes?.modelos || []).map((m) => ({ valor: m, rotulo: m })), [opcoes]);
-  const opcoesContrato = useMemo(() => (opcoes?.contratos || []).map((c) => ({ valor: c, rotulo: c })), [opcoes]);
+  const opcoesLocacao = useMemo(() => (opcoes?.locacoes || []).map((c) => ({ valor: c, rotulo: c })), [opcoes]);
 
   const filtrosAtivos =
     Object.entries(filtros).some(([chave, valor]) => valor && valor !== FILTROS_INICIAIS[chave]) ||
@@ -521,7 +521,7 @@ export default function GestaoEficienciaView({ sessao }) {
           tag: t.tag,
           placa: t.placa,
           modelo: t.modelo,
-          contrato: t.contrato,
+          locacao: t.locacao,
           status: t.status,
           motivo: detalhe.motivo,
           datas: detalhe.datas || [],
@@ -562,7 +562,7 @@ export default function GestaoEficienciaView({ sessao }) {
       <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
         <FiltroSelect rotulo="TAG" valor={filtros.tag} onChange={(v) => setFiltros((f) => ({ ...f, tag: v }))} opcoes={opcoesTag} vazio="Todas as TAGs" />
         <FiltroSelect rotulo="Modelo" valor={filtros.modelo} onChange={(v) => setFiltros((f) => ({ ...f, modelo: v }))} opcoes={opcoesModelo} vazio="Todos os modelos" />
-        <FiltroSelect rotulo="Contrato" valor={filtros.contrato} onChange={(v) => setFiltros((f) => ({ ...f, contrato: v }))} opcoes={opcoesContrato} vazio="Todos os contratos" />
+        <FiltroSelect rotulo="Locação" valor={filtros.locacao} onChange={(v) => setFiltros((f) => ({ ...f, locacao: v }))} opcoes={opcoesLocacao} vazio="Todas as locações" />
         <FiltroSelect
           rotulo="MOB / DESMOB"
           valor={filtros.situacao}

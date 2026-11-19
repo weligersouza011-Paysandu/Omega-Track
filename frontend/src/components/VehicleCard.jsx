@@ -74,7 +74,7 @@ export default function VehicleCard({ veiculo, onEdit, onDesmob }) {
             <Truck size={16} className="text-omega-500 mt-0.5 shrink-0" />
             <h3 className="font-bold text-omega-900 leading-snug line-clamp-1">{veiculo.modelo}</h3>
           </div>
-          <p className="text-sm text-omega-500 pl-6 line-clamp-1">{veiculo.contrato}</p>
+          <p className="text-sm text-omega-500 pl-6 line-clamp-1">{veiculo.contrato}{veiculo.locacao ? ` • ${veiculo.locacao}` : ''}</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3 pt-3 border-t border-omega-100">

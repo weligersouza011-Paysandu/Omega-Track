@@ -170,17 +170,22 @@ export function dataPrevistaPreventiva(diasRestantes) {
   return d.toISOString().slice(0, 10);
 }
 // Resolve o limite aplicável com a tabela dinâmica de parâmetros.
-// Precedência: categoria+contrato > categoria (global) > veículo > padrão 10000.
-export async function resolverLimitePreventiva({ limiteVeiculo = null, categoria = null, contrato = null } = {}) {
+// Precedência: categoria+locação > categoria+contrato > categoria (global) > veículo > padrão 10000.
+export async function resolverLimitePreventiva({ limiteVeiculo = null, categoria = null, contrato = null, locacao = null } = {}) {
   const cat = String(categoria || '').trim().toUpperCase();
   const cont = String(contrato || '').trim() || null;
+  const loc = String(locacao || '').trim() || null;
   if (cat) {
     let p = null;
+    if (cont && loc) {
+      p = await prisma.parametroPreventiva.findFirst({ where: { categoria: cat, contrato: cont, locacao: loc } });
+      if (p) return { km_limite: p.km_limite_preventiva, origem_limite: 'categoria+locacao', parametro_id: p.id };
+    }
     if (cont) {
-      p = await prisma.parametroPreventiva.findFirst({ where: { categoria: cat, contrato: cont } });
+      p = await prisma.parametroPreventiva.findFirst({ where: { categoria: cat, contrato: cont, locacao: null } });
       if (p) return { km_limite: p.km_limite_preventiva, origem_limite: 'categoria+contrato', parametro_id: p.id };
     }
-    p = await prisma.parametroPreventiva.findFirst({ where: { categoria: cat, contrato: null } });
+    p = await prisma.parametroPreventiva.findFirst({ where: { categoria: cat, contrato: null, locacao: null } });
     if (p) return { km_limite: p.km_limite_preventiva, origem_limite: 'categoria', parametro_id: p.id };
   }
   const lv = Number(limiteVeiculo);

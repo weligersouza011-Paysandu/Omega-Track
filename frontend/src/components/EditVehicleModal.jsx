@@ -8,8 +8,8 @@ import { contratoValido, MENSAGEM_CONTRATO } from '../utils/contrato.js';
 import { ehMaster } from '../utils/permissoes.js';
 import TransferirContratoModal from './TransferirContratoModal.jsx';
 
-export default function EditVehicleModal({ open, veiculo, contratos = [], modelos = [], sessao, onClose, onSaved }) {
-  const [form, setForm] = useState({ placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: '', data_desmob: '', km_limite_preventiva: '', km_ultima_preventiva: '' });
+export default function EditVehicleModal({ open, veiculo, locacoes = [], modelos = [], sessao, onClose, onSaved }) {
+  const [form, setForm] = useState({ placa: '', modelo: '', contrato: '', locacao: '', status: 'Mobilizado', data_mob: '', data_desmob: '', km_limite_preventiva: '', km_ultima_preventiva: '' });
   const [transferindo, setTransferindo] = useState(false);
   const [arquivo, setArquivo] = useState(null);
   const [previewNova, setPreviewNova] = useState(null);
@@ -22,6 +22,7 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
         placa: veiculo.placa || '',
         modelo: veiculo.modelo || veiculo.categoria || '',
         contrato: (veiculo.contrato || '').trim(),
+        locacao: (veiculo.locacao || '').trim(),
         status: veiculo.status || 'Mobilizado',
         data_mob: paraInputData(veiculo.data_mob),
         data_desmob: veiculo.data_desmob ? paraInputData(veiculo.data_desmob) : '',
@@ -104,6 +105,7 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
         placa: form.placa.toUpperCase().trim(),
         modelo: form.modelo.trim() || null,
         contrato: form.contrato.trim() || null,
+        locacao: form.locacao.trim() || null,
         status: form.status,
         data_mob: form.data_mob,
         data_desmob: form.status === 'Desmobilizado' ? form.data_desmob : null,
@@ -232,6 +234,17 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
               opcoes={modelos}
               placeholderSelecionar="Selecione o modelo..."
               placeholderNovo="Digite o novo modelo (ex: Caminhão Munck)..."
+            />
+          </div>
+          <div>
+            <CampoListaComCriador
+              id="edit-locacao"
+              label="Locação"
+              value={form.locacao}
+              onChange={(e) => setForm((f) => ({ ...f, locacao: e.target.value }))}
+              opcoes={locacoes.map((c) => c.nome).filter((nome) => nome !== 'Sem locação')}
+              placeholderSelecionar="Selecione a locação..."
+              placeholderNovo="Digite a nova locação..."
             />
           </div>
           <div>

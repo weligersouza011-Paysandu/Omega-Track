@@ -16,7 +16,7 @@ const NORMAL = U('02', 'NORMAL');
 const ALVO = { ...U('03', 'NORMAL'), tipo: 'OPERACIONAL' };
 const USUARIOS = [MASTER, NORMAL, ALVO];
 
-const veiculo = { tag: 'A1', placa: 'AAA1A11', contrato: '251', status: 'Mobilizado', deletado_em: null, data_mob: dia(60), created_at: dia(60) };
+const veiculo = { tag: 'A1', placa: 'AAA1A11', contrato: '251', locacao: 'Serra Norte', status: 'Mobilizado', deletado_em: null, data_mob: dia(60), created_at: dia(60) };
 let historico;
 let partes;
 let abastecimentos;
@@ -34,6 +34,7 @@ const prisma = {
   mobDesmob: {
     findFirst: async () => ({ ...veiculo }),
     update: async ({ data }) => Object.assign(veiculo, data),
+    groupBy: async () => [],
   },
   veiculoContratoHistorico: {
     findFirst: async ({ where }) => historico.find((h) => h.tag === where.tag && h.vigente_ate === null) || null,
@@ -123,6 +124,7 @@ test('da data efetiva em diante tudo vai ao contrato novo; o anterior permanece'
   assert.equal(r.corpo.data.de, '251');
   assert.equal(r.corpo.data.para, '010');
   assert.equal(veiculo.contrato, '010');
+  assert.equal(veiculo.locacao, null, 'a locacao e do contrato antigo: no novo comeca sem locacao');
   assert.deepEqual(partes.map((p) => [p.id, p.contrato]), [['p1', '251'], ['p2', '010'], ['p3', '010'], ['p4', '251']]);
   assert.deepEqual(abastecimentos.map((a) => [a.id, a.contrato]), [['a1', '251'], ['a2', '010']]);
   assert.deepEqual(eventos.map((e) => [e.id, e.contrato]), [['e1', '251'], ['e2', '010']]);

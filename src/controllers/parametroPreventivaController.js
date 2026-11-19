@@ -3,6 +3,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { KM_LIMITE_PREVENTIVA_PADRAO } from '../services/manutencaoService.js';
 import { exigirContrato } from '../utils/contrato.js';
 import { contratoDoEscopo, ehMaster, escopoDaRequisicao } from '../middleware/escopo.js';
+import { resolverLocacao } from '../utils/locacao.js';
 
 // ============================================================================
 // Parâmetros de preventiva por categoria (modelo) e contrato.
@@ -36,7 +37,7 @@ export const listarParametros = asyncHandler(async (req, res) => {
   const contrato = contratoDoEscopo(req);
   const parametros = await prisma.parametroPreventiva.findMany({
     where: contrato === undefined ? {} : { OR: [{ contrato: null }, { contrato }] },
-    orderBy: [{ categoria: 'asc' }, { contrato: 'asc' }],
+    orderBy: [{ categoria: 'asc' }, { contrato: 'asc' }, { locacao: 'asc' }],
   });
   res.json({ data: parametros, meta: { padrao_km: KM_LIMITE_PREVENTIVA_PADRAO } });
 });
@@ -49,14 +50,19 @@ export const buscarPorCategoria = asyncHandler(async (req, res) => {
   }
   // Contrato do veiculo = escopo do usuario (Master pode pedir outro via ?contrato=).
   const contrato = contratoDoEscopo(req) ?? null;
+  const locacao = String(req.query.locacao || '').trim() || null;
   let parametro = null;
   let origem = 'padrao';
-  if (contrato) {
-    parametro = await prisma.parametroPreventiva.findFirst({ where: { categoria, contrato } });
+  if (contrato && locacao) {
+    parametro = await prisma.parametroPreventiva.findFirst({ where: { categoria, contrato, locacao } });
+    if (parametro) origem = 'categoria+locacao';
+  }
+  if (!parametro && contrato) {
+    parametro = await prisma.parametroPreventiva.findFirst({ where: { categoria, contrato, locacao: null } });
     if (parametro) origem = 'categoria+contrato';
   }
   if (!parametro) {
-    parametro = await prisma.parametroPreventiva.findFirst({ where: { categoria, contrato: null } });
+    parametro = await prisma.parametroPreventiva.findFirst({ where: { categoria, contrato: null, locacao: null } });
     if (parametro) origem = 'categoria';
   }
   res.json({
@@ -80,7 +86,10 @@ export const salvarParametro = asyncHandler(async (req, res) => {
   // Nao-Master grava sempre no proprio contrato. Master: contrato informado ou, vazio, regra global.
   const contrato = ehMaster(req.atuante) ? normalizarContrato(req.body?.contrato) : escopoDaRequisicao(req).contrato;
 
-  const existente = await prisma.parametroPreventiva.findFirst({ where: { categoria, contrato } });
+  // Regra por locacao so faz sentido dentro de um contrato (regra global nao tem locacao).
+  const locacao = contrato ? await resolverLocacao(prisma, contrato, req.body?.locacao) : null;
+
+  const existente = await prisma.parametroPreventiva.findFirst({ where: { categoria, contrato, locacao } });
   let parametro;
   let criado = false;
   if (existente) {
@@ -90,7 +99,7 @@ export const salvarParametro = asyncHandler(async (req, res) => {
     });
   } else {
     parametro = await prisma.parametroPreventiva.create({
-      data: { categoria, km_limite_preventiva, contrato },
+      data: { categoria, km_limite_preventiva, contrato, locacao },
     });
     criado = true;
   }

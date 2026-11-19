@@ -15,6 +15,7 @@ const dataBR = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
 export default function TransferirContratoModal({
   open, onClose, titulo, descricao, contratoAtual, endpoint, historicoEndpoint, aoConcluir,
 }) {
+  const [locacao, setLocacao] = useState('');
   const [contrato, setContrato] = useState('');
   const [data, setData] = useState(hojeISO());
   const [contratos, setContratos] = useState([]);
@@ -27,6 +28,7 @@ export default function TransferirContratoModal({
   useEffect(() => {
     if (!open) return undefined;
     setContrato('');
+    setLocacao('');
     setData(hojeISO());
     setErro(null);
     setLimpeza(null);
@@ -57,7 +59,7 @@ export default function TransferirContratoModal({
       const resp = await fetch(endpoint, {
         method: 'POST',
         headers: authHeaders(lerSessao()),
-        body: JSON.stringify({ contrato, data_efetiva: data, confirmar_limpeza_programacao: confirmouLimpeza }),
+        body: JSON.stringify({ contrato, data_efetiva: data, ...(historicoEndpoint ? { locacao: locacao.trim() || null } : {}), confirmar_limpeza_programacao: confirmouLimpeza }),
       });
       const corpo = await resp.json().catch(() => ({}));
       if (resp.status === 409 && corpo.codigo === 'PROGRAMACAO_FUTURA') {
@@ -120,6 +122,12 @@ export default function TransferirContratoModal({
             <input id="transf-data" type="date" value={data} max={hojeISO()} onChange={(e) => setData(e.target.value)} className="input" />
           </div>
         </div>
+        {historicoEndpoint && (
+          <div>
+            <label className="label" htmlFor="transf-locacao">Locação no novo contrato <span className="font-normal text-omega-400">(opcional)</span></label>
+            <input id="transf-locacao" value={locacao} onChange={(e) => setLocacao(e.target.value)} maxLength={60} autoComplete="off" className="input" placeholder="Ex: Serra Norte" />
+          </div>
+        )}
         <p className="text-xs text-omega-500">
           Do dia da troca em diante, os registros passam ao contrato novo. Tudo o que veio antes permanece no contrato {contratoAtual}.
         </p>

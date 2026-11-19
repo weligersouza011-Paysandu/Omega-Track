@@ -13,6 +13,7 @@ import {
   atualizarFotoVeiculo,
   vincularTelemetriaPorPlaca,
   transferirContratoDoVeiculo,
+  resumoLocacoes,
   historicoDeContratoDoVeiculo,
 } from '../controllers/mobDesmobController.js';
 import { requerAdmin, requerMaster, requerSessao } from '../middleware/sessao.js';
@@ -25,7 +26,7 @@ const router = Router();
 // Meio Ambiente acompanha a mobilizacao (lista e ficha essencial) e corrige o
 // combustivel; qualquer outra rota da frota e negada.
 const ROTAS_MEIO_AMBIENTE = [
-  ['GET', /^\/?$/], ['GET', /^\/tag\/[^/]+\/?$/], ['GET', /^\/placa\/[^/]+\/?$/], ['PATCH', /^\/[^/]+\/?$/],
+  ['GET', /^\/?$/], ['GET', /^\/locacoes\/?$/], ['GET', /^\/tag\/[^/]+\/?$/], ['GET', /^\/placa\/[^/]+\/?$/], ['PATCH', /^\/[^/]+\/?$/],
 ];
 router.use((req, res, next) => {
   if (ehMeioAmbiente(req.atuante) && !ROTAS_MEIO_AMBIENTE.some(([metodo, rota]) => metodo === req.method && rota.test(req.path))) {
@@ -43,6 +44,7 @@ router.param('tag', paramContrato(contratoDoVeiculo('tag')));
 router.param('placa', paramContrato(contratoDoVeiculo('placa')));
 
 router.get('/', requerSessao, listarVeiculos);
+router.get('/locacoes', requerSessao, resumoLocacoes);
 router.get('/tag/:tag', requerSessao, buscarVeiculoPorTag);
 router.get('/placa/:placa', requerSessao, buscarVeiculoPorPlaca);
 router.get('/placa/:placa/telemetria', requerSessao, vincularTelemetriaPorPlaca);

@@ -6,23 +6,19 @@ import { calcularFarol, textoDias, FAROL_LABEL, FAROL_LABEL_CURTO, FAROL_COR } f
 
 const CORES_STATUS = { mob: '#0052CC', desmob: '#A53030' };
 
-// Segmentação por contrato (gráfico de modelos): Eletromecânica marrom/laranja,
-// Serra Leste cinza, demais contratos caem na paleta extra.
+// Segmentação por locação do contrato (gráfico de modelos): Serra Norte marrom/laranja,
+// Serra Leste cinza, demais locações caem na paleta extra.
 const CORES_CONTRATO = {
-  'Eletromecânica': '#B45309',
+  'Serra Norte': '#B45309',
   'Serra Leste': '#6B7280',
   'Sondagem': '#0E7490',
 };
 const PALETA_EXTRA = ['#7C3AED', '#0D9488', '#BE123C', '#4D7C0F', '#1D4ED8', '#A16207'];
 
+// A segmentação do gráfico é a LOCAÇÃO do veículo dentro do contrato.
 function normalizarContrato(raw) {
   const t = String(raw || '').trim();
-  if (t === '') return 'Sem contrato';
-  const lower = t.toLowerCase();
-  if (lower.startsWith('eletromec')) return 'Eletromecânica';
-  if (lower.startsWith('serra leste')) return 'Serra Leste';
-  if (lower.startsWith('sondag') || lower.startsWith('sondagem')) return 'Sondagem';
-  return t;
+  return t === '' ? 'Sem locação' : t;
 }
 
 function normalizarModelo(raw) {
@@ -71,7 +67,7 @@ export default function DashboardExecutivoView() {
     base
       .filter((v) => v.status === 'Mobilizado')
       .forEach((v) => {
-        const c = normalizarContrato(v.contrato);
+        const c = normalizarContrato(v.locacao);
         mapa.set(c, (mapa.get(c) || 0) + 1);
       });
     return [...mapa.entries()]
@@ -90,7 +86,7 @@ export default function DashboardExecutivoView() {
       .filter((v) => v.status === 'Mobilizado')
       .forEach((v) => {
         const m = normalizarModelo(v.modelo || v.categoria);
-        const c = normalizarContrato(v.contrato);
+        const c = normalizarContrato(v.locacao);
         if (!porModelo.has(m)) porModelo.set(m, new Map());
         const seg = porModelo.get(m);
         seg.set(c, (seg.get(c) || 0) + 1);
@@ -248,7 +244,7 @@ export default function DashboardExecutivoView() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card p-4">
           <div className="text-center text-xs font-bold text-omega-800 mb-1">
-            Controle de Mobilizacao por Contrato
+            Controle de Mobilização por Locação
           </div>
           <div className="text-center text-[10px] text-omega-400 mb-3">
             exclusivamente ativos • total mobilizado: <span className="font-black text-omega-700 tabular-nums">{totalMobilizados}</span>
@@ -298,7 +294,7 @@ export default function DashboardExecutivoView() {
           </div>
           <div className="flex items-center justify-center gap-3 mb-3 flex-wrap text-[11px] font-semibold text-omega-600">
             {contratosNosMobilizados.map((c) => (
-              <span key={c} className="flex items-center gap-1.5" title={`Contrato ${c}`}>
+              <span key={c} className="flex items-center gap-1.5" title={`Locação ${c}`}>
                 <span className="w-2.5 h-2.5 rounded-sm" style={{ background: corDoContrato(c) }} /> {c}
               </span>
             ))}

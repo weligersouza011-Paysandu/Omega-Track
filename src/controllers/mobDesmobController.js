@@ -14,6 +14,7 @@ import { exigirContrato, tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js
 import { ehMeioAmbiente, CAMPOS_VEICULO_MEIO_AMBIENTE } from '../utils/setores.js';
 import { contratoParaGravar, filtroContrato, ehMaster } from '../middleware/escopo.js';
 import { lerPaginacao, blocoPaginacao } from '../utils/paginacao.js';
+import { resolverLocacao } from '../utils/locacao.js';
 import { transferirContratoVeiculo, historicoContratoVeiculo } from '../services/transferenciaContratoService.js';
 
 const CINCO_DIAS_MS = 5 * 24 * 60 * 60 * 1000;
@@ -203,7 +204,7 @@ function validarDadosTecnicos(campos = {}, base = {}) {
 // tecnicos, quilometragem, documentos, partes diarias ou preventiva).
 const SELECT_ESSENCIAL_VEICULO = {
   tag: true, placa: true, modelo: true, contrato: true, status: true,
-  data_mob: true, data_desmob: true, combustivel: true, foto_veiculo: true,
+  data_mob: true, data_desmob: true, combustivel: true, foto_veiculo: true, locacao: true,
 };
 
 export const listarVeiculos = asyncHandler(async (req, res) => {
@@ -301,6 +302,7 @@ export const buscarStatusManutencao = asyncHandler(async (req, res) => {
     limiteVeiculo: veiculo.km_limite_preventiva,
     categoria: veiculo.modelo,
     contrato: veiculo.contrato,
+    locacao: veiculo.locacao,
   });
   // Âncora do ciclo: maior KM entre a última parte preventiva e o registro manual.
   const ancora = await resolverAncorasPreventiva(tag.toUpperCase(), veiculo.km_ultima_preventiva);
@@ -399,6 +401,8 @@ export const criarVeiculo = asyncHandler(async (req, res) => {
   // Contrato gravado: o do usuario (Master pode escolher outro).
   body.contrato = contratoParaGravar(req, body.contrato);
   const dados = validarDadosMobilizacao(body);
+  // Locacao (ex.: Serra Norte): obrigatoria quando o contrato ja usa locacoes.
+  dados.locacao = await resolverLocacao(prisma, dados.contrato, body.locacao, { obrigatoria: true });
 
   // Regra de ouro: foto_veiculo aceita SOMENTE URL do Cloudinary (sem binario).
   validarUrlMidia(body.foto_veiculo, 'foto_veiculo');
@@ -499,6 +503,7 @@ export const atualizarVeiculo = asyncHandler(async (req, res) => {
       placa: dados.placa,
       modelo: dados.modelo,
       contrato: dados.contrato,
+      ...(temCampo('locacao') ? { locacao: await resolverLocacao(prisma, anterior.contrato, body.locacao) } : {}),
       status: dados.status,
       data_mob: dados.data_mob,
       data_desmob: dados.data_desmob,
@@ -785,6 +790,7 @@ export const transferirContratoDoVeiculo = asyncHandler(async (req, res) => {
       tag: req.params.tag,
       contrato: req.body?.contrato,
       dataEfetiva: req.body?.data_efetiva,
+      locacao: req.body?.locacao,
       confirmarLimpeza: req.body?.confirmar_limpeza_programacao === true,
       autor: req.atuante?.nome ?? null,
     });
@@ -801,4 +807,29 @@ export const transferirContratoDoVeiculo = asyncHandler(async (req, res) => {
 // GET /api/mob-desmob/:tag/historico-contrato
 export const historicoDeContratoDoVeiculo = asyncHandler(async (req, res) => {
   res.json({ data: await historicoContratoVeiculo(req.params.tag) });
+});
+
+// GET /api/mob-desmob/locacoes — locacoes do contrato com a contagem de veiculos
+// (indicador "quantos locados em Serra Norte / Serra Leste"). Veiculos sem locacao
+// aparecem com `locacao: null`. Escopo: o contrato do usuario (Master: filtro).
+export const resumoLocacoes = asyncHandler(async (req, res) => {
+  const grupos = await prisma.mobDesmob.groupBy({
+    by: ['contrato', 'locacao', 'status'],
+    where: { deletado_em: null, ...filtroContrato(req) },
+    _count: { _all: true },
+  });
+  const porChave = new Map();
+  for (const g of grupos) {
+    const chave = `${g.contrato}|${g.locacao ?? ''}`;
+    const linha = porChave.get(chave) || { contrato: g.contrato, locacao: g.locacao ?? null, mobilizados: 0, desmobilizados: 0, total: 0 };
+    if (g.status === 'Desmobilizado') linha.desmobilizados += g._count._all;
+    else linha.mobilizados += g._count._all;
+    linha.total += g._count._all;
+    porChave.set(chave, linha);
+  }
+  const data = [...porChave.values()].sort((a, b) =>
+    a.contrato.localeCompare(b.contrato)
+    || (a.locacao === null) - (b.locacao === null) // "sem locacao" por ultimo
+    || (a.locacao ?? '').localeCompare(b.locacao ?? '', 'pt-BR'));
+  res.json({ data });
 });

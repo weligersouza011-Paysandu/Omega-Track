@@ -126,7 +126,7 @@ export default function VehicleDetailPanel({ veiculo, onClose, onEdit, onDesmob,
                 Contrato
               </div>
               <div className="text-sm font-bold text-omega-800 leading-tight">
-                {veiculo.contrato}
+                {veiculo.contrato}{veiculo.locacao ? ` • ${veiculo.locacao}` : ''}
               </div>
             </div>
           </div>

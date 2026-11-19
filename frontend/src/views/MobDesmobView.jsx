@@ -1,4 +1,4 @@
-import { soDigitosContrato, contratoValido, tagSemEspaco, MENSAGEM_CONTRATO } from '../utils/contrato.js';
+import { soDigitosContrato, contratoValido, tagSemEspaco, MENSAGEM_CONTRATO, contratoDeLancamento } from '../utils/contrato.js';
 import { buscarTodasPaginas } from '../utils/paginas.js';
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search, Filter, Download, X, LayoutGrid, BarChart3, FileText, CheckCircle2, RefreshCw, AlertTriangle, Briefcase, Loader2, SlidersHorizontal, Trash2 } from 'lucide-react';
@@ -29,6 +29,7 @@ const formMobilizacaoInicial = () => ({
   placa: '',
   modelo: '',
   contrato: '',
+  locacao: '',
   status: '',
   data_mob: hojeISO(),
   data_desmob: '',
@@ -115,7 +116,7 @@ export default function MobDesmobView({ sessao }) {
 
   const normalizarContrato = (raw) => {
     const t = String(raw || '').trim();
-    return t === '' ? 'Sem contrato' : t;
+    return t === '' ? 'Sem locação' : t;
   };
 
   const passaBusca = (v, q) => {
@@ -124,7 +125,8 @@ export default function MobDesmobView({ sessao }) {
       (v.tag || '').toUpperCase().includes(q) ||
       (v.placa || '').toUpperCase().includes(q) ||
       (v.modelo || '').toUpperCase().includes(q) ||
-      (v.contrato || '').toUpperCase().includes(q)
+      (v.contrato || '').toUpperCase().includes(q) ||
+      (v.locacao || '').toUpperCase().includes(q)
     );
   };
 
@@ -132,7 +134,7 @@ export default function MobDesmobView({ sessao }) {
     const q = busca.trim().toUpperCase();
     return veiculos.filter(v => {
       if (filtroStatus !== 'todos' && v.status !== filtroStatus) return false;
-      if (filtroContrato !== 'todos' && normalizarContrato(v.contrato) !== filtroContrato) return false;
+      if (filtroContrato !== 'todos' && normalizarContrato(v.locacao) !== filtroContrato) return false;
       return passaBusca(v, q);
     });
   }, [veiculos, busca, filtroStatus, filtroContrato]);
@@ -141,7 +143,7 @@ export default function MobDesmobView({ sessao }) {
   const contagem = useMemo(() => {
     const q = busca.trim().toUpperCase();
     const base = veiculos.filter(v => {
-      if (filtroContrato !== 'todos' && normalizarContrato(v.contrato) !== filtroContrato) return false;
+      if (filtroContrato !== 'todos' && normalizarContrato(v.locacao) !== filtroContrato) return false;
       return passaBusca(v, q);
     });
     return {
@@ -161,7 +163,7 @@ export default function MobDesmobView({ sessao }) {
     });
     const mapa = new Map();
     for (const v of base) {
-      const nome = normalizarContrato(v.contrato);
+      const nome = normalizarContrato(v.locacao);
       mapa.set(nome, (mapa.get(nome) || 0) + 1);
     }
     return [...mapa.entries()]
@@ -226,6 +228,7 @@ export default function MobDesmobView({ sessao }) {
       placa: form.placa.toUpperCase().trim(),
       modelo: String(form.modelo).trim(),
       contrato: String(form.contrato).trim(),
+      locacao: String(form.locacao || '').trim() || null,
       status: form.status,
       data_mob: form.data_mob,
       data_desmob: form.status === 'Desmobilizado' ? form.data_desmob : null,
@@ -434,7 +437,7 @@ export default function MobDesmobView({ sessao }) {
             {exportando ? 'Exportando...' : 'Exportar'}
           </button>
           {!modoAmbiental && (
-            <button className="btn-primary !py-2 text-xs" onClick={() => setModalCadastro(true)}><Plus size={14} /> Adicionar</button>
+            <button className="btn-primary !py-2 text-xs" onClick={() => { setForm({ ...formMobilizacaoInicial(), contrato: contratoDeLancamento(sessao?.usuario) || '' }); setModalCadastro(true); }}><Plus size={14} /> Adicionar</button>
           )}
         </div>
       </div>
@@ -483,12 +486,12 @@ export default function MobDesmobView({ sessao }) {
             <div className="flex items-center justify-between px-2 pt-1 pb-1.5">
               <div className="flex items-center gap-1.5 text-[10px] font-bold text-omega-500 uppercase tracking-wider">
                 <Briefcase size={12} />
-                Contrato
+                Locação
               </div>
               {filtroContrato !== 'todos' && (
                 <button
                   onClick={() => setFiltroContrato('todos')}
-                  title="Limpar filtro de contrato"
+                  title="Limpar filtro de locação"
                   className="text-omega-400 hover:text-omega-700 p-0.5 rounded"
                 >
                   <X size={12} />
@@ -504,7 +507,7 @@ export default function MobDesmobView({ sessao }) {
                   : 'text-omega-700 hover:bg-omega-50')
               }
             >
-              <span className="truncate text-[12px]">Todos os Contratos</span>
+              <span className="truncate text-[12px]">Todas as Locações</span>
               <span className={
                 'text-[11px] font-black tabular-nums px-1.5 py-0.5 rounded shrink-0 ' +
                 (filtroContrato === 'todos' ? 'bg-white/20 text-white' : 'bg-omega-100 text-omega-600')
@@ -541,7 +544,7 @@ export default function MobDesmobView({ sessao }) {
             })}
             {contratos.length === 0 && (
               <div className="px-2.5 py-2 text-[11px] text-omega-400">
-                Nenhum contrato neste filtro.
+                Nenhuma locação neste filtro.
               </div>
             )}
           </div>
@@ -586,7 +589,7 @@ export default function MobDesmobView({ sessao }) {
                     <span className="truncate">{filtroContrato}</span>
                     <button
                       onClick={() => setFiltroContrato('todos')}
-                      title="Remover filtro de contrato"
+                      title="Remover filtro de locação"
                       className="hover:bg-white/20 rounded-full p-0.5"
                     >
                       <X size={11} />
@@ -770,15 +773,29 @@ export default function MobDesmobView({ sessao }) {
             />
           </div>
           <div>
-            <CampoListaComCriador
+            <label className="label" htmlFor="cad-contrato">Contrato <span className="text-status-vermelho">*</span></label>
+            <input
               id="cad-contrato"
-              label="Contrato"
-              required
               value={form.contrato}
               onChange={e => setForm({ ...form, contrato: soDigitosContrato(e.target.value) })}
-              opcoes={contratos.map((c) => c.nome).filter((nome) => nome !== 'Sem contrato')}
-              placeholderSelecionar="Selecione o contrato..."
-              placeholderNovo="Digite o contrato (3 números)..."
+              readOnly={!souMaster}
+              disabled={!souMaster}
+              inputMode="numeric"
+              maxLength={3}
+              placeholder="Ex: 251"
+              className="input font-mono"
+              title={souMaster ? '3 números' : 'O veículo entra no seu contrato'}
+            />
+          </div>
+          <div>
+            <CampoListaComCriador
+              id="cad-locacao"
+              label="Locação"
+              value={form.locacao}
+              onChange={e => setForm({ ...form, locacao: e.target.value })}
+              opcoes={contratos.map((c) => c.nome).filter((nome) => nome !== 'Sem locação')}
+              placeholderSelecionar="Selecione a locação..."
+              placeholderNovo="Digite a nova locação (ex: Serra Norte)..."
             />
           </div>
           <div>
@@ -916,7 +933,7 @@ export default function MobDesmobView({ sessao }) {
       <EditVehicleModal
         open={!!modalEdicao}
         veiculo={modalEdicao}
-        contratos={contratos}
+        locacoes={contratos}
         modelos={modelos}
         sessao={sessao}
         onClose={() => setModalEdicao(null)}

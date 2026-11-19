@@ -11,6 +11,7 @@
 import prisma from '../config/database.js';
 import { exigirContrato } from '../utils/contrato.js';
 import { bloquearEquipamentos } from '../controllers/programacaoRecursosLocks.js';
+import { resolverLocacao } from '../utils/locacao.js';
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const FUSO_LOCAL_MS = 3 * 60 * 60 * 1000; // America/Belem (-03:00)
@@ -65,7 +66,7 @@ export async function historicoContratoVeiculo(tag) {
   return { tag: veiculo.tag, contrato_atual: veiculo.contrato, historico };
 }
 
-export async function transferirContratoVeiculo({ tag, contrato, dataEfetiva, confirmarLimpeza = false, autor = null }) {
+export async function transferirContratoVeiculo({ tag, contrato, dataEfetiva, locacao = null, confirmarLimpeza = false, autor = null }) {
   const novo = exigirContrato(contrato, 'Novo contrato');
   const dia = lerDataEfetiva(dataEfetiva);
 
@@ -121,7 +122,9 @@ export async function transferirContratoVeiculo({ tag, contrato, dataEfetiva, co
     await tx.veiculoContratoHistorico.create({
       data: { tag: veiculo.tag, contrato: novo, vigente_desde: dia, alterado_por: autor },
     });
-    await tx.mobDesmob.update({ where: { tag: veiculo.tag }, data: { contrato: novo } });
+    // A locacao pertence ao contrato: no contrato novo vale a informada (ou nenhuma).
+    const locacaoNova = await resolverLocacao(tx, novo, locacao);
+    await tx.mobDesmob.update({ where: { tag: veiculo.tag }, data: { contrato: novo, locacao: locacaoNova } });
 
     // Da data efetiva em diante: tudo do veiculo passa ao contrato novo. Antes: permanece.
     const desde = inicioDoDiaLocal(dia);
@@ -135,6 +138,7 @@ export async function transferirContratoVeiculo({ tag, contrato, dataEfetiva, co
       tag: veiculo.tag,
       de: veiculo.contrato,
       para: novo,
+      locacao: locacaoNova,
       data_efetiva: isoDe(dia),
       transferidos: { partes_diarias: partes.count, abastecimentos: abastecimentos.count, eventos_telemetria: telemetria.count },
       programacao_removida: programacoes,

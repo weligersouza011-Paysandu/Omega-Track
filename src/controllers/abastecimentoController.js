@@ -23,6 +23,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 import { contratoParaGravar, filtroContrato } from '../middleware/escopo.js';
+import { locacoesDoContrato, chaveLocacao } from '../utils/locacao.js';
 
 const LIMITE_ERROS_DETALHADOS = 50;
 const TAMANHO_LOTE_INSERT = 1000;
@@ -350,7 +351,7 @@ async function carregarVeiculosPorPlaca(contrato) {
   const veiculos = await comRetryConexao(
     () => prisma.mobDesmob.findMany({
       where: { contrato },
-      select: { tag: true, placa: true, modelo: true, contrato: true },
+      select: { tag: true, placa: true, modelo: true, contrato: true, locacao: true },
     }),
     3,
     700,
@@ -475,6 +476,8 @@ export const importarAbastecimentos = asyncHandler(async (req, res) => {
   }
 
   const veiculosPorPlaca = await carregarVeiculosPorPlaca(contratoImportacao);
+  // Locacao do abastecimento: coluna da planilha (se for uma locacao conhecida do contrato) > locacao do veiculo.
+  const locacoesConhecidas = new Map((await locacoesDoContrato(prisma, contratoImportacao)).map((l) => [chaveLocacao(l), l]));
   const registros = [];
   const erros = [];
   const placasSemVeiculo = new Set();
@@ -545,6 +548,7 @@ export const importarAbastecimentos = asyncHandler(async (req, res) => {
       emissao_co2_kg: calcularEmissaoCO2(litros, tipoCombustivel),
       estabelecimento: textoLimitado(valorDaLinha(linha, colunas.estabelecimento), 255),
       contrato: contratoImportacao,
+      locacao: locacoesConhecidas.get(chaveLocacao(valorDaLinha(linha, colunas.contrato))) ?? veiculo?.locacao ?? null,
       mes_referencia: mesReferencia(dataTransacao),
     });
   }
@@ -655,6 +659,8 @@ export const listarAbastecimentos = asyncHandler(async (req, res) => {
 
   const where = { ...filtroContrato(req) };
   if (mes) where.mes_referencia = mes;
+  const locacao = texto(req.query.locacao);
+  if (locacao) where.locacao = { equals: locacao, mode: 'insensitive' };
 
   const placa = texto(req.query.placa);
   if (placa) {

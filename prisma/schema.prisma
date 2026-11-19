@@ -18,6 +18,8 @@ model MobDesmob {
   observacao_desmob  String?   @db.Text
   modelo             String?   @db.VarChar(100)
   contrato           String    @db.VarChar(3)
+  // Locacao dentro do contrato (ex.: Serra Norte, Serra Leste). Opcional; contratos sem locacoes a deixam vazia.
+  locacao            String?   @db.VarChar(60)
   created_at         DateTime  @default(now()) @db.Timestamp(6)
 
   // === Manutenção preventiva (FASE 2) ===
@@ -48,6 +50,7 @@ model MobDesmob {
   @@index([deletado_em])
   @@index([contrato])
   @@index([contrato, status])
+  @@index([contrato, locacao])
   @@map("mob_desmob")
 }
 
@@ -530,6 +533,7 @@ model Abastecimento {
   emissao_co2_kg      Float?
   estabelecimento     String?  @db.VarChar(255)
   contrato            String   @db.VarChar(3)
+  locacao             String?  @db.VarChar(60)
   mes_referencia      String   @db.VarChar(7)
   created_at          DateTime @default(now()) @db.Timestamp(6)
 
@@ -744,10 +748,12 @@ model ParametroPreventiva {
   categoria            String   @db.VarChar(100)
   km_limite_preventiva Int
   contrato             String?  @db.VarChar(3)
+  // Regra especifica de uma locacao do contrato (vazio = vale para o contrato todo).
+  locacao              String?  @db.VarChar(60)
   created_at           DateTime @default(now()) @db.Timestamp(6)
   updated_at           DateTime @default(now()) @updatedAt @db.Timestamp(6)
 
-  @@unique([categoria, contrato])
+  @@unique([categoria, contrato, locacao])
   @@index([categoria])
   @@map("parametros_preventiva")
 }

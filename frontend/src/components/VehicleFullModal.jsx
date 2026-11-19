@@ -335,7 +335,7 @@ export default function VehicleFullModal({
                 <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-slate-400">
                   <div className="flex items-center gap-1.5 text-sky-400 font-semibold">
                     <Building2 size={16} />
-                    <span>Contrato: {veiculo.contrato || 'Sem contrato vinculado'}</span>
+                    <span>Contrato: {veiculo.contrato || 'Sem contrato vinculado'}{veiculo.locacao ? ` • ${veiculo.locacao}` : ''}</span>
                   </div>
                   {veiculo.categoria && (
                     <>
@@ -515,7 +515,7 @@ export default function VehicleFullModal({
                   <div className="space-y-2 text-sm">
                     <div>
                       <div className="text-[11px] text-slate-400 font-semibold">Contrato Vinculado</div>
-                      <div className="font-black text-white">{veiculo.contrato || 'Sem contrato atribuído'}</div>
+                      <div className="font-black text-white">{veiculo.contrato || 'Sem contrato atribuído'}{veiculo.locacao ? ` — ${veiculo.locacao}` : ''}</div>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>

@@ -32,7 +32,7 @@ function paraDataExcel(valor) {
 function rotuloFiltros({ status, contrato, busca }) {
   const partes = [];
   if (status && status !== 'todos') partes.push(`Status: ${status}`);
-  if (contrato && contrato !== 'todos') partes.push(`Contrato: ${contrato}`);
+  if (contrato && contrato !== 'todos') partes.push(`Locação: ${contrato}`);
   if (busca && busca.trim() !== '') partes.push(`Busca: "${busca.trim()}"`);
   return partes.length > 0 ? partes.join(' • ') : 'Sem filtros (frota completa)';
 }
@@ -54,7 +54,8 @@ export async function exportarFrotaExcel(veiculos = [], meta = {}) {
     { header: 'TAG', key: 'tag', width: 12 },
     { header: 'Placa', key: 'placa', width: 12 },
     { header: 'Modelo', key: 'modelo', width: 30 },
-    { header: 'Contrato', key: 'contrato', width: 24 },
+    { header: 'Contrato', key: 'contrato', width: 12 },
+    { header: 'Locação', key: 'locacao', width: 20 },
     { header: 'Status', key: 'status', width: 17 },
     { header: 'Data MOB', key: 'data_mob', width: 13 },
     { header: 'Data DESMOB', key: 'data_desmob', width: 14 },
@@ -101,6 +102,7 @@ export async function exportarFrotaExcel(veiculos = [], meta = {}) {
       placa: v.placa || '',
       modelo: v.modelo || v.categoria || '',
       contrato: String(v.contrato || '').trim(),
+      locacao: String(v.locacao || '').trim(),
       status: v.status || '',
       data_mob: paraDataExcel(v.data_mob),
       data_desmob: paraDataExcel(v.data_desmob),
