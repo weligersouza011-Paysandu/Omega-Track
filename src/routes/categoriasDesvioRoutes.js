@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { bloquearMeioAmbiente } from '../middleware/setor.js';
 import {
   listarCategoriasDesvio,
   criarCategoriaDesvio,
@@ -11,6 +12,7 @@ import { requerAdminAutenticado, requerGestaoTransporte, requerSessao } from '..
 // ("+ Adicionar nova categoria..." na Parte Diaria, feita pelo operador).
 // Renomear, ativar/desativar e excluir: so quem gere a programacao.
 const router = Router();
+router.use(bloquearMeioAmbiente); // modulo de transporte
 router.get('/', requerSessao, listarCategoriasDesvio);
 router.post('/', requerSessao, criarCategoriaDesvio);
 router.put('/:id', requerAdminAutenticado, requerGestaoTransporte, atualizarCategoriaDesvio);

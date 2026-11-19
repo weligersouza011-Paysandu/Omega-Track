@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { ambientalSomenteLeituraParaTransporte } from '../middleware/setor.js';
 import multer from 'multer';
 import {
   importarAbastecimentos,
@@ -8,6 +9,7 @@ import {
 import { requerAdmin } from '../middleware/sessao.js';
 
 const router = Router();
+router.use(ambientalSomenteLeituraParaTransporte); // Transporte: somente leitura
 
 // Upload em memória: a planilha é lida e descartada, sem gravar em disco.
 const uploadPlanilha = multer({

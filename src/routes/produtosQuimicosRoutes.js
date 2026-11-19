@@ -9,6 +9,7 @@
 //   DELETE /:id            -> Exclusão de produto químico
 // ============================================================================
 import { Router } from 'express';
+import { ambientalSomenteLeituraParaTransporte } from '../middleware/setor.js';
 import multer from 'multer';
 import {
   importarProdutosQuimicos,
@@ -23,6 +24,7 @@ import { paramContrato } from '../middleware/escopo.js';
 import prisma from '../config/database.js';
 
 const router = Router();
+router.use(ambientalSomenteLeituraParaTransporte); // Transporte: somente leitura
 
 // Registro de outro contrato => 404 (Master enxerga todos).
 router.param('id', paramContrato(async (id) => (await prisma.produtoQuimico.findUnique({ where: { id }, select: { contrato: true } }))?.contrato));

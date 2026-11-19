@@ -8,6 +8,7 @@
 // Sessão via `Authorization: Bearer <token>` (login).
 // ============================================================================
 import { Router } from 'express';
+import { bloquearMeioAmbiente } from '../middleware/setor.js';
 import {
   listarObras,
   buscarObra,
@@ -36,6 +37,7 @@ function requerGestaoTransporte(req, res, next) {
 }
 
 const router = Router();
+router.use(bloquearMeioAmbiente); // modulo de transporte
 
 // Obra de outro contrato => 404 (Master enxerga todas).
 router.param('id', paramContrato(async (id) => (UUID.test(id)

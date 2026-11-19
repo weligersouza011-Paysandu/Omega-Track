@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { Home, Building2, Truck, CalendarDays, Gauge, TrendingUp, ShieldAlert, Leaf, Fuel, Sprout, Users, ChevronLeft, Menu } from 'lucide-react';
-import { ehOperacional } from '../utils/permissoes.js';
+import { ehOperacional, podeVerModulo } from '../utils/permissoes.js';
 
 const SECTIONS = [
   {
@@ -84,7 +84,10 @@ export default function Sidebar({ open, onToggle, usuario }) {
   // ambiental, gestão) fica oculto no menu E bloqueado nas rotas (App.jsx).
   const secoes = ehOperacional(usuario)
     ? [{ titulo: 'Principal', theme: 'base', itens: [{ to: '/inicio', label: 'Início', icon: Home, exact: true }] }]
-    : SECTIONS;
+    // Cada setor enxerga so os seus modulos (Meio Ambiente: ambientais + mobilizacao).
+    : SECTIONS
+      .map((sec) => ({ ...sec, itens: sec.itens.filter((item) => podeVerModulo(usuario, item.to.slice(1))) }))
+      .filter((sec) => sec.itens.length > 0);
   return (
     <aside
       className={

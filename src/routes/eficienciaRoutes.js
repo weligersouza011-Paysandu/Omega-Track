@@ -1,9 +1,11 @@
 import { Router } from 'express';
+import { bloquearMeioAmbiente } from '../middleware/setor.js';
 import multer from 'multer';
 import { obterEficiencia, obterMatrizMensal, importarHistorico } from '../controllers/eficienciaController.js';
 import { requerAdmin } from '../middleware/sessao.js';
 
 const router = Router();
+router.use(bloquearMeioAmbiente); // modulo de transporte
 // Multer em memoria para XLSX (max 20 MB) — sem salvar em disco.
 const uploadXlsx = multer({
   storage: multer.memoryStorage(),

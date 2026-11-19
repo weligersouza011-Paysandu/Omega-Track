@@ -9,10 +9,11 @@ import EditVehicleModal from '../components/EditVehicleModal.jsx';
 import ParametrosPreventiva from '../components/ParametrosPreventiva.jsx';
 import CampoListaComCriador from '../components/CampoListaComCriador.jsx';
 import VeiculosTerceirosPanel from '../components/VeiculosTerceirosPanel.jsx';
+import CombustivelVeiculoModal from '../components/CombustivelVeiculoModal.jsx';
 import DashboardExecutivoView from './DashboardExecutivoView.jsx';
 import DocumentManagementView from './DocumentManagementView.jsx';
 import { veiculos as initialVeiculos } from '../data/mockData.js';
-import { ehMaster } from '../utils/permissoes.js';
+import { ehMaster, ehMeioAmbiente } from '../utils/permissoes.js';
 import { authHeaders } from '../utils/sessao.js';
 import { hojeISO } from '../utils/datas.js';
 
@@ -39,7 +40,9 @@ const ABAS = [
   { key: 'parametros', label: 'Parâmetros de Preventiva', icon: SlidersHorizontal },
 ];
 
-function BarraAbas({ abaAtiva, onTrocar }) {
+function BarraAbas({ abaAtiva, onTrocar, somenteGaleria = false }) {
+  // Meio Ambiente so tem a galeria de mobilizacao (sem dashboard, documentos e preventiva).
+  if (somenteGaleria) return null;
   return (
     <div className="flex items-center gap-2 border-b border-omega-200 pb-0.5 shrink-0 overflow-x-auto">
       {ABAS.map((aba) => {
@@ -85,6 +88,8 @@ export default function MobDesmobView({ sessao }) {
   const [carregando, setCarregando] = useState(true);
   const [erroApi, setErroApi] = useState(null);
   const souMaster = ehMaster(sessao?.usuario);
+  // Meio Ambiente: so a lista de mobilizacao, com as informacoes essenciais e a correcao do combustivel.
+  const modoAmbiental = ehMeioAmbiente(sessao?.usuario);
 
   // Galeria alimentada pelo backend (Neon) — fotos reais via Cloudinary.
   const carregarVeiculos = async () => {
@@ -374,7 +379,7 @@ export default function MobDesmobView({ sessao }) {
   if (abaAtiva === 'dashboard') {
     return (
       <div className="space-y-5">
-        <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} />
+        <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} somenteGaleria={modoAmbiental} />
         <DashboardExecutivoView />
       </div>
     );
@@ -383,7 +388,7 @@ export default function MobDesmobView({ sessao }) {
   if (abaAtiva === 'documentos') {
     return (
       <div className="space-y-5">
-        <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} />
+        <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} somenteGaleria={modoAmbiental} />
         <DocumentManagementView veiculos={veiculos} />
       </div>
     );
@@ -392,7 +397,7 @@ export default function MobDesmobView({ sessao }) {
   if (abaAtiva === 'parametros') {
     return (
       <div className="space-y-5">
-        <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} />
+        <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} somenteGaleria={modoAmbiental} />
         <ParametrosPreventiva veiculos={veiculos} onToast={setToast} />
         {toast && (
           <div className="fixed bottom-5 right-5 z-[60] flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-xl bg-omega-900 text-white shadow-2xl text-sm font-semibold">
@@ -411,7 +416,7 @@ export default function MobDesmobView({ sessao }) {
 
   return (
     <div className="space-y-4 h-[calc(100vh-10rem)] min-h-[600px] flex flex-col">
-      <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} />
+      <BarraAbas abaAtiva={abaAtiva} onTrocar={setAbaAtiva} somenteGaleria={modoAmbiental} />
 
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3 shrink-0">
         <div>
@@ -430,7 +435,9 @@ export default function MobDesmobView({ sessao }) {
             {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
             {exportando ? 'Exportando...' : 'Exportar'}
           </button>
-          <button className="btn-primary !py-2 text-xs" onClick={() => setModalCadastro(true)}><Plus size={14} /> Adicionar</button>
+          {!modoAmbiental && (
+            <button className="btn-primary !py-2 text-xs" onClick={() => setModalCadastro(true)}><Plus size={14} /> Adicionar</button>
+          )}
         </div>
       </div>
 
@@ -683,10 +690,21 @@ export default function MobDesmobView({ sessao }) {
       </div>
 
       {/* Terceiros: recolhido por padrão, apenas para a Programação de Recursos. */}
-      <VeiculosTerceirosPanel sessao={sessao} tiposFrota={modelos} onToast={setToast} />
+      {!modoAmbiental && <VeiculosTerceirosPanel sessao={sessao} tiposFrota={modelos} onToast={setToast} />}
 
       {/* Modal / View de Tela Inteira para Detalhamento do Veículo */}
-      {veiculoSelecionado && (
+      {modoAmbiental && (
+        <CombustivelVeiculoModal
+          open={!!veiculoSelecionado}
+          veiculo={veiculoSelecionado}
+          onClose={() => setVeiculoSelecionado(null)}
+          onSaved={(atualizado) => {
+            setVeiculos((lista) => lista.map((v) => (v.tag === atualizado.tag ? { ...v, ...atualizado } : v)));
+            setToast('Combustível atualizado com sucesso!');
+          }}
+        />
+      )}
+      {veiculoSelecionado && !modoAmbiental && (
         <VehicleFullModal
           veiculo={veiculoSelecionado}
           onClose={() => setVeiculoSelecionado(null)}

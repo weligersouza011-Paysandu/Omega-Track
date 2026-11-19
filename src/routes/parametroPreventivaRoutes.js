@@ -7,6 +7,7 @@
 // Mesmo padrão de permissão de /api/obras.
 // ============================================================================
 import { Router } from 'express';
+import { bloquearMeioAmbiente } from '../middleware/setor.js';
 import {
   listarParametros,
   buscarPorCategoria,
@@ -31,6 +32,7 @@ function requerGestaoTransporte(req, res, next) {
 }
 
 const router = Router();
+router.use(bloquearMeioAmbiente); // modulo de transporte
 
 router.get('/', requerSessao, listarParametros);
 router.get('/categoria/:tipo', requerSessao, buscarPorCategoria);

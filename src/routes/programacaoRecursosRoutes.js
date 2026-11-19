@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { bloquearMeioAmbiente } from '../middleware/setor.js';
 import {
   listarProgramacao,
   salvarProgramacao,
@@ -10,6 +11,7 @@ import { iniciarManutencao, registrarRetornoManutencao } from '../controllers/ma
 import { requerAdminAutenticado, requerGestaoTransporte } from '../middleware/sessao.js';
 
 const router = Router();
+router.use(bloquearMeioAmbiente); // modulo de transporte
 router.get('/', requerAdminAutenticado, listarProgramacao);
 router.post('/manutencoes', requerAdminAutenticado, requerGestaoTransporte, iniciarManutencao);
 router.patch('/manutencoes/:id/retorno', requerAdminAutenticado, requerGestaoTransporte, registrarRetornoManutencao);

@@ -24,6 +24,7 @@
 //   DELETE /por-placa/:placa -> Exclui todos os eventos da placa (Master, Gestão, Transporte; JWT)
 // ============================================================================
 import { Router } from 'express';
+import { bloquearMeioAmbiente } from '../middleware/setor.js';
 import multer from 'multer';
 import {
   listarEventosTelemetria,
@@ -55,6 +56,7 @@ import prisma from '../config/database.js';
 import { UUID } from '../utils/contrato.js';
 
 const router = Router();
+router.use(bloquearMeioAmbiente); // modulo de transporte
 
 // Escopo por contrato: injeta o contrato do usuario nos filtros (montarFiltro) e
 // responde 404 para evento/plano de outro contrato (Master enxerga todos).

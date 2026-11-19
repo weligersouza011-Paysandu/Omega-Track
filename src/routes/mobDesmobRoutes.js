@@ -15,9 +15,22 @@ import {
 } from '../controllers/mobDesmobController.js';
 import { requerAdmin, requerMaster, requerSessao } from '../middleware/sessao.js';
 import { paramContrato } from '../middleware/escopo.js';
+import { ehMeioAmbiente } from '../utils/setores.js';
 import prisma from '../config/database.js';
 
 const router = Router();
+
+// Meio Ambiente acompanha a mobilizacao (lista e ficha essencial) e corrige o
+// combustivel; qualquer outra rota da frota e negada.
+const ROTAS_MEIO_AMBIENTE = [
+  ['GET', /^\/?$/], ['GET', /^\/tag\/[^/]+\/?$/], ['GET', /^\/placa\/[^/]+\/?$/], ['PATCH', /^\/[^/]+\/?$/],
+];
+router.use((req, res, next) => {
+  if (ehMeioAmbiente(req.atuante) && !ROTAS_MEIO_AMBIENTE.some(([metodo, rota]) => metodo === req.method && rota.test(req.path))) {
+    return res.status(403).json({ error: 'Sem permissao', message: 'O setor Meio Ambiente só consulta a mobilização e corrige o combustível do veículo.' });
+  }
+  return next();
+});
 
 // Escopo por contrato: veiculo de outro contrato responde 404 (Master enxerga todos).
 const contratoDoVeiculo = (campo) => async (valor) => (await prisma.mobDesmob.findFirst({

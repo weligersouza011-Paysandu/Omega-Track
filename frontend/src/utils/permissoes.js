@@ -8,7 +8,12 @@
 // ============================================================================
 
 export const MODULOS_TRANSPORTE = ['inicio', 'obras', 'frota', 'programacao-recursos', 'pendencias-parte-diaria', 'telemetria'];
-export const MODULOS_AMBIENTAIS = ['controle-ambiental', 'ecogestao'];
+export const MODULOS_AMBIENTAIS = ['controle-ambiental', 'controle-combustivel', 'ecogestao'];
+
+// Meio Ambiente enxerga os modulos ambientais e a mobilizacao da frota (so as informacoes
+// essenciais do veiculo; edita apenas o combustivel). Gestao, Planejador, Transporte e Master
+// enxergam todos os modulos (Transporte: os ambientais somente em leitura).
+export const MODULOS_MEIO_AMBIENTE = ['frota', 'controle-ambiental', 'controle-combustivel', 'ecogestao', 'usuarios', 'perfil'];
 
 export const SETOR_LABEL = {
   MEIO_AMBIENTE: 'Meio Ambiente',
@@ -19,6 +24,22 @@ export const SETOR_LABEL = {
 
 export function ehMaster(usuario) {
   return !!usuario && usuario.tipo === 'ADMINISTRADOR' && usuario.nivel === 'MASTER';
+}
+
+/** Meio Ambiente (nao Master): visao restrita. */
+export function ehMeioAmbiente(usuario) {
+  return !!usuario && usuario.tipo === 'ADMINISTRADOR' && usuario.setor === 'MEIO_AMBIENTE' && usuario.nivel !== 'MASTER';
+}
+
+/** Transporte (nao Master): modulos ambientais so em leitura. */
+export function ehTransporteSomente(usuario) {
+  return !!usuario && usuario.tipo === 'ADMINISTRADOR' && usuario.setor === 'TRANSPORTE' && usuario.nivel !== 'MASTER';
+}
+
+/** O setor do usuario enxerga este modulo? (Operacional tem as regras proprias do App.) */
+export function podeVerModulo(usuario, modulo) {
+  if (!ehMeioAmbiente(usuario)) return true;
+  return MODULOS_MEIO_AMBIENTE.includes(modulo);
 }
 
 export function ehOperacional(usuario) {

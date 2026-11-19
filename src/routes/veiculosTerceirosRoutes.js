@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { bloquearMeioAmbiente } from '../middleware/setor.js';
 import {
   listarVeiculosTerceiros,
   criarVeiculoTerceiro,
@@ -12,6 +13,7 @@ import { UUID } from '../utils/contrato.js';
 
 // Veiculos de empresas terceirizadas (somente Programacao de Recursos).
 const router = Router();
+router.use(bloquearMeioAmbiente); // modulo de transporte
 
 // Terceiro de outro contrato => 404 (Master enxerga todos).
 router.param('id', paramContrato(async (id) => (UUID.test(id)

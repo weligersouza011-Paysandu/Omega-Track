@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { bloquearMeioAmbiente } from '../middleware/setor.js';
 import {
   listarPartesDiarias,
   buscarParteDiaria,
@@ -28,6 +29,7 @@ import { UUID } from '../utils/contrato.js';
 import { requerAdmin, requerMaster, requerMasterMatriz, requerSessao, requerPlanejamentoOuMaster, requerTransporteOuMaster } from '../middleware/sessao.js';
 
 const router = Router();
+router.use(bloquearMeioAmbiente); // modulo de transporte
 
 // Parte Diaria de outro contrato => 404 (Master enxerga todas). As rotas por
 // chave de API (/pendentes, /:id/assinar) nao tem usuario e seguem globais.

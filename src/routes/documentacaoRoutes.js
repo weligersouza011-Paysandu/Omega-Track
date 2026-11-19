@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { bloquearMeioAmbiente } from '../middleware/setor.js';
 import { requerAdmin, requerSessao } from '../middleware/sessao.js';
 import { paramContrato } from '../middleware/escopo.js';
 import prisma from '../config/database.js';
@@ -14,6 +15,7 @@ import {
 } from '../controllers/documentacaoController.js';
 
 const router = Router();
+router.use(bloquearMeioAmbiente); // modulo de transporte
 
 // Documento herda o contrato do veiculo; de outro contrato => 404.
 router.param('id', paramContrato(async (id) => (UUID.test(id)

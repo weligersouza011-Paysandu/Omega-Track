@@ -11,6 +11,7 @@ import {
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { exigirContrato, tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js';
+import { ehMeioAmbiente, CAMPOS_VEICULO_MEIO_AMBIENTE } from '../utils/setores.js';
 import { contratoParaGravar, filtroContrato, ehMaster } from '../middleware/escopo.js';
 
 const CINCO_DIAS_MS = 5 * 24 * 60 * 60 * 1000;
@@ -196,6 +197,13 @@ function validarDadosTecnicos(campos = {}, base = {}) {
   return dados;
 }
 
+// Meio Ambiente enxerga so as informacoes essenciais do veiculo (sem dados
+// tecnicos, quilometragem, documentos, partes diarias ou preventiva).
+const SELECT_ESSENCIAL_VEICULO = {
+  tag: true, placa: true, modelo: true, contrato: true, status: true,
+  data_mob: true, data_desmob: true, combustivel: true, foto_veiculo: true,
+};
+
 export const listarVeiculos = asyncHandler(async (req, res) => {
   const { status, page = 1, limit = 50 } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
@@ -210,11 +218,9 @@ export const listarVeiculos = asyncHandler(async (req, res) => {
       skip,
       take: Number(limit),
       orderBy: { created_at: 'desc' },
-      include: {
-        _count: {
-          select: { documentacoes: true, partes_diarias: true },
-        },
-      },
+      ...(ehMeioAmbiente(req.atuante)
+        ? { select: SELECT_ESSENCIAL_VEICULO }
+        : { include: { _count: { select: { documentacoes: true, partes_diarias: true } } } }),
     }),
     prisma.mobDesmob.count({ where }),
   ]);
@@ -234,10 +240,14 @@ export const buscarVeiculoPorTag = asyncHandler(async (req, res) => {
   const { tag } = req.params;
   const veiculo = await prisma.mobDesmob.findFirst({
     where: { tag, deletado_em: null },
-    include: {
-      documentacoes: { orderBy: { validade: 'asc' } },
-      partes_diarias: { where: { deletado_em: null }, take: 10, orderBy: { data: 'desc' } },
-    },
+    ...(ehMeioAmbiente(req.atuante)
+      ? { select: SELECT_ESSENCIAL_VEICULO }
+      : {
+        include: {
+          documentacoes: { orderBy: { validade: 'asc' } },
+          partes_diarias: { where: { deletado_em: null }, take: 10, orderBy: { data: 'desc' } },
+        },
+      }),
   });
 
   if (!veiculo) {
@@ -251,10 +261,14 @@ export const buscarVeiculoPorPlaca = asyncHandler(async (req, res) => {
   const { placa } = req.params;
   const veiculo = await prisma.mobDesmob.findFirst({
     where: { placa: { equals: placa, mode: 'insensitive' }, deletado_em: null },
-    include: {
-      documentacoes: { orderBy: { validade: 'asc' } },
-      partes_diarias: { where: { deletado_em: null }, take: 10, orderBy: { data: 'desc' } },
-    },
+    ...(ehMeioAmbiente(req.atuante)
+      ? { select: SELECT_ESSENCIAL_VEICULO }
+      : {
+        include: {
+          documentacoes: { orderBy: { validade: 'asc' } },
+          partes_diarias: { where: { deletado_em: null }, take: 10, orderBy: { data: 'desc' } },
+        },
+      }),
   });
 
   if (!veiculo) {
@@ -519,6 +533,15 @@ export const atualizarVeiculo = asyncHandler(async (req, res) => {
 // ficha do veículo. Aceita somente a whitelist de campos técnicos.
 export const atualizarDadosTecnicosVeiculo = asyncHandler(async (req, res) => {
   const { tag } = req.params;
+  if (ehMeioAmbiente(req.atuante)) {
+    const alemDoPermitido = Object.keys(req.body || {}).filter((campo) => !CAMPOS_VEICULO_MEIO_AMBIENTE.includes(campo));
+    if (alemDoPermitido.length) {
+      return res.status(403).json({
+        error: 'Sem permissao',
+        message: `O setor Meio Ambiente só pode corrigir: ${CAMPOS_VEICULO_MEIO_AMBIENTE.join(', ')}.`,
+      });
+    }
+  }
   const body = req.body || {};
 
   const anterior = await prisma.mobDesmob.findFirst({ where: { tag, deletado_em: null } });
