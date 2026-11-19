@@ -20,6 +20,7 @@ import telemetriaRoutes from './telemetriaRoutes.js';
 import veiculosTerceirosRoutes from './veiculosTerceirosRoutes.js';
 import categoriasDesvioRoutes from './categoriasDesvioRoutes.js';
 import contratoRoutes from './contratoRoutes.js';
+import suporteRoutes from './suporteRoutes.js';
 import { aprovarLotePlanejamento, aprovarLoteTransporte } from '../controllers/parteDiariaController.js';
 import { requerPlanejamentoOuMaster, requerTransporteOuMaster } from '../middleware/sessao.js';
 import { sessaoOpcional, contextoDeDados } from '../middleware/escopo.js';
@@ -141,5 +142,6 @@ router.use('/telemetria', telemetriaRoutes);
 router.use('/veiculos-terceiros', veiculosTerceirosRoutes);
 router.use('/categorias-desvio', categoriasDesvioRoutes);
 router.use('/contratos', contratoRoutes);
+router.use('/suporte', suporteRoutes);
 
 export default router;

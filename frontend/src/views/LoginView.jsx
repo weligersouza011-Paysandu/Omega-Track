@@ -212,6 +212,9 @@ export default function LoginView({ onLogin, tema, onAlternarTema }) {
             </div>
           )}
         </div>
+        <p className="mt-5 text-center text-[11px] font-medium text-white/40">
+          Desenvolvido por <span className="font-bold text-white/70">Weliger Souza</span>
+        </p>
       </div>
     </div>
   );

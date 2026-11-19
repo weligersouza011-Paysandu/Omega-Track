@@ -855,3 +855,24 @@ model ContratoLegadoBackup {
   @@index([tabela])
   @@map("contrato_legado_backup")
 }
+
+// Chat de suporte (usuario <-> desenvolvedor). Conversa = matricula de quem pediu ajuda.
+// de_dev = true quando a mensagem veio de um Master. lida = lida por quem RECEBE:
+// mensagem do usuario lida por algum Master; mensagem do Master lida pelo usuario.
+// Nao tem contrato: Master enxerga todas as conversas; usuario so a propria (filtro por matricula).
+model SuporteMensagem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  conversa_matricula String   @db.VarChar(50)
+  conversa_nome      String   @db.VarChar(255)
+  conversa_contrato  String?  @db.VarChar(3)
+  de_dev             Boolean  @default(false)
+  autor_nome         String   @db.VarChar(255)
+  autor_matricula    String   @db.VarChar(50)
+  texto              String   @db.Text
+  lida               Boolean  @default(false)
+  created_at         DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([conversa_matricula, created_at])
+  @@index([de_dev, lida])
+  @@map("suporte_mensagens")
+}

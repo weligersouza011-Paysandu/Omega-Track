@@ -4,6 +4,7 @@ import { Search, Menu, Clock, LogOut, ShieldCheck, Sun, Moon } from 'lucide-reac
 import { lerSessao, authHeaders } from '../utils/sessao.js';
 import { ehOperacional } from '../utils/permissoes.js';
 import SeletorContrato from './SeletorContrato.jsx';
+import ChatSuporte from './ChatSuporte.jsx';
 
 export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }) {
   const hoje = new Date();
@@ -92,6 +93,9 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
 
       {/* Contrato exibido (pre-definido: o do usuario; Master troca ou ve todos) */}
       {usuario && <div className="shrink-0 ml-auto xl:ml-0"><SeletorContrato usuario={usuario} /></div>}
+
+      {/* Aba de suporte: fala direto com o desenvolvedor (Master ve a caixa de entrada) */}
+      {usuario && <ChatSuporte usuario={usuario} />}
 
       {/* Direita: Busca Operacional */}
       <div className="hidden xl:flex items-center gap-2 w-72 ml-auto">

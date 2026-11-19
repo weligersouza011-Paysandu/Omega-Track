@@ -30,6 +30,9 @@ export default function AppLayout({ sessao, onSair, tema, onAlternarTema }) {
           <Suspense fallback={<div className="p-8 text-center text-sm font-semibold text-omega-500">Carregando…</div>}>
             <Outlet />
           </Suspense>
+          <p className="mt-6 pb-2 text-center text-[11px] font-medium text-omega-400">
+            Desenvolvido por <span className="font-bold text-omega-500">Weliger Souza</span>
+          </p>
         </main>
       </div>
     </div>
