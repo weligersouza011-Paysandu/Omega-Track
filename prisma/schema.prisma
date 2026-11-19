@@ -47,6 +47,7 @@ model MobDesmob {
   @@index([status])
   @@index([deletado_em])
   @@index([contrato])
+  @@index([contrato, status])
   @@map("mob_desmob")
 }
 
@@ -345,6 +346,7 @@ model Obra {
   contrato String @db.VarChar(3)
 
   @@index([contrato])
+  @@index([contrato, ativo])
   @@map("obras")
 }
 
@@ -535,6 +537,7 @@ model Abastecimento {
   @@index([mes_referencia])
   @@index([tipo_combustivel])
   @@index([contrato])
+  @@index([contrato, mes_referencia])
   @@map("abastecimentos")
 }
 
@@ -556,6 +559,7 @@ model Residuo {
   contrato String @db.VarChar(3)
 
   @@index([contrato])
+  @@index([contrato, mes_ano])
   @@map("residuos")
 }
 
@@ -575,6 +579,7 @@ model ConsumoAgua {
   contrato String @db.VarChar(3)
 
   @@index([contrato])
+  @@index([contrato, ano_mes])
   @@map("consumo_agua")
 }
 

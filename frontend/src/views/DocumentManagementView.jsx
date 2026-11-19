@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { buscarTodasPaginas } from '../utils/paginas.js';
 import {
   Plus, Search, X, Pencil, Trash2, FileText, ExternalLink,
   RefreshCw, AlertTriangle, ImagePlus, Loader2, CheckCircle2, Filter,
@@ -58,17 +59,14 @@ export default function DocumentManagementView({ veiculos = [] }) {
     setCarregando(true);
     setErro(null);
     try {
-      const [rDocs, rFrota] = await Promise.all([
-        fetch('/api/documentacao-veiculos?limit=200').then((r) => {
-          if (!r.ok) throw new Error(`Documentos: API ${r.status}`);
-          return r.json();
-        }),
+      const [listaDocs, listaFrota] = await Promise.all([
+        buscarTodasPaginas('/api/documentacao-veiculos'),
         veiculos.length > 0
           ? Promise.resolve(null)
-          : fetch('/api/mob-desmob?limit=200').then((r) => (r.ok ? r.json() : null)),
+          : buscarTodasPaginas('/api/mob-desmob').catch(() => null),
       ]);
-      setDocs(Array.isArray(rDocs.data) ? rDocs.data : []);
-      if (rFrota && Array.isArray(rFrota.data)) setFrota(rFrota.data);
+      setDocs(listaDocs);
+      if (listaFrota) setFrota(listaFrota);
       else if (veiculos.length > 0) setFrota(veiculos);
     } catch (e) {
       setErro('Não foi possível carregar a documentação. Verifique se o backend está no ar.');

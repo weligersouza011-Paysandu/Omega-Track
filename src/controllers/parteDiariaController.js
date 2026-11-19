@@ -3,6 +3,7 @@ import config from '../config/index.js';
 import { asyncHandler } from '../middleware/error.js';
 import { atuanteDaRequisicao, lerSessao, sessaoOperacional } from '../middleware/sessao.js';
 import { filtroContrato, exigirAcessoContrato } from '../middleware/escopo.js';
+import { lerPaginacao, blocoPaginacao } from '../utils/paginacao.js';
 import { parseKm, obterUltimaKmFinal } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
@@ -437,10 +438,8 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
     funcionario,
     operador,
     q,
-    page = 1,
-    limit = 50,
   } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  const pag = lerPaginacao(req.query);
 
   // Escopo por contrato: a Parte Diaria carrega o contrato do veiculo.
   const where = { deletado_em: null, veiculo: { deletado_em: null }, ...filtroContrato(req) };
@@ -515,8 +514,8 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
   const [partes, total] = await Promise.all([
     prisma.parteDiaria.findMany({
       where,
-      skip,
-      take: Number(limit),
+      skip: pag.skip,
+      take: pag.limit,
       // Regra de ordenacao global: mais recente primeiro (data e, como
       // desempate, o horario de criacao do registro).
       orderBy: [{ data: 'desc' }, { created_at: 'desc' }],
@@ -547,12 +546,7 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({
     data: partes.map((p) => ({ ...p, houve_desvio_programacao: houveDesvioProgramacao(p) })),
-    pagination: {
-      page: Number(page),
-      limit: Number(limit),
-      total,
-      pages: Math.ceil(total / Number(limit)),
-    },
+    pagination: blocoPaginacao(pag, total),
   });
 });
 

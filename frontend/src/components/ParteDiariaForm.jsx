@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buscarTodasPaginas } from '../utils/paginas.js';
 import {
   Plus, Trash2, ChevronDown, Clock, Users, Truck, ClipboardList,
   AlertTriangle, Camera, PenLine, Save,
@@ -655,10 +656,8 @@ export default function ParteDiariaForm({ open, onClose, sessao, veiculos = [], 
     let vivo = true;
     (async () => {
       try {
-        const resp = await fetch('/api/obras?ativo=true&limit=200', { headers: authHeaders(sessao) });
-        if (!resp.ok) return;
-        const corpo = await resp.json();
-        if (vivo) setObras(Array.isArray(corpo?.data) ? corpo.data : []);
+        const lista = await buscarTodasPaginas('/api/obras?ativo=true', { headers: authHeaders(sessao) });
+        if (vivo) setObras(lista);
       } catch {
         /* dropdown segue com lista vazia */
       }

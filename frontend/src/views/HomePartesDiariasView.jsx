@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { buscarTodasPaginas } from '../utils/paginas.js';
 import {
   Plus, Search, Eye, Pencil, Trash2, X, RefreshCw, AlertTriangle,
   CheckCircle2, ClipboardList, Filter, FileText, Loader2, ChevronDown, CalendarClock, FileSpreadsheet, FolderArchive,
@@ -235,10 +236,7 @@ export default function HomePartesDiariasView({ sessao }) {
 
   const carregarVeiculos = async () => {
     try {
-      const resp = await fetch('/api/mob-desmob?limit=200');
-      if (!resp.ok) return;
-      const { data } = await resp.json();
-      if (Array.isArray(data)) setVeiculos(data);
+      setVeiculos(await buscarTodasPaginas('/api/mob-desmob'));
     } catch {
       /* TAG segue como campo livre */
     }

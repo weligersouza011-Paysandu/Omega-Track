@@ -2,6 +2,7 @@ import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import config from '../config/index.js';
 import { filtroContrato, exigirAcessoContrato } from '../middleware/escopo.js';
+import { lerPaginacao, blocoPaginacao } from '../utils/paginacao.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
 
 function calcularFarol(validade) {
@@ -22,8 +23,8 @@ function calcularFarol(validade) {
 }
 
 export const listarDocumentacoes = asyncHandler(async (req, res) => {
-  const { tag, farol, documento, page = 1, limit = 50 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  const { tag, farol, documento } = req.query;
+  const pag = lerPaginacao(req.query);
 
   const where = {};
   if (tag) where.tag = tag;
@@ -31,36 +32,34 @@ export const listarDocumentacoes = asyncHandler(async (req, res) => {
   // Controle de vencimentos considera SOMENTE veiculos mobilizados e ativos.
   where.veiculo = { status: 'Mobilizado', deletado_em: null, ...filtroContrato(req) };
 
-  const docs = await prisma.documentacaoVeiculo.findMany({
+  const consulta = {
     where,
-    skip,
-    take: Number(limit),
-    orderBy: { validade: 'asc' },
+    orderBy: [{ validade: 'asc' }, { id: 'asc' }],
     include: {
       veiculo: { select: { placa: true, modelo: true, status: true } },
     },
-  });
+  };
+  const comFarol = (doc) => ({ ...doc, ...calcularFarol(doc.validade) });
 
-  const docsComFarol = docs.map((doc) => ({
-    ...doc,
-    ...calcularFarol(doc.validade),
-  }));
-
-  let filtrados = docsComFarol;
+  // O farol e calculado a partir da validade (nao e coluna): com filtro de farol a
+  // pagina sai do conjunto filtrado; sem ele, a paginacao e do banco.
+  let pagina;
+  let total;
   if (farol) {
-    filtrados = docsComFarol.filter((d) => d.farol_status === farol.toUpperCase());
+    const todos = (await prisma.documentacaoVeiculo.findMany(consulta)).map(comFarol)
+      .filter((d) => d.farol_status === String(farol).toUpperCase());
+    total = todos.length;
+    pagina = todos.slice(pag.skip, pag.skip + pag.limit);
+  } else {
+    const [docs, contagem] = await Promise.all([
+      prisma.documentacaoVeiculo.findMany({ ...consulta, skip: pag.skip, take: pag.limit }),
+      prisma.documentacaoVeiculo.count({ where }),
+    ]);
+    total = contagem;
+    pagina = docs.map(comFarol);
   }
 
-  const total = filtrados.length;
-
-  res.json({
-    data: filtrados,
-    pagination: {
-      page: Number(page),
-      limit: Number(limit),
-      total,
-    },
-  });
+  res.json({ data: pagina, pagination: blocoPaginacao(pag, total) });
 });
 
 export const farolVencimentos = asyncHandler(async (req, res) => {

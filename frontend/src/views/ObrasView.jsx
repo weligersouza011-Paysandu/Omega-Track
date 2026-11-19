@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { buscarTodasPaginas } from '../utils/paginas.js';
 import {
   Plus, Search, Pencil, Trash2, X, RefreshCw, AlertTriangle,
   CheckCircle2, Building2, Power,
@@ -70,10 +71,7 @@ export default function ObrasView({ sessao }) {
     setCarregando(true);
     setErro(null);
     try {
-      const resp = await fetch('/api/obras?limit=200', { headers: authHeaders(sessao) });
-      if (!resp.ok) throw new Error(`API respondeu ${resp.status}`);
-      const corpo = await resp.json();
-      setObras(Array.isArray(corpo?.data) ? corpo.data : []);
+      setObras(await buscarTodasPaginas('/api/obras', { headers: authHeaders(sessao) }));
     } catch {
       setErro('Não foi possível carregar as obras. Verifique se o backend está no ar.');
     } finally {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { buscarTodasPaginas } from '../utils/paginas.js';
 import {
   AlertTriangle, CalendarClock, CalendarDays, Check, CheckCircle2, ClipboardList, Pencil,
   RefreshCw, Search, Trash2, Truck, UserCheck, X,
@@ -167,10 +168,7 @@ export default function PendenciasParteDiariaView({ sessao, embutido = false }) 
 
   const carregarVeiculos = async () => {
     try {
-      const resp = await fetch('/api/mob-desmob?limit=200');
-      if (!resp.ok) return;
-      const { data } = await resp.json();
-      if (Array.isArray(data)) setVeiculos(data);
+      setVeiculos(await buscarTodasPaginas('/api/mob-desmob'));
     } catch {
       /* o formulário segue com a TAG já travada do prefill */
     }

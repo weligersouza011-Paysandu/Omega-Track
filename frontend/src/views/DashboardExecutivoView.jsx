@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { buscarTodasPaginas } from '../utils/paginas.js';
 import { ExternalLink, AlertTriangle, Clock, CheckCircle2, FileWarning, FileText } from 'lucide-react';
 import { veiculos } from '../data/mockData.js';
 import { calcularFarol, textoDias, FAROL_LABEL, FAROL_LABEL_CURTO, FAROL_COR } from '../utils/farol.js';
@@ -52,13 +53,11 @@ export default function DashboardExecutivoView() {
   useEffect(() => {
     let ativo = true;
     Promise.all([
-      fetch('/api/mob-desmob?limit=200')
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`API ${r.status}`))))
-        .then(({ data }) => { if (ativo && Array.isArray(data)) setFrota(data); })
+      buscarTodasPaginas('/api/mob-desmob')
+        .then((lista) => { if (ativo) setFrota(lista); })
         .catch(() => {}),
-      fetch('/api/documentacao-veiculos?limit=500')
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`API ${r.status}`))))
-        .then(({ data }) => { if (ativo && Array.isArray(data)) setDocsNeon(data); })
+      buscarTodasPaginas('/api/documentacao-veiculos')
+        .then((lista) => { if (ativo) setDocsNeon(lista); })
         .catch(() => {}),
     ]).finally(() => { if (ativo) setCarregandoFrota(false); });
     return () => { ativo = false; };

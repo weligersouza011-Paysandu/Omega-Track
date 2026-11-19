@@ -13,6 +13,7 @@ import { registrarLogAtividade } from '../services/auditService.js';
 import { exigirContrato, tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js';
 import { ehMeioAmbiente, CAMPOS_VEICULO_MEIO_AMBIENTE } from '../utils/setores.js';
 import { contratoParaGravar, filtroContrato, ehMaster } from '../middleware/escopo.js';
+import { lerPaginacao, blocoPaginacao } from '../utils/paginacao.js';
 import { transferirContratoVeiculo, historicoContratoVeiculo } from '../services/transferenciaContratoService.js';
 
 const CINCO_DIAS_MS = 5 * 24 * 60 * 60 * 1000;
@@ -206,8 +207,8 @@ const SELECT_ESSENCIAL_VEICULO = {
 };
 
 export const listarVeiculos = asyncHandler(async (req, res) => {
-  const { status, page = 1, limit = 50 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  const { status } = req.query;
+  const pag = lerPaginacao(req.query);
 
   // Escopo: nao-Master so o proprio contrato; Master escolhe (?contrato=010|todos).
   const where = { deletado_em: null, ...filtroContrato(req) };
@@ -216,9 +217,9 @@ export const listarVeiculos = asyncHandler(async (req, res) => {
   const [veiculos, total] = await Promise.all([
     prisma.mobDesmob.findMany({
       where,
-      skip,
-      take: Number(limit),
-      orderBy: { created_at: 'desc' },
+      skip: pag.skip,
+      take: pag.limit,
+      orderBy: [{ created_at: 'desc' }, { tag: 'asc' }],
       ...(ehMeioAmbiente(req.atuante)
         ? { select: SELECT_ESSENCIAL_VEICULO }
         : { include: { _count: { select: { documentacoes: true, partes_diarias: true } } } }),
@@ -228,12 +229,7 @@ export const listarVeiculos = asyncHandler(async (req, res) => {
 
   res.json({
     data: veiculos,
-    pagination: {
-      page: Number(page),
-      limit: Number(limit),
-      total,
-      pages: Math.ceil(total / Number(limit)),
-    },
+    pagination: blocoPaginacao(pag, total),
   });
 });
 

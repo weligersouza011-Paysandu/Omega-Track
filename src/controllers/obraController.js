@@ -7,6 +7,7 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { contratoParaGravar, filtroContrato } from '../middleware/escopo.js';
+import { lerPaginacao, blocoPaginacao } from '../utils/paginacao.js';
 
 function paraApi(o) {
   if (!o) return o;
@@ -49,8 +50,8 @@ async function resolverPlanejador(matricula, contrato) {
 }
 
 export const listarObras = asyncHandler(async (req, res) => {
-  const { q, ativo, page = 1, limit = 100 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  const { q, ativo } = req.query;
+  const pag = lerPaginacao(req.query, { padrao: 100 });
 
   const where = { ...filtroContrato(req) };
   if (ativo === 'true') where.ativo = true;
@@ -69,8 +70,8 @@ export const listarObras = asyncHandler(async (req, res) => {
   const [obras, total] = await Promise.all([
     prisma.obra.findMany({
       where,
-      skip,
-      take: Number(limit),
+      skip: pag.skip,
+      take: pag.limit,
       orderBy: [{ ativo: 'desc' }, { nome: 'asc' }],
       include: { _count: { select: { partes_diarias: true } } },
     }),
@@ -79,12 +80,7 @@ export const listarObras = asyncHandler(async (req, res) => {
 
   res.json({
     data: obras.map(paraApi),
-    pagination: {
-      page: Number(page),
-      limit: Number(limit),
-      total,
-      pages: Math.ceil(total / Number(limit)),
-    },
+    pagination: blocoPaginacao(pag, total),
   });
 });
 
