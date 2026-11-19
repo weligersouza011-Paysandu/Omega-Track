@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Loader2, AlertTriangle, Settings2 } from 'lucide-
 import Modal from './Modal.jsx';
 import { lerSessao, authHeaders } from '../utils/sessao.js';
 import { podeEscrever } from '../utils/permissoes.js';
+import { soDigitosContrato } from '../utils/contrato.js';
 
 // ============================================================================
 // Aba "Parâmetros de Preventiva" (Mobilização & Frota): CRUD dos limites de
@@ -236,9 +237,9 @@ export default function ParametrosPreventiva({ veiculos = [], onToast }) {
             <label className="label">Contrato <span className="text-omega-400 font-normal">(opcional — vazio = todos)</span></label>
             <input
               value={modal?.contrato || ''}
-              onChange={(e) => setModal({ ...modal, contrato: e.target.value })}
-              className="input"
-              placeholder="Ex: CT251 (vazio = regra global)"
+              onChange={(e) => setModal({ ...modal, contrato: soDigitosContrato(e.target.value) })}
+              className="input" inputMode="numeric" maxLength={3}
+              placeholder="Ex: 251 (vazio = regra global, só ADM Master)"
             />
           </div>
           <div>

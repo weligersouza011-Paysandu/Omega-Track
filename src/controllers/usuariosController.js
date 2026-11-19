@@ -11,6 +11,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { hashSenha } from '../utils/senha.js';
 import { atuanteDaRequisicao } from '../middleware/sessao.js';
 import { exigirContrato } from '../utils/contrato.js';
+import { filtroContrato } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { respostaAssinatura, salvarAssinaturaPadrao } from '../services/assinaturaService.js';
 
@@ -70,7 +71,8 @@ function strOuNull(v) {
 
 export const listarUsuarios = asyncHandler(async (req, res) => {
   const { tipo } = req.query;
-  const where = {};
+  // Nao-Master so enxerga usuarios do proprio contrato; Master escolhe (?contrato=).
+  const where = { ...filtroContrato(req) };
   if (tipo === 'ADMINISTRADOR' || tipo === 'OPERACIONAL') where.tipo = tipo;
   // Perfil operacional so precisa da lista para escolher pessoas (operador,
   // supervisor): sem assinatura, setor, nivel ou contrato dos demais.
@@ -81,6 +83,23 @@ export const listarUsuarios = asyncHandler(async (req, res) => {
     ...(restrito ? { select: { id: true, nome: true, matricula: true, funcao: true, tipo: true } } : {}),
   });
   res.json({ data: usuarios.map(semSenha) });
+});
+
+// Quantos usuarios existem por contrato (tabela da Gestao de Usuarios).
+// Nao-Master ve apenas o proprio contrato; Master ve todos.
+export const resumoUsuariosPorContrato = asyncHandler(async (req, res) => {
+  const where = req.atuante?.nivel === 'MASTER' ? {} : { contrato: req.atuante.contrato };
+  const grupos = await prisma.usuario.groupBy({ by: ['contrato', 'tipo'], where, _count: { _all: true } });
+  const porContrato = new Map();
+  for (const g of grupos) {
+    const linha = porContrato.get(g.contrato) || { contrato: g.contrato, administradores: 0, operacionais: 0, total: 0 };
+    if (g.tipo === 'ADMINISTRADOR') linha.administradores += g._count._all;
+    else linha.operacionais += g._count._all;
+    linha.total += g._count._all;
+    porContrato.set(g.contrato, linha);
+  }
+  const data = [...porContrato.values()].sort((a, b) => a.contrato.localeCompare(b.contrato));
+  res.json({ data, total: data.reduce((soma, l) => soma + l.total, 0) });
 });
 
 export const criarAdmin = asyncHandler(async (req, res) => {
@@ -455,7 +474,7 @@ export const listarLogsAtividade = asyncHandler(async (req, res) => {
   } = req.query;
   const pagina = Math.max(1, Number(page) || 1);
   const tamanho = Math.min(200, Math.max(1, Number(limit) || 50));
-  const where = {};
+  const where = { ...filtroContrato(req) };
 
   if (usuario_id) where.usuario_id = String(usuario_id);
   if (modulo) where.modulo = String(modulo);
@@ -514,7 +533,7 @@ export const listarLixeira = asyncHandler(async (req, res) => {
   const desde = new Date(Date.now() - JANELA_RECUPERACAO_MS);
   const [veiculos, partes] = await Promise.all([
     prisma.mobDesmob.findMany({
-      where: { deletado_em: { gte: desde } },
+      where: { deletado_em: { gte: desde }, ...filtroContrato(req) },
       orderBy: { deletado_em: 'desc' },
       select: {
         tag: true,
@@ -527,7 +546,7 @@ export const listarLixeira = asyncHandler(async (req, res) => {
       },
     }),
     prisma.parteDiaria.findMany({
-      where: { deletado_em: { gte: desde } },
+      where: { deletado_em: { gte: desde }, ...filtroContrato(req) },
       orderBy: { deletado_em: 'desc' },
       select: {
         id: true,

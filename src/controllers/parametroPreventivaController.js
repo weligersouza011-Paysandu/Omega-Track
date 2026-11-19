@@ -2,6 +2,7 @@ import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { KM_LIMITE_PREVENTIVA_PADRAO } from '../services/manutencaoService.js';
 import { exigirContrato } from '../utils/contrato.js';
+import { contratoDoEscopo, ehMaster, escopoDaRequisicao } from '../middleware/escopo.js';
 
 // ============================================================================
 // Parâmetros de preventiva por categoria (modelo) e contrato.
@@ -31,7 +32,10 @@ export function validarLimitePreventiva(v) {
 
 // GET /api/parametros-preventiva — lista todos (aberto).
 export const listarParametros = asyncHandler(async (req, res) => {
+  // Regras globais (contrato nulo) valem para todos; as demais, so do contrato no escopo.
+  const contrato = contratoDoEscopo(req);
   const parametros = await prisma.parametroPreventiva.findMany({
+    where: contrato === undefined ? {} : { OR: [{ contrato: null }, { contrato }] },
     orderBy: [{ categoria: 'asc' }, { contrato: 'asc' }],
   });
   res.json({ data: parametros, meta: { padrao_km: KM_LIMITE_PREVENTIVA_PADRAO } });
@@ -43,7 +47,8 @@ export const buscarPorCategoria = asyncHandler(async (req, res) => {
   if (!categoria) {
     return res.status(400).json({ error: 'Categoria obrigatoria', message: 'Informe a categoria do veículo.' });
   }
-  const contrato = normalizarContrato(req.query.contrato);
+  // Contrato do veiculo = escopo do usuario (Master pode pedir outro via ?contrato=).
+  const contrato = contratoDoEscopo(req) ?? null;
   let parametro = null;
   let origem = 'padrao';
   if (contrato) {
@@ -72,7 +77,8 @@ export const salvarParametro = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Categoria obrigatoria', message: 'Informe a categoria/tipo do veículo.' });
   }
   const km_limite_preventiva = validarLimitePreventiva(req.body?.km_limite_preventiva);
-  const contrato = normalizarContrato(req.body?.contrato);
+  // Nao-Master grava sempre no proprio contrato. Master: contrato informado ou, vazio, regra global.
+  const contrato = ehMaster(req.atuante) ? normalizarContrato(req.body?.contrato) : escopoDaRequisicao(req).contrato;
 
   const existente = await prisma.parametroPreventiva.findFirst({ where: { categoria, contrato } });
   let parametro;
@@ -97,6 +103,13 @@ export const removerParametro = asyncHandler(async (req, res) => {
   const existente = await prisma.parametroPreventiva.findUnique({ where: { id } });
   if (!existente) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parâmetro não encontrado.' });
+  }
+  // Regra global so o Master remove; a de contrato, apenas quem e do contrato.
+  if (!ehMaster(req.atuante) && existente.contrato !== req.atuante.contrato) {
+    return res.status(existente.contrato === null ? 403 : 404).json({
+      error: existente.contrato === null ? 'Sem permissao' : 'Nao encontrado',
+      message: existente.contrato === null ? 'Apenas ADM Master altera a regra global.' : 'Parâmetro não encontrado.',
+    });
   }
   await prisma.parametroPreventiva.delete({ where: { id } });
   res.status(204).send();

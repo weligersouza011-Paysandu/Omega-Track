@@ -1,4 +1,5 @@
 import prisma from '../config/database.js';
+import { filtroContrato } from '../middleware/escopo.js';
 import { asyncHandler } from '../middleware/error.js';
 import {
   parseKm,
@@ -21,7 +22,7 @@ import {
 // ============================================================================
 export const projecaoFrota = asyncHandler(async (req, res) => {
   const veiculos = await prisma.mobDesmob.findMany({
-    where: { status: { not: 'Desmobilizado' }, deletado_em: null },
+    where: { status: { not: 'Desmobilizado' }, deletado_em: null, ...filtroContrato(req) },
     orderBy: { tag: 'asc' },
     select: { tag: true, placa: true, modelo: true, contrato: true, status: true, km_limite_preventiva: true, km_ultima_preventiva: true },
   });

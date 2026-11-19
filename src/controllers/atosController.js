@@ -19,6 +19,7 @@
 import XLSX from 'xlsx';
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { filtroContrato, contratoParaGravar } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 
@@ -275,6 +276,8 @@ function gerarHashAto(item) {
 // 1. IMPORTAÇÃO DE PLANILHA (POST /api/ecogestao/atos/importar)
 // ============================================================================
 export const importarAtos = asyncHandler(async (req, res) => {
+  // Os dados importados pertencem ao contrato de quem importa (Master escolhe).
+  const contratoImportacao = contratoParaGravar(req);
   if (!req.file || !req.file.buffer) {
     return res.status(400).json({
       error: 'Arquivo ausente',
@@ -385,6 +388,7 @@ export const importarAtos = asyncHandler(async (req, res) => {
   // Deduplicação: busca existentes no banco
   const existentes = await comRetryConexao(
     () => prisma.atoAutorizativo.findMany({
+      where: { contrato: contratoImportacao },
       select: {
         descricao_do_tipo_de_servico: true,
         licenca: true,
@@ -424,7 +428,7 @@ export const importarAtos = asyncHandler(async (req, res) => {
     for (let pos = 0; pos < registrosParaInserir.length; pos += TAMANHO_LOTE_INSERT) {
       const lote = registrosParaInserir.slice(pos, pos + TAMANHO_LOTE_INSERT);
       const resultado = await comRetryConexao(
-        () => prisma.atoAutorizativo.createMany({ data: lote }),
+        () => prisma.atoAutorizativo.createMany({ data: lote.map((registro) => ({ ...registro, contrato: contratoImportacao })) }),
         3,
         700,
         'atos:createMany',
@@ -477,7 +481,7 @@ export const listarAtos = asyncHandler(async (req, res) => {
     limite = 100,
   } = req.query;
 
-  const where = {};
+  const where = { ...filtroContrato(req) };
   if (status && status !== 'TODOS') {
     where.status = { equals: String(status).trim().toUpperCase() };
   }
@@ -507,6 +511,7 @@ export const listarAtos = asyncHandler(async (req, res) => {
         take: lim,
       }),
       prisma.atoAutorizativo.findMany({
+        where: filtroContrato(req),
         select: {
           id: true,
           status: true,
@@ -617,6 +622,7 @@ export const criarAto = asyncHandler(async (req, res) => {
   const novo = await comRetryConexao(
     () => prisma.atoAutorizativo.create({
       data: {
+        contrato: contratoParaGravar(req, req.body?.contrato),
         descricao_do_tipo_de_servico: String(descricao_do_tipo_de_servico).trim().toUpperCase(),
         licenca: String(licenca).trim().toUpperCase(),
         validade: dataValidade,
@@ -746,7 +752,7 @@ export const excluirAtosLote = asyncHandler(async (req, res) => {
   const idsValidos = ids.map(String).filter(Boolean);
   const resultado = await comRetryConexao(
     () => prisma.atoAutorizativo.deleteMany({
-      where: { id: { in: idsValidos } },
+      where: { id: { in: idsValidos }, ...filtroContrato(req) },
     }),
     3,
     500,

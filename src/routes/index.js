@@ -19,8 +19,10 @@ import produtosQuimicosRoutes from './produtosQuimicosRoutes.js';
 import telemetriaRoutes from './telemetriaRoutes.js';
 import veiculosTerceirosRoutes from './veiculosTerceirosRoutes.js';
 import categoriasDesvioRoutes from './categoriasDesvioRoutes.js';
+import contratoRoutes from './contratoRoutes.js';
 import { aprovarLotePlanejamento, aprovarLoteTransporte } from '../controllers/parteDiariaController.js';
 import { requerPlanejamentoOuMaster, requerTransporteOuMaster } from '../middleware/sessao.js';
+import { sessaoOpcional } from '../middleware/escopo.js';
 
 const router = Router();
 
@@ -41,6 +43,8 @@ router.get('/', (req, res) => {
       obras: '/api/obras (GET aberto; POST/PUT/DELETE restritos a Gestao/Transporte ou ADM Master)',
       programacao_recursos: 'GET /api/programacao-recursos?data=AAAA-MM-DD; PUT /api/programacao-recursos/lote { data, alteracoes: [{ tag, obraId|null, operadorMatricula? (motorista manha), operadorTardeMatricula? (2o motorista onibus/van), supervisorMatricula? }] }; PUT/DELETE /:data/:tag; POST /copiar-ultima-programacao (Gestao/Transporte ou ADM Master)',
       veiculos_terceiros: 'GET/POST /api/veiculos-terceiros { tag*, tipo*, empresa_terceira?, placa?, modelo?, foto_url?, observacao? }; PUT/DELETE /:id (admin; exclusao direta; aparecem SOMENTE na Programacao de Recursos com is_terceiro=true)',
+      contratos: 'GET /api/contratos -> { data: ["251", ...], meu, master } (filtro dos dashboards; nao-Master recebe so o proprio). Escopo: nao-Master enxerga apenas o proprio contrato; Master usa ?contrato=010|todos (padrao: o proprio)',
+      usuarios_por_contrato: 'GET /api/usuarios/resumo-contratos -> { data: [{ contrato, administradores, operacionais, total }], total }',
       usuario_rapido: 'POST /api/usuarios/rapido { matricula?, nome, funcao? (texto livre: Motorista, Operador, Supervisor...) } cria Usuario Operacional (tipo OPERACIONAL, sem senha/setor/nivel; Gestao/Transporte ou ADM Master; sem matricula gera PROV-XXXXXXXX) -> { matricula, nome, funcao, tipo, matriculaProvisoria }',
       aderencia_obra_programada: 'GET /api/partes-diarias/obra-programada?tag=&data=AAAA-MM-DD -> { programada, obra{id,nome,numero_contrato,contratante,gestao,planejador}, operador, operador_tarde, supervisor } (autopreenche o RDO)',
       aderencia_resumo: 'GET /api/partes-diarias/aderencia?inicio=&fim= (admin) -> { programados, aderentes, desvios, sem_programacao, percentual_aderencia, justificativas_pendentes, desvios_por_categoria }',
@@ -104,6 +108,9 @@ router.get('/ping', (req, res) => {
   });
 });
 
+// Carrega o usuario do JWT (sem exigir login) para o escopo por contrato.
+router.use(sessaoOpcional);
+
 router.use('/mob-desmob', mobDesmobRoutes);
 router.use('/documentacao-veiculos', documentacaoRoutes);
 router.use('/obras', obraRoutes);
@@ -131,5 +138,6 @@ router.use('/produtos-quimicos', produtosQuimicosRoutes);
 router.use('/telemetria', telemetriaRoutes);
 router.use('/veiculos-terceiros', veiculosTerceirosRoutes);
 router.use('/categorias-desvio', categoriasDesvioRoutes);
+router.use('/contratos', contratoRoutes);
 
 export default router;

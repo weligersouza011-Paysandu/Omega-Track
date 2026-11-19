@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import {
   listarUsuarios,
+  resumoUsuariosPorContrato,
   criarAdmin,
   criarLoteOperacionais,
   criarUsuarioRapido,
@@ -22,12 +23,21 @@ import {
 import {
   requerAdmin, requerAdminAutenticado, requerGestaoTransporte, requerMaster, requerSessao,
 } from '../middleware/sessao.js';
+import { paramContrato } from '../middleware/escopo.js';
+import prisma from '../config/database.js';
+import { UUID } from '../utils/contrato.js';
 
 const router = Router();
+
+// Usuario de outro contrato => 404 (Master enxerga todos).
+router.param('id', paramContrato(async (id) => (UUID.test(id)
+  ? (await prisma.usuario.findUnique({ where: { id }, select: { contrato: true } }))?.contrato
+  : null)));
 
 router.get('/minha-assinatura', requerSessao, obterMinhaAssinatura);
 router.put('/minha-assinatura', requerSessao, salvarMinhaAssinatura);
 router.get('/', requerSessao, listarUsuarios);
+router.get('/resumo-contratos', requerAdmin, resumoUsuariosPorContrato);
 // Historico global de atividades (admin) e lixeira (somente Master).
 router.get('/logs', requerAdmin, listarLogsAtividade);
 router.get('/lixeira', requerAdmin, requerMaster, listarLixeira);

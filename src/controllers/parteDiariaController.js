@@ -2,6 +2,7 @@ import prisma from '../config/database.js';
 import config from '../config/index.js';
 import { asyncHandler } from '../middleware/error.js';
 import { atuanteDaRequisicao, lerSessao, sessaoOperacional } from '../middleware/sessao.js';
+import { filtroContrato, exigirAcessoContrato } from '../middleware/escopo.js';
 import { parseKm, obterUltimaKmFinal } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
@@ -441,7 +442,8 @@ export const listarPartesDiarias = asyncHandler(async (req, res) => {
   } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
 
-  const where = { deletado_em: null, veiculo: { deletado_em: null } };
+  // Escopo por contrato: a Parte Diaria carrega o contrato do veiculo.
+  const where = { deletado_em: null, veiculo: { deletado_em: null }, ...filtroContrato(req) };
   if (tag) where.tag = tag;
   if (status_operacional) {
     where.status_operacional = status_operacional;
@@ -562,6 +564,10 @@ export const buscarUltimaKm = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'TAG obrigatoria', message: 'Informe a TAG do veículo (?tag=TAG).' });
   }
   const ignorarId = req.query.ignorar_id || req.query.excluir_id || null;
+  const doContrato = await prisma.mobDesmob.findFirst({ where: { tag: { equals: tag, mode: 'insensitive' }, ...filtroContrato(req) }, select: { tag: true } });
+  if (!doContrato) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
+  }
   const ultima = await obterUltimaKmFinal(tag, ignorarId);
   res.json({
     data: { tag, ...ultima },
@@ -697,6 +703,8 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
         message: `TAG "${tagFinal}" não encontrada na frota. Selecione um veículo do cadastro em Equipamentos.`,
       });
     }
+    // Veiculo de outro contrato nao existe para quem nao e Master.
+    exigirAcessoContrato(req, veiculoFrota.contrato);
   } catch (e) {
     console.error("Erro ao salvar Parte Diária:", e);
     return res.status(500).json({
@@ -788,10 +796,10 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   let obraIdFinal = null;
   if (obra_id) {
     const obraExiste = await prisma.obra.findUnique({ where: { id: String(obra_id) } });
-    if (!obraExiste) {
+    if (!obraExiste || obraExiste.contrato !== veiculoFrota.contrato) {
       return res.status(400).json({
         error: 'Obra invalida',
-        message: 'A obra selecionada nao foi encontrada no cadastro.',
+        message: 'A obra selecionada nao foi encontrada no cadastro deste contrato.',
       });
     }
     obraIdFinal = obraExiste.id;
@@ -820,6 +828,7 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
     criado = await prisma.$transaction(async (tx) => {
       const novo = await tx.parteDiaria.create({
         data: {
+          contrato: veiculoFrota.contrato,
           tag: tagFinal,
           funcionario: funcionarioFinal,
           funcao: funcaoFinal,
@@ -1336,7 +1345,7 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
   }
 
   const veiculo = await prisma.mobDesmob.findFirst({
-    where: { tag: { equals: tagBruta, mode: 'insensitive' }, deletado_em: null },
+    where: { tag: { equals: tagBruta, mode: 'insensitive' }, deletado_em: null, ...filtroContrato(req) },
   });
   if (!veiculo) {
     return res.status(400).json({
@@ -1423,6 +1432,7 @@ export const apontamentoRapido = asyncHandler(async (req, res) => {
   try {
     criado = await prisma.parteDiaria.create({
       data: {
+        contrato: veiculo.contrato,
         tag: veiculo.tag,
         data: diaData,
         dia_semana: diaSemanaPT(diaData),
@@ -1923,6 +1933,10 @@ export const buscarObraProgramada = asyncHandler(async (req, res) => {
   if (!tag || tag.length > 50 || !dia) {
     return res.status(400).json({ error: 'Dados invalidos', message: 'Informe `tag` e `data` (AAAA-MM-DD).' });
   }
+  const doContrato = await prisma.mobDesmob.findFirst({ where: { tag: { equals: tag, mode: 'insensitive' }, ...filtroContrato(req) }, select: { tag: true } });
+  if (!doContrato) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
+  }
   const programacao = await buscarProgramacaoDoDia(prisma, tag, dia);
   const pessoa = (matricula, nome) => (matricula ? { matricula, nome } : null);
   res.json({
@@ -1958,7 +1972,7 @@ export const resumoAderencia = asyncHandler(async (req, res) => {
   if ((fim - inicio) / 86400000 > 366) {
     return res.status(400).json({ error: 'Periodo invalido', message: 'O período máximo é de 366 dias.' });
   }
-  const base = { data: { gte: inicio, lte: fim }, deletado_em: null };
+  const base = { data: { gte: inicio, lte: fim }, deletado_em: null, ...filtroContrato(req) };
   const [porAderencia, desviosPorCategoria, pendentes, categorias] = await Promise.all([
     prisma.parteDiaria.groupBy({ by: ['aderencia'], where: base, _count: { _all: true } }),
     prisma.parteDiaria.groupBy({ by: ['categoria_desvio_id'], where: { ...base, aderencia: false }, _count: { _all: true } }),

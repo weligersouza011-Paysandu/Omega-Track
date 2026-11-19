@@ -17,6 +17,7 @@
 // ============================================================================
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { filtroContrato, contratoParaGravar } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 import * as regras from '../utils/classificacaoTelemetria.js';
@@ -112,6 +113,8 @@ export function lerSemanasOuErro(valor) {
 /** `where` do Prisma a partir dos filtros da tela. */
 export function montarFiltro(query = {}, agora = new Date()) {
   const where = {};
+  // Escopo por contrato (injetado por escopoNaQuery; o cliente nao consegue forjar).
+  if (query.__contrato) where.contrato = String(query.__contrato);
   const busca = String(query.busca || '').trim();
   if (busca) {
     where.OR = ['tag_placa', 'tag', 'localizacao', 'motorista'].map((campo) => ({
@@ -182,6 +185,7 @@ async function enriquecer(eventos) {
     const historico = await comRetry(() => prisma.eventoTelemetria.findMany({
       where: {
         motorista: { in: [...new Set(comConduta.map((e) => e.motorista))] },
+        contrato: { in: [...new Set(comConduta.map((e) => e.contrato).filter(Boolean))] },
         evento: { in: [...new Set(comConduta.map((e) => e.evento))] },
         data_hora: { gte: inicioDoMes(meses[0]), lt: inicioDoMes(meses[meses.length - 1], 1) },
         status_tratativa: { not: 'DESCARTADO' },
@@ -353,8 +357,9 @@ export const resumoTelemetria = asyncHandler(async (req, res) => {
 // 4. IMPORTAÇÃO (PRÉVIA + CONFIRMAÇÃO)
 // ============================================================================
 
-async function carregarVeiculosPorPlaca() {
-  const veiculos = await comRetry(() => prisma.mobDesmob.findMany({ select: { tag: true, placa: true } }), 'frota');
+async function carregarVeiculosPorPlaca(contrato) {
+  // So veiculos do contrato: placa de outro contrato conta como "sem veiculo".
+  const veiculos = await comRetry(() => prisma.mobDesmob.findMany({ where: { contrato }, select: { tag: true, placa: true } }), 'frota');
   const mapa = new Map();
   for (const v of veiculos) {
     const chave = chavePlaca(v.placa);
@@ -386,7 +391,7 @@ export async function reconciliarFadiga(registros) {
       ? { parou_em_15_min: { not: null } }
       : { OR: [{ parou_em_15_min: null }, { parou_em_15_min: !valor }] };
     const { count } = await comRetry(() => prisma.eventoTelemetria.updateMany({
-      where: { AND: [{ chave_unica: { in: chaves } }, diferente] },
+      where: { AND: [{ chave_unica: { in: chaves } }, diferente], ...(fadigas[0].contrato ? { contrato: fadigas[0].contrato } : {}) },
       data: { parou_em_15_min: valor },
     }), 'reconciliar-parada');
     paradaAtualizada += count;
@@ -400,6 +405,7 @@ export async function reconciliarFadiga(registros) {
     where: {
       evento: EVENTOS.FADIGA_SEM_PARADA,
       origem: 'DERIVADO',
+      ...(fadigas[0].contrato ? { contrato: fadigas[0].contrato } : {}),
       tag_placa: { in: [...new Set(fadigas.map((f) => f.tag_placa))] },
       data_hora: { gte: new Date(Math.min(...tempos)), lte: new Date(Math.max(...tempos) + 15 * 60 * 1000) },
       chave_unica: { notIn: derivadosAtuais },
@@ -414,6 +420,8 @@ function sim(valor) {
 }
 
 export const importarTelemetria = asyncHandler(async (req, res) => {
+  // Os eventos importados pertencem ao contrato de quem importa (Master escolhe).
+  const contratoImportacao = contratoParaGravar(req);
   if (!req.file?.buffer) {
     return res.status(400).json({
       error: 'Arquivo nao enviado',
@@ -427,7 +435,7 @@ export const importarTelemetria = asyncHandler(async (req, res) => {
   }
 
   const planilha = lerLinhas(req.file.buffer);
-  const veiculosPorPlaca = await carregarVeiculosPorPlaca();
+  const veiculosPorPlaca = await carregarVeiculosPorPlaca(contratoImportacao);
   const { eventos, ignoradas, invalidas, fadiga } = extrairEventos(planilha, {
     fusoMin,
     arquivo: req.file.originalname,
@@ -464,6 +472,7 @@ export const importarTelemetria = asyncHandler(async (req, res) => {
   const prazo = prazoPadrao();
   const registros = eventos.map((e) => ({
     ...e,
+    contrato: contratoImportacao,
     // Dentro da tolerância não há conduta a tratar: nasce sem prazo.
     prazo_tratativa: e.severidade === 'NORMAL' ? null : prazo,
   }));
@@ -530,11 +539,13 @@ export const criarEventoTelemetria = asyncHandler(async (req, res) => {
     severidade = String(dados.severidade).toUpperCase();
     if (!SEVERIDADES.includes(severidade)) throw erroHttp(400, `Severidade invalida. Aceitas: ${SEVERIDADES.join(', ')}.`);
   }
-  const veiculo = (await carregarVeiculosPorPlaca()).get(chavePlaca(tagPlaca));
+  const contrato = contratoParaGravar(req, dados.contrato);
+  const veiculo = (await carregarVeiculosPorPlaca(contrato)).get(chavePlaca(tagPlaca));
   const original = `${dados.evento} (lancamento manual)`;
 
   const evento = await comRetry(() => prisma.eventoTelemetria.create({
     data: {
+      contrato,
       tag_placa: tagPlaca,
       tag: veiculo?.tag ?? textoOpcional(dados.tag, 50),
       motorista: textoOpcional(dados.motorista, 255),
@@ -615,7 +626,7 @@ export const excluirEventosTelemetriaLote = asyncHandler(async (req, res) => {
   if (ids.length > 500) throw erroHttp(400, 'Exclua no maximo 500 eventos por vez.');
   const idsValidos = [...new Set(ids.map(idValido))];
   const { count } = await comRetry(
-    () => prisma.eventoTelemetria.deleteMany({ where: { id: { in: idsValidos } } }),
+    () => prisma.eventoTelemetria.deleteMany({ where: { id: { in: idsValidos }, ...filtroContrato(req) } }),
     'excluirLote',
   );
   await registrarLogAtividade(req, {
@@ -639,8 +650,9 @@ export const excluirEventosTelemetriaLote = asyncHandler(async (req, res) => {
  * recente para a mais antiga, com o total e a quebra por tipo. A tela usa as duas
  * mais recentes como seleção padrão.
  */
-export const listarSemanasTelemetria = asyncHandler(async (_req, res) => {
+export const listarSemanasTelemetria = asyncHandler(async (req, res) => {
   const eventos = await comRetry(() => prisma.eventoTelemetria.findMany({
+    where: filtroContrato(req),
     select: { data_hora: true, evento: true, valor: true },
     take: 200000,
   }), 'semanas');
@@ -673,8 +685,9 @@ const CAMPOS_TRAJETO = {
   severidade: true, latitude: true, longitude: true, localizacao: true, link_mapa: true, cerca: true,
 };
 
-async function carregarFrota() {
+async function carregarFrota(req) {
   const veiculos = await comRetry(() => prisma.mobDesmob.findMany({
+    where: filtroContrato(req),
     select: { tag: true, placa: true, status: true, deletado_em: true },
   }), 'frota-cadastro');
   return indexarFrota(veiculos);
@@ -685,11 +698,11 @@ async function carregarFrota() {
  * só reduz os candidatos; a comparação final é pela placa normalizada (sem hífen,
  * espaços e caixa), então "QVN4G02 CT-251" e "qvn-4g02" casam com "QVN4G02".
  */
-async function grafiasDaPlaca(chave, rotulo) {
+async function grafiasDaPlaca(chave, rotulo, req) {
   if (!chave) return [];
   const grupos = await comRetry(() => prisma.eventoTelemetria.groupBy({
     by: ['tag_placa'],
-    where: { tag_placa: { contains: trechoBuscaPlaca(chave), mode: 'insensitive' } },
+    where: { tag_placa: { contains: trechoBuscaPlaca(chave), mode: 'insensitive' }, ...filtroContrato(req) },
     _count: { _all: true },
   }), rotulo);
   return grupos.map((g) => g.tag_placa).filter((tp) => normalizarPlaca(tp) === chave);
@@ -702,15 +715,15 @@ async function grafiasDaPlaca(chave, rotulo) {
  */
 export const trajetoTelemetria = asyncHandler(async (req, res) => {
   const filtro = lerFiltroTrajeto(req.query);
-  const where = filtroDataHoraTrajeto(filtro);
+  const where = { ...filtroDataHoraTrajeto(filtro), ...filtroContrato(req) };
   let veiculo = null;
 
   if (filtro.veiculo) {
     const chave = normalizarPlaca(filtro.veiculo);
-    const frota = await carregarFrota();
+    const frota = await carregarFrota(req);
     const cadastro = frota.get(chave) || null;
     const placa = cadastro ? normalizarPlaca(cadastro.placa) : chave;
-    const grafias = await grafiasDaPlaca(placa, 'trajeto-grafias');
+    const grafias = await grafiasDaPlaca(placa, 'trajeto-grafias', req);
     const vinculo = [];
     if (cadastro?.tag) vinculo.push({ tag: cadastro.tag });
     if (grafias.length) vinculo.push({ tag_placa: { in: grafias } });
@@ -745,15 +758,16 @@ function semJanelas({ janelas, diaInteiro, ...resto }) {
  * GET /api/telemetria/placas-nao-cadastradas — placas da telemetria sem nenhum vínculo
  * com a frota (mobilizados, desmobilizados e lixeira contam como cadastrados).
  */
-export const placasNaoCadastradas = asyncHandler(async (_req, res) => {
+export const placasNaoCadastradas = asyncHandler(async (req, res) => {
   const [grupos, frota] = await Promise.all([
     comRetry(() => prisma.eventoTelemetria.groupBy({
       by: ['tag_placa', 'tag'],
+      where: filtroContrato(req),
       _count: { _all: true },
       _min: { data_hora: true },
       _max: { data_hora: true },
     }), 'placas-sem-cadastro'),
-    carregarFrota(),
+    carregarFrota(req),
   ]);
   const placas = placasSemCadastro(grupos, frota);
   return res.status(200).json({ total: placas.length, placas });
@@ -767,12 +781,12 @@ export const excluirEventosPorPlaca = asyncHandler(async (req, res) => {
   const original = String(req.params.placa || '').trim();
   const chave = normalizarPlaca(original);
   if (!chave || chave.length < 3 || chave.length > 20) throw erroHttp(400, 'Informe uma placa valida.');
-  const grafias = await grafiasDaPlaca(chave, 'excluir-placa-grafias');
+  const grafias = await grafiasDaPlaca(chave, 'excluir-placa-grafias', req);
   if (!grafias.length) {
     return res.status(404).json({ error: 'Nao encontrado', message: `Nenhum evento de telemetria para a placa ${chave}.`, total_excluido: 0 });
   }
   const { count } = await comRetry(
-    () => prisma.eventoTelemetria.deleteMany({ where: { tag_placa: { in: grafias } } }),
+    () => prisma.eventoTelemetria.deleteMany({ where: { tag_placa: { in: grafias }, ...filtroContrato(req) } }),
     'excluir-placa',
   );
   await registrarLogAtividade(req, {

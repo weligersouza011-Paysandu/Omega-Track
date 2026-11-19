@@ -17,7 +17,7 @@ globalThis.prisma = {
       : { ...u, senha_hash: 'x' })),
   },
   logAtividade: { create: async () => ({}) },
-  mobDesmob: { findMany: async () => [], count: async () => 0 },
+  mobDesmob: { findMany: async () => [], count: async () => 0, findFirst: async () => ({ contrato: '251' }) },
 };
 
 const { default: app } = await import('../src/app.js');

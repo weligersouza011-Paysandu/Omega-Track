@@ -16,8 +16,8 @@ function atende(registro, where = {}) {
     if (campo === 'OR') return condicao.some((c) => atende(registro, c));
     if (campo === 'AND') return condicao.every((c) => atende(registro, c));
     if (campo === 'NOT') return !atende(registro, condicao);
-    // Campo ausente = NULL (como no banco).
-    const valor = registro[campo] ?? null;
+    // Campo ausente = NULL (como no banco); `contrato` ausente = 251 (DEFAULT da migration 0039).
+    const valor = registro[campo] ?? (campo === 'contrato' ? '251' : null);
     if (condicao === null || typeof condicao !== 'object' || condicao instanceof Date) {
       return valorDe(valor) === valorDe(condicao);
     }
@@ -182,7 +182,7 @@ export function criarPrismaEmMemoria({ veiculos = [], administradores = [] } = {
     },
   };
 
-  const usuarios = administradores.map((u) => ({ tipo: 'ADMINISTRADOR', setor: 'GESTAO', nivel: 'MASTER', ...u }));
+  const usuarios = administradores.map((u) => ({ tipo: 'ADMINISTRADOR', setor: 'GESTAO', nivel: 'MASTER', contrato: '251', ...u }));
 
   return {
     eventos,

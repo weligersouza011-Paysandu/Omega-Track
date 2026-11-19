@@ -32,7 +32,7 @@ export const buscarRelatoriosPdfLote = asyncHandler(async (req, res) => {
   const sessao = lerSessao(req);
   if (!sessao?.sub) return res.status(401).json({ message: 'Faça login para exportar os relatórios.' });
   const usuario = await prisma.usuario.findUnique({
-    where: { id: sessao.sub }, select: { id: true, tipo: true, matricula: true, nome: true },
+    where: { id: sessao.sub }, select: { id: true, tipo: true, nivel: true, contrato: true, matricula: true, nome: true },
   });
   if (!usuario) return res.status(401).json({ message: 'Sessão inválida. Faça login novamente.' });
   if (!['ADMINISTRADOR', 'OPERACIONAL'].includes(usuario.tipo)) {
@@ -45,6 +45,8 @@ export const buscarRelatoriosPdfLote = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: `Informe entre 1 e ${LIMITE_LOTE_RELATORIOS} IDs de relatórios distintos e válidos.` });
   }
   const where = { id: { in: ids }, deletado_em: null, veiculo: { deletado_em: null } };
+  // Fora do proprio contrato (exceto Master) o relatorio nao esta disponivel.
+  if (!(usuario.tipo === 'ADMINISTRADOR' && usuario.nivel === 'MASTER')) where.contrato = usuario.contrato;
   if (usuario.tipo === 'OPERACIONAL') {
     where.OR = [
       { operador: usuario.matricula },

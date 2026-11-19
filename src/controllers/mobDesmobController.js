@@ -11,6 +11,7 @@ import {
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { exigirContrato, tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js';
+import { contratoParaGravar, filtroContrato, ehMaster } from '../middleware/escopo.js';
 
 const CINCO_DIAS_MS = 5 * 24 * 60 * 60 * 1000;
 const ANO_MINIMO_VEICULO = 1900;
@@ -196,12 +197,12 @@ function validarDadosTecnicos(campos = {}, base = {}) {
 }
 
 export const listarVeiculos = asyncHandler(async (req, res) => {
-  const { status, contrato, page = 1, limit = 50 } = req.query;
+  const { status, page = 1, limit = 50 } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
 
-  const where = { deletado_em: null };
+  // Escopo: nao-Master so o proprio contrato; Master escolhe (?contrato=010|todos).
+  const where = { deletado_em: null, ...filtroContrato(req) };
   if (status) where.status = status;
-  if (contrato) where.contrato = contrato;
 
   const [veiculos, total] = await Promise.all([
     prisma.mobDesmob.findMany({
@@ -383,7 +384,9 @@ function validarParametrosPreventiva({ km_limite_preventiva, km_ultima_preventiv
 }
 
 export const criarVeiculo = asyncHandler(async (req, res) => {
-  const body = req.body || {};
+  const body = { ...(req.body || {}) };
+  // Contrato gravado: o do usuario (Master pode escolher outro).
+  body.contrato = contratoParaGravar(req, body.contrato);
   const dados = validarDadosMobilizacao(body);
 
   // Regra de ouro: foto_veiculo aceita SOMENTE URL do Cloudinary (sem binario).
@@ -444,6 +447,12 @@ export const atualizarVeiculo = asyncHandler(async (req, res) => {
   let dataDesmob = temCampo('data_desmob') ? body.data_desmob : anterior.data_desmob;
   // Reversão para Mobilizado limpa a data de desmobilização.
   if (status !== 'Desmobilizado') dataDesmob = null;
+
+  // Trocar o contrato do veiculo e prerrogativa do Master (a troca com data
+  // efetiva, preservando o historico, vem na fase de transferencia).
+  if (temCampo('contrato') && String(body.contrato ?? '').trim() !== anterior.contrato && !ehMaster(req.atuante)) {
+    return res.status(403).json({ error: 'Sem permissao', message: 'Apenas ADM Master pode trocar o contrato de um veículo.' });
+  }
 
   const dados = validarDadosMobilizacao({
     tag: anterior.tag,

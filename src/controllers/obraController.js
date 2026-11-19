@@ -6,6 +6,7 @@
 // ============================================================================
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { contratoParaGravar, filtroContrato } from '../middleware/escopo.js';
 
 function paraApi(o) {
   if (!o) return o;
@@ -17,6 +18,8 @@ function paraApi(o) {
     contratante: resto.contratante,
     gestao: resto.gestao,
     planejador: resto.planejador,
+    planejadorMatricula: resto.planejador_matricula,
+    contrato: resto.contrato,
     ativo: resto.ativo,
     totalPartes: _count?.partes_diarias ?? undefined,
     createdAt: resto.created_at,
@@ -30,11 +33,26 @@ function strOuNull(v) {
   return s === '' ? null : s;
 }
 
+// Planejador vinculado a obra: precisa ser usuario do mesmo contrato da obra.
+// Guarda matricula + nome em texto, entao a obra sobrevive a exclusao do usuario.
+async function resolverPlanejador(matricula, contrato) {
+  const m = strOuNull(matricula);
+  if (!m) return null;
+  const usuario = await prisma.usuario.findUnique({ where: { matricula: m }, select: { matricula: true, nome: true, contrato: true } });
+  if (!usuario || usuario.contrato !== contrato) {
+    const erro = new Error('O planejador precisa ser um usuário do mesmo contrato da obra.');
+    erro.statusCode = 400;
+    erro.error = 'Planejador invalido';
+    throw erro;
+  }
+  return usuario;
+}
+
 export const listarObras = asyncHandler(async (req, res) => {
   const { q, ativo, page = 1, limit = 100 } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
 
-  const where = {};
+  const where = { ...filtroContrato(req) };
   if (ativo === 'true') where.ativo = true;
   if (ativo === 'false') where.ativo = false;
   if (q && String(q).trim()) {
@@ -82,7 +100,7 @@ export const buscarObra = asyncHandler(async (req, res) => {
 });
 
 export const criarObra = asyncHandler(async (req, res) => {
-  const { nome, numeroContrato, contratante, gestao, planejador, ativo } = req.body || {};
+  const { nome, numeroContrato, contratante, gestao, planejador, planejadorMatricula, ativo, contrato } = req.body || {};
 
   if (!nome || !String(nome).trim()) {
     return res.status(400).json({
@@ -91,13 +109,18 @@ export const criarObra = asyncHandler(async (req, res) => {
     });
   }
 
+  const contratoObra = contratoParaGravar(req, contrato);
+  const planejadorVinculado = await resolverPlanejador(planejadorMatricula, contratoObra);
+
   const obra = await prisma.obra.create({
     data: {
+      contrato: contratoObra,
+      planejador_matricula: planejadorVinculado?.matricula ?? null,
       nome: String(nome).trim(),
       numero_contrato: strOuNull(numeroContrato),
       contratante: strOuNull(contratante) || 'Vale',
       gestao: strOuNull(gestao),
-      planejador: strOuNull(planejador),
+      planejador: strOuNull(planejador) ?? planejadorVinculado?.nome ?? null,
       ativo: ativo === undefined || ativo === null ? true : Boolean(ativo),
     },
   });
@@ -107,7 +130,7 @@ export const criarObra = asyncHandler(async (req, res) => {
 
 export const atualizarObra = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { nome, numeroContrato, contratante, gestao, planejador, ativo } = req.body || {};
+  const { nome, numeroContrato, contratante, gestao, planejador, planejadorMatricula, ativo } = req.body || {};
 
   const atual = await prisma.obra.findUnique({ where: { id } });
   if (!atual) {
@@ -126,6 +149,11 @@ export const atualizarObra = asyncHandler(async (req, res) => {
   if (contratante !== undefined) dados.contratante = strOuNull(contratante) || 'Vale';
   if (gestao !== undefined) dados.gestao = strOuNull(gestao);
   if (planejador !== undefined) dados.planejador = strOuNull(planejador);
+  if (planejadorMatricula !== undefined) {
+    const vinculado = await resolverPlanejador(planejadorMatricula, atual.contrato);
+    dados.planejador_matricula = vinculado?.matricula ?? null;
+    if (vinculado && planejador === undefined) dados.planejador = vinculado.nome;
+  }
   if (ativo !== undefined) dados.ativo = Boolean(ativo);
 
   const obra = await prisma.obra.update({ where: { id }, data: dados });

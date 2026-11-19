@@ -163,7 +163,11 @@ export async function executarLoteAprovacao(client, {
     throw erroHttp(400, 'Cadastre sua assinatura no Perfil ou desenhe-a para aprovar em lote.');
   }
   const partes = await client.parteDiaria.findMany({
-    where: { id: { in: unicos }, deletado_em: null, veiculo: { deletado_em: null } },
+    // Fora do proprio contrato (exceto Master) a parte nao existe: cai em `recusadas`.
+    where: {
+      id: { in: unicos }, deletado_em: null, veiculo: { deletado_em: null },
+      ...(atuante.nivel === 'MASTER' ? {} : { contrato: atuante.contrato }),
+    },
     select: SELECT_LOTE,
   });
   const { aptas, recusadas } = classificar(unicos, partes);

@@ -24,6 +24,7 @@
 import XLSX from 'xlsx';
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { filtroContrato, contratoParaGravar } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 
@@ -333,6 +334,8 @@ function gerarHashResiduo(r) {
 // 1. IMPORTAÇÃO DE PLANILHA (POST /api/ecogestao/residuos/importar)
 // ============================================================================
 export const importarResiduos = asyncHandler(async (req, res) => {
+  // Os dados importados pertencem ao contrato de quem importa (Master escolhe).
+  const contratoImportacao = contratoParaGravar(req);
   if (!req.file || !req.file.buffer) {
     return res.status(400).json({
       error: 'Arquivo ausente',
@@ -450,7 +453,7 @@ export const importarResiduos = asyncHandler(async (req, res) => {
   const mesesArray = Array.from(mesesEncontrados);
   const existentes = await comRetryConexao(
     () => prisma.residuo.findMany({
-      where: { mes_ano: { in: mesesArray } },
+      where: { mes_ano: { in: mesesArray }, contrato: contratoImportacao },
       select: {
         data: true,
         tipo_residuos: true,
@@ -485,7 +488,7 @@ export const importarResiduos = asyncHandler(async (req, res) => {
     for (let pos = 0; pos < registrosParaInserir.length; pos += TAMANHO_LOTE_INSERT) {
       const lote = registrosParaInserir.slice(pos, pos + TAMANHO_LOTE_INSERT);
       const resultado = await comRetryConexao(
-        () => prisma.residuo.createMany({ data: lote }),
+        () => prisma.residuo.createMany({ data: lote.map((registro) => ({ ...registro, contrato: contratoImportacao })) }),
         3,
         700,
         'residuos:createMany',
@@ -545,7 +548,7 @@ export const listarResiduos = asyncHandler(async (req, res) => {
 
   const mesFiltro = normalizarMesAno(mes_ano || mes);
 
-  const where = {};
+  const where = { ...filtroContrato(req) };
   if (mesFiltro) {
     where.mes_ano = mesFiltro;
   }
@@ -684,10 +687,11 @@ export const listarResiduos = asyncHandler(async (req, res) => {
 // ============================================================================
 // 3. MESES DISPONÍVEIS (GET /api/ecogestao/residuos/meses)
 // ============================================================================
-export const listarMesesResiduos = asyncHandler(async (_req, res) => {
+export const listarMesesResiduos = asyncHandler(async (req, res) => {
   const grupos = await comRetryConexao(
     () => prisma.residuo.groupBy({
       by: ['mes_ano'],
+      where: filtroContrato(req),
       _count: { id: true },
       _sum: { quantidade_kg_l: true },
       orderBy: { mes_ano: 'desc' },
@@ -749,6 +753,7 @@ export const criarResiduo = asyncHandler(async (req, res) => {
   const novo = await comRetryConexao(
     () => prisma.residuo.create({
       data: {
+        contrato: contratoParaGravar(req, req.body?.contrato),
         data: dataObj,
         tipo_residuos: String(tipo_residuos).trim().toUpperCase(),
         numero_mtr_mid: numero_mtr_mid ? String(numero_mtr_mid).trim().toUpperCase() : null,
@@ -872,6 +877,8 @@ export const excluirResiduo = asyncHandler(async (req, res) => {
 });
 
 export const limparMesResiduos = asyncHandler(async (req, res) => {
+  // Apagar um mes inteiro vale para UM contrato (Master precisa escolher qual).
+  const contratoLimpeza = contratoParaGravar(req);
   const { mes_ano } = req.params;
   const mesFormatado = normalizarMesAno(mes_ano);
 
@@ -884,7 +891,7 @@ export const limparMesResiduos = asyncHandler(async (req, res) => {
 
   const resultado = await comRetryConexao(
     () => prisma.residuo.deleteMany({
-      where: { mes_ano: mesFormatado },
+      where: { mes_ano: mesFormatado, contrato: contratoLimpeza },
     }),
     3,
     500,
@@ -920,7 +927,7 @@ export const excluirResiduosLote = asyncHandler(async (req, res) => {
   const idsValidos = ids.map(String).filter(Boolean);
   const resultado = await comRetryConexao(
     () => prisma.residuo.deleteMany({
-      where: { id: { in: idsValidos } },
+      where: { id: { in: idsValidos }, ...filtroContrato(req) },
     }),
     3,
     500,

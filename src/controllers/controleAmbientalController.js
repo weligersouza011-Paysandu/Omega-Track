@@ -1,5 +1,6 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { filtroContrato } from '../middleware/escopo.js';
 
 const STATUS_CONFORME = 'CONFORME';
 const STATUS_ALERTA = 'ALERTA';
@@ -139,6 +140,7 @@ export const obterPainelFumacaPreta = asyncHandler(async (req, res) => {
     where: {
       status: 'Mobilizado',
       deletado_em: null,
+      ...filtroContrato(req),
       combustivel: {
         contains: 'diesel',
         mode: 'insensitive',
@@ -208,7 +210,7 @@ export const salvarMedicaoFumacaPreta = asyncHandler(async (req, res) => {
   }
 
   const veiculo = await prisma.mobDesmob.findFirst({
-    where: { tag, status: 'Mobilizado', deletado_em: null },
+    where: { tag, status: 'Mobilizado', deletado_em: null, ...filtroContrato(req) },
     select: { tag: true, placa: true, modelo: true, contrato: true, combustivel: true },
   });
   if (!veiculo) {

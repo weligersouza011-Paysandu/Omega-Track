@@ -46,3 +46,5 @@ export function tagSemEspaco(valor) {
   return typeof valor === 'string' && valor.length > 0 && !/\s/.test(valor);
 }
 export const MENSAGEM_TAG = 'A TAG não pode ter espaços (use letras e números colados, ex.: CA0388).';
+
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

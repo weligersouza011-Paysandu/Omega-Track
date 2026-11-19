@@ -18,6 +18,7 @@ import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { sessaoOperacional, atuanteDaRequisicao } from '../middleware/sessao.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
+import { filtroContrato } from '../middleware/escopo.js';
 
 const DIAS_AUDITORIA_PADRAO = 7;
 const DIAS_AUDITORIA_MAX = 31;
@@ -188,7 +189,7 @@ export const listarPendencias = asyncHandler(async (req, res) => {
 
   // Passo A: frota ativa/mobilizada.
   const veiculos = await comRetryConexao(() => prisma.mobDesmob.findMany({
-    where: { status: { not: 'Desmobilizado' }, deletado_em: null },
+    where: { status: { not: 'Desmobilizado' }, deletado_em: null, ...filtroContrato(req) },
     select: { tag: true, placa: true, data_mob: true, data_desmob: true },
   }));
   const tagsFrota = veiculos.map((v) => v.tag);
@@ -290,6 +291,7 @@ export const listarPendencias = asyncHandler(async (req, res) => {
 
   // Resolve o autor da PD mais recente anterior a cada dia pendente.
   const usuarios = await comRetryConexao(() => prisma.usuario.findMany({
+    where: filtroContrato(req),
     select: { id: true, matricula: true, nome: true },
   }));
   const usuarioPorMatricula = new Map(
@@ -370,6 +372,11 @@ function extrairTagData(req) {
   return { tag, dataISO: dataISO.slice(0, 10) };
 }
 
+// A pendencia e do veiculo: so quem enxerga o contrato dele pode mexer nela.
+async function veiculoDoContrato(req, tag) {
+  return prisma.mobDesmob.findFirst({ where: { tag, deletado_em: null, ...filtroContrato(req) }, select: { tag: true } });
+}
+
 // Descarte manual (ADM/Transporte): persiste a pendencia como ignorada.
 export const ignorarPendencia = asyncHandler(async (req, res) => {
   const { tag, dataISO } = extrairTagData(req);
@@ -378,6 +385,9 @@ export const ignorarPendencia = asyncHandler(async (req, res) => {
       error: 'Parametros invalidos',
       message: 'Informe a TAG do veiculo e a data no formato YYYY-MM-DD (ou o id "TAG|YYYY-MM-DD").',
     });
+  }
+  if (!(await veiculoDoContrato(req, tag))) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
   }
   const dataRef = isoParaData(dataISO);
   const motivo = String(req.body?.motivo || '').trim() || null;
@@ -430,7 +440,7 @@ export const trocarOperadorPendencia = asyncHandler(async (req, res) => {
         message: '`operador_id` deve ser o UUID de um usuario cadastrado.',
       });
     }
-    const usuario = await prisma.usuario.findUnique({ where: { id: operadorId } });
+    const usuario = await prisma.usuario.findFirst({ where: { id: operadorId, ...filtroContrato(req) } });
     if (!usuario) {
       return res.status(400).json({
         error: 'Operador invalido',
@@ -441,6 +451,9 @@ export const trocarOperadorPendencia = asyncHandler(async (req, res) => {
     matricula = matricula || usuario.matricula || null;
   }
 
+  if (!(await veiculoDoContrato(req, tag))) {
+    return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado.' });
+  }
   const dataRef = isoParaData(dataISO);
   const atualizadoPor = req.atuante?.nome || null;
 

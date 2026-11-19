@@ -1,5 +1,6 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { filtroContrato } from '../middleware/escopo.js';
 import { bloquearEquipamentos } from './programacaoRecursosLocks.js';
 
 function dataValida(valor) {
@@ -51,8 +52,8 @@ export const iniciarManutencao = asyncHandler(async (req, res) => {
 
   const resultado = await prisma.$transaction(async (tx) => {
     await bloquearEquipamentos(tx, [tag]);
-    const equipamento = await tx.mobDesmob.findUnique({
-      where: { tag }, select: { tag: true, deletado_em: true },
+    const equipamento = await tx.mobDesmob.findFirst({
+      where: { tag, ...filtroContrato(req) }, select: { tag: true, deletado_em: true },
     });
     if (!equipamento || equipamento.deletado_em) return { status: 404, message: 'Equipamento nao encontrado na frota ativa.' };
     const aberta = await tx.manutencaoRecurso.findFirst({ where: { tag, data_retorno: null } });
@@ -85,6 +86,9 @@ export const registrarRetornoManutencao = asyncHandler(async (req, res) => {
     where: { id: req.params.id }, select: { tag: true },
   });
   if (!atual) return res.status(404).json({ error: 'Nao encontrado', message: 'Manutencao nao encontrada.' });
+  // Manutencao de equipamento de outro contrato => 404.
+  const doContrato = await prisma.mobDesmob.findFirst({ where: { tag: atual.tag, ...filtroContrato(req) }, select: { tag: true } });
+  if (!doContrato) return res.status(404).json({ error: 'Nao encontrado', message: 'Manutencao nao encontrada.' });
 
   const resultado = await prisma.$transaction(async (tx) => {
     await bloquearEquipamentos(tx, [atual.tag]);

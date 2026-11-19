@@ -50,8 +50,21 @@ import {
 } from '../controllers/telemetriaFadigaController.js';
 import { analiseVelocidade, validarVelocidade, matrizVelocidade } from '../controllers/telemetriaVelocidadeController.js';
 import { requerAdmin, requerMasterGestaoTransporte } from '../middleware/sessao.js';
+import { escopoNaQuery, paramContrato } from '../middleware/escopo.js';
+import prisma from '../config/database.js';
+import { UUID } from '../utils/contrato.js';
 
 const router = Router();
+
+// Escopo por contrato: injeta o contrato do usuario nos filtros (montarFiltro) e
+// responde 404 para evento/plano de outro contrato (Master enxerga todos).
+router.use(escopoNaQuery);
+router.param('id', paramContrato(async (id) => {
+  if (!UUID.test(id)) return null;
+  const evento = await prisma.eventoTelemetria.findUnique({ where: { id }, select: { contrato: true } });
+  if (evento) return evento.contrato;
+  return (await prisma.planoAcaoTelemetria.findUnique({ where: { id }, select: { contrato: true } }))?.contrato;
+}));
 
 // Upload em memória: a planilha é lida e descartada, sem gravar em disco.
 // A exportação da plataforma traz todas as posições do período (dezenas de milhares de linhas).

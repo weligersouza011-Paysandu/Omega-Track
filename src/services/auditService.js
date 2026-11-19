@@ -52,6 +52,7 @@ export async function registrarLogAtividade(req, { acao, modulo, detalhes = null
         modulo: String(modulo).slice(0, 100),
         detalhes: limparDetalhes(detalhes),
         ip_address: ipDaRequisicao(req),
+        contrato: usuario?.contrato || atuante?.contrato || null,
       },
     });
   } catch (e) {

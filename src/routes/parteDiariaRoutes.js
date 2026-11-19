@@ -22,9 +22,18 @@ import {
 import { listarPendencias, ignorarPendencia, trocarOperadorPendencia } from '../controllers/pendenciasController.js';
 import { buscarRelatoriosPdfLote } from '../controllers/relatoriosPdfController.js';
 import { authApiKey } from '../middleware/auth.js';
+import { paramContrato } from '../middleware/escopo.js';
+import prisma from '../config/database.js';
+import { UUID } from '../utils/contrato.js';
 import { requerAdmin, requerMaster, requerMasterMatriz, requerSessao, requerPlanejamentoOuMaster, requerTransporteOuMaster } from '../middleware/sessao.js';
 
 const router = Router();
+
+// Parte Diaria de outro contrato => 404 (Master enxerga todas). As rotas por
+// chave de API (/pendentes, /:id/assinar) nao tem usuario e seguem globais.
+router.param('id', paramContrato(async (id) => (UUID.test(id)
+  ? (await prisma.parteDiaria.findUnique({ where: { id }, select: { contrato: true } }))?.contrato
+  : null)));
 
 router.get('/', requerSessao, listarPartesDiarias);
 router.post('/exportacao/lote', requerSessao, buscarRelatoriosPdfLote);

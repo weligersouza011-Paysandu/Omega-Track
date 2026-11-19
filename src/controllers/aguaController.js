@@ -23,6 +23,7 @@
 import XLSX from 'xlsx';
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { filtroContrato, contratoParaGravar } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 
@@ -295,6 +296,8 @@ function gerarHashConsumoAgua(item) {
 // 1. IMPORTAÇÃO DE PLANILHA (POST /api/ecogestao/agua/importar)
 // ============================================================================
 export const importarConsumoAgua = asyncHandler(async (req, res) => {
+  // Os dados importados pertencem ao contrato de quem importa (Master escolhe).
+  const contratoImportacao = contratoParaGravar(req);
   if (!req.file || !req.file.buffer) {
     return res.status(400).json({
       error: 'Arquivo ausente',
@@ -403,7 +406,7 @@ export const importarConsumoAgua = asyncHandler(async (req, res) => {
   const mesesArray = Array.from(mesesEncontrados);
   const existentes = await comRetryConexao(
     () => prisma.consumoAgua.findMany({
-      where: { ano_mes: { in: mesesArray } },
+      where: { ano_mes: { in: mesesArray }, contrato: contratoImportacao },
       select: {
         data: true,
         pontos_captacao: true,
@@ -436,7 +439,7 @@ export const importarConsumoAgua = asyncHandler(async (req, res) => {
     for (let pos = 0; pos < registrosParaInserir.length; pos += TAMANHO_LOTE_INSERT) {
       const lote = registrosParaInserir.slice(pos, pos + TAMANHO_LOTE_INSERT);
       const resultado = await comRetryConexao(
-        () => prisma.consumoAgua.createMany({ data: lote }),
+        () => prisma.consumoAgua.createMany({ data: lote.map((registro) => ({ ...registro, contrato: contratoImportacao })) }),
         3,
         700,
         'consumo_agua:createMany',
@@ -498,7 +501,7 @@ export const listarConsumoAgua = asyncHandler(async (req, res) => {
   const mesFiltro = normalizarAnoMes(ano_mes || mes_ano || mes);
   const pontoFiltro = ponto_captacao || pontos_captacao;
 
-  const where = {};
+  const where = { ...filtroContrato(req) };
   if (mesFiltro) {
     where.ano_mes = mesFiltro;
   }
@@ -631,10 +634,11 @@ export const listarConsumoAgua = asyncHandler(async (req, res) => {
 // ============================================================================
 // 3. MESES DISPONÍVEIS (GET /api/ecogestao/agua/meses)
 // ============================================================================
-export const listarMesesAgua = asyncHandler(async (_req, res) => {
+export const listarMesesAgua = asyncHandler(async (req, res) => {
   const grupos = await comRetryConexao(
     () => prisma.consumoAgua.groupBy({
       by: ['ano_mes'],
+      where: filtroContrato(req),
       _count: { id: true },
       _sum: { consumo_m3: true },
       orderBy: { ano_mes: 'desc' },
@@ -691,6 +695,7 @@ export const criarConsumoAgua = asyncHandler(async (req, res) => {
   const novo = await comRetryConexao(
     () => prisma.consumoAgua.create({
       data: {
+        contrato: contratoParaGravar(req, req.body?.contrato),
         data: dataObj,
         pontos_captacao: String(pontos_captacao).trim().toUpperCase(),
         consumo_m3: arredondar(vol, 3),
@@ -807,6 +812,8 @@ export const excluirConsumoAgua = asyncHandler(async (req, res) => {
 });
 
 export const limparMesAgua = asyncHandler(async (req, res) => {
+  // Apagar um mes inteiro vale para UM contrato (Master precisa escolher qual).
+  const contratoLimpeza = contratoParaGravar(req);
   const { ano_mes } = req.params;
   const mesFormatado = normalizarAnoMes(ano_mes);
 
@@ -819,7 +826,7 @@ export const limparMesAgua = asyncHandler(async (req, res) => {
 
   const resultado = await comRetryConexao(
     () => prisma.consumoAgua.deleteMany({
-      where: { ano_mes: mesFormatado },
+      where: { ano_mes: mesFormatado, contrato: contratoLimpeza },
     }),
     3,
     500,
@@ -855,7 +862,7 @@ export const excluirConsumoAguaLote = asyncHandler(async (req, res) => {
   const idsValidos = ids.map(String).filter(Boolean);
   const resultado = await comRetryConexao(
     () => prisma.consumoAgua.deleteMany({
-      where: { id: { in: idsValidos } },
+      where: { id: { in: idsValidos }, ...filtroContrato(req) },
     }),
     3,
     500,

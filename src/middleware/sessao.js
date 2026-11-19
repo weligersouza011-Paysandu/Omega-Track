@@ -45,6 +45,7 @@ export function lerSessao(req) {
 
 // Administrador autenticado pelo JWT (ou null).
 export async function atuanteDaRequisicao(req) {
+  if (req.atuante?.tipo === 'ADMINISTRADOR') return req.atuante; // ja carregado pelo JWT
   const sessao = lerSessao(req);
   if (!sessao?.sub) return null;
   const u = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
@@ -53,6 +54,7 @@ export async function atuanteDaRequisicao(req) {
 
 // Sessão autenticada de qualquer perfil (admin ou operacional), sempre pelo JWT.
 export async function requerSessao(req, res, next) {
+  if (req.atuante) return next(); // ja carregado do JWT por sessaoOpcional
   const sessao = lerSessao(req);
   const usuario = sessao?.sub
     ? await prisma.usuario.findUnique({ where: { id: sessao.sub } })

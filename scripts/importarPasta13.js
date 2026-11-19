@@ -182,7 +182,8 @@ async function main() {
         data_mob: data_mob || undefined,
         data_desmob: data_desmob || null,
         modelo,
-        contrato,
+        // Contrato = 3 numeros; valor fora do padrao cai no 251 (contrato historico).
+        contrato: /^\d{3}$/.test(String(contrato || '').trim()) ? String(contrato).trim() : '251',
       };
       let operacao = 'atualizado';
       try {

@@ -1,6 +1,7 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { randomUUID } from 'node:crypto';
+import { filtroContrato } from '../middleware/escopo.js';
 import { bloquearEquipamentos, tagsEmManutencao, erroEquipamentoEmManutencao } from './programacaoRecursosLocks.js';
 
 const FILTRO_MOBILIZADOS = { status: 'Mobilizado', deletado_em: null };
@@ -37,14 +38,14 @@ function camposProgramacao(programacao) {
 }
 
 // Ultimo dia (antes de `data`) com programacao da frota mobilizada ou de terceiros.
-async function ultimaDataProgramada(client, data) {
+async function ultimaDataProgramada(client, data, escopo = {}) {
   const frota = await client.programacaoRecurso.findFirst({
-    where: { data: { lt: data }, equipamento: FILTRO_MOBILIZADOS },
+    where: { data: { lt: data }, equipamento: { ...FILTRO_MOBILIZADOS, ...escopo } },
     select: { data: true },
     orderBy: { data: 'desc' },
   });
   const terceiros = await client.programacaoRecursoTerceiro.findFirst({
-    where: { data: { lt: data } },
+    where: { data: { lt: data }, ...escopo },
     select: { data: true },
     orderBy: { data: 'desc' },
   });
@@ -112,10 +113,10 @@ function dadosPessoas(item, pessoasPorMatricula) {
   return dados;
 }
 
-async function buscarPessoas(matriculas) {
+async function buscarPessoas(matriculas, escopo = {}) {
   if (!matriculas.size) return new Map();
   const pessoas = await prisma.usuario.findMany({
-    where: { matricula: { in: [...matriculas] } },
+    where: { matricula: { in: [...matriculas] }, ...escopo },
     select: { matricula: true, nome: true },
   });
   return new Map(pessoas.map((pessoa) => [pessoa.matricula, pessoa]));
@@ -125,9 +126,11 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
   const data = dataValida(req.query.data);
   if (!data) return erroData(res);
 
+  // Escopo por contrato: frota, terceiros, obras e pessoas so do contrato (Master escolhe).
+  const escopo = filtroContrato(req);
   const [equipamentos, terceiros, obras, pessoas, ultimaData] = await Promise.all([
     prisma.mobDesmob.findMany({
-      where: FILTRO_MOBILIZADOS,
+      where: { ...FILTRO_MOBILIZADOS, ...escopo },
       select: {
         tag: true,
         placa: true,
@@ -151,6 +154,7 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
       orderBy: [{ modelo: 'asc' }, { tag: 'asc' }],
     }),
     prisma.veiculoTerceiro.findMany({
+      where: escopo,
       select: {
         id: true, tag: true, tipo: true, empresa_terceira: true, placa: true, modelo: true, foto_url: true,
         programacoes: { where: { data }, select: SELECT_PROGRAMACAO_DIA },
@@ -158,18 +162,20 @@ export const listarProgramacao = asyncHandler(async (req, res) => {
       orderBy: [{ tipo: 'asc' }, { tag: 'asc' }],
     }),
     prisma.obra.findMany({
+      where: escopo,
       select: { id: true, nome: true, numero_contrato: true, ativo: true },
       orderBy: [{ ativo: 'desc' }, { nome: 'asc' }],
     }),
     prisma.usuario.findMany({
+      where: escopo,
       select: { matricula: true, nome: true, funcao: true, tipo: true },
       orderBy: { nome: 'asc' },
     }),
-    ultimaDataProgramada(prisma, data),
+    ultimaDataProgramada(prisma, data, escopo),
   ]);
   const totalUltima = ultimaData ? (await Promise.all([
-    prisma.programacaoRecurso.count({ where: { data: ultimaData, equipamento: FILTRO_MOBILIZADOS } }),
-    prisma.programacaoRecursoTerceiro.count({ where: { data: ultimaData } }),
+    prisma.programacaoRecurso.count({ where: { data: ultimaData, equipamento: { ...FILTRO_MOBILIZADOS, ...escopo } } }),
+    prisma.programacaoRecursoTerceiro.count({ where: { data: ultimaData, ...escopo } }),
   ])).reduce((total, parcial) => total + parcial, 0) : 0;
 
   res.json({
@@ -221,16 +227,17 @@ export const copiarUltimaProgramacao = asyncHandler(async (req, res) => {
   const data = dataValida(req.body?.data);
   if (!data) return erroData(res);
 
+  const escopo = filtroContrato(req);
   const resultado = await prisma.$transaction(async (tx) => {
-    // A copia altera somente equipamentos mobilizados e preserva o historico dos demais.
+    // A copia altera somente equipamentos mobilizados DO CONTRATO e preserva o historico dos demais.
     // Trava todos os mobilizados antes de ler a origem para manter a operacao consistente.
-    const frota = await tx.mobDesmob.findMany({ where: FILTRO_MOBILIZADOS, select: { tag: true } });
-    const terceiros = await tx.veiculoTerceiro.findMany({ select: { id: true } });
+    const frota = await tx.mobDesmob.findMany({ where: { ...FILTRO_MOBILIZADOS, ...escopo }, select: { tag: true } });
+    const terceiros = await tx.veiculoTerceiro.findMany({ where: escopo, select: { id: true } });
     await bloquearEquipamentos(tx, [
       ...frota.map((item) => item.tag),
       ...terceiros.map((item) => chaveTravaTerceiro(item.id)),
     ]);
-    const ultimaData = await ultimaDataProgramada(tx, data);
+    const ultimaData = await ultimaDataProgramada(tx, data, escopo);
     if (!ultimaData) {
       return { status: 409, message: 'Não há programação anterior a esta data para copiar.' };
     }
@@ -240,15 +247,15 @@ export const copiarUltimaProgramacao = asyncHandler(async (req, res) => {
       return { status: 409, message: 'A programação de origem mudou. Atualize a página antes de copiar.' };
     }
     const origem = await tx.programacaoRecurso.findMany({
-      where: { data: ultima.data, equipamento: FILTRO_MOBILIZADOS },
+      where: { data: ultima.data, equipamento: { ...FILTRO_MOBILIZADOS, ...escopo } },
       select: {
-        tag: true, obra_id: true, ...SELECT_PESSOAS_COPIA, obra: { select: { ativo: true } },
+        tag: true, obra_id: true, contrato: true, ...SELECT_PESSOAS_COPIA, obra: { select: { ativo: true } },
       },
     });
     const origemTerceiros = await tx.programacaoRecursoTerceiro.findMany({
-      where: { data: ultima.data },
+      where: { data: ultima.data, ...escopo },
       select: {
-        veiculo_terceiro_id: true, obra_id: true, ...SELECT_PESSOAS_COPIA, obra: { select: { ativo: true } },
+        veiculo_terceiro_id: true, obra_id: true, contrato: true, ...SELECT_PESSOAS_COPIA, obra: { select: { ativo: true } },
       },
     });
     if (origem.length === 0 && origemTerceiros.length === 0) {
@@ -264,13 +271,14 @@ export const copiarUltimaProgramacao = asyncHandler(async (req, res) => {
       return { status: 409, message: 'A última programação contém obra inativa. Ative essa obra antes de copiar.' };
     }
 
-    const filtroDestino = { data, equipamento: FILTRO_MOBILIZADOS, tag: { notIn: bloqueadas } };
+    const filtroDestino = { data, equipamento: { ...FILTRO_MOBILIZADOS, ...escopo }, tag: { notIn: bloqueadas } };
     const substituidos = await tx.programacaoRecurso.count({ where: filtroDestino });
     await tx.programacaoRecurso.deleteMany({ where: filtroDestino });
     await tx.programacaoRecurso.createMany({
       data: origemDisponivel.map((item) => ({
         id: randomUUID(),
         tag: item.tag,
+        contrato: item.contrato,
         obra_id: item.obra_id,
         operador_matricula: item.operador_matricula,
         operador_nome: item.operador_nome,
@@ -281,8 +289,8 @@ export const copiarUltimaProgramacao = asyncHandler(async (req, res) => {
         data,
       })),
     });
-    const substituidosTerceiros = await tx.programacaoRecursoTerceiro.count({ where: { data } });
-    await tx.programacaoRecursoTerceiro.deleteMany({ where: { data } });
+    const substituidosTerceiros = await tx.programacaoRecursoTerceiro.count({ where: { data, ...escopo } });
+    await tx.programacaoRecursoTerceiro.deleteMany({ where: { data, ...escopo } });
     if (origemTerceiros.length) {
       await tx.programacaoRecursoTerceiro.createMany({
         data: origemTerceiros.map(({ obra, ...item }) => ({ id: randomUUID(), ...item, data })),
@@ -340,23 +348,26 @@ export const salvarProgramacaoEmLote = asyncHandler(async (req, res) => {
     }
   }
 
+  const escopo = filtroContrato(req);
   const [equipamentos, terceiros, obras, pessoasPorMatricula] = await Promise.all([
     prisma.mobDesmob.findMany({
-      where: { tag: { in: [...tags] }, ...FILTRO_MOBILIZADOS },
-      select: { tag: true },
+      where: { tag: { in: [...tags] }, ...FILTRO_MOBILIZADOS, ...escopo },
+      select: { tag: true, contrato: true },
     }),
     prisma.veiculoTerceiro.findMany({
-      where: { tag: { in: [...tags] } },
-      select: { id: true, tag: true },
+      where: { tag: { in: [...tags] }, ...escopo },
+      select: { id: true, tag: true, contrato: true },
     }),
     prisma.obra.findMany({
-      where: { id: { in: [...obrasIds] }, ativo: true },
-      select: { id: true },
+      where: { id: { in: [...obrasIds] }, ativo: true, ...escopo },
+      select: { id: true, contrato: true },
     }),
-    buscarPessoas(matriculas),
+    buscarPessoas(matriculas, escopo),
   ]);
   const tagsFrota = equipamentos.map((item) => item.tag);
   const terceiroPorTag = new Map(terceiros.map((item) => [item.tag, item.id]));
+  const contratoPorTag = new Map([...equipamentos, ...terceiros].map((item) => [item.tag, item.contrato]));
+  const contratoPorObra = new Map(obras.map((item) => [item.id, item.contrato]));
   if (equipamentos.length + terceiros.length !== tags.size) {
     return res.status(404).json({
       error: 'Equipamento nao encontrado',
@@ -372,17 +383,24 @@ export const salvarProgramacaoEmLote = asyncHandler(async (req, res) => {
   if (pessoasPorMatricula.size !== matriculas.size) {
     return res.status(400).json({
       error: 'Usuario invalido',
-      message: 'Um ou mais operadores, motoristas ou supervisores não estão cadastrados. Atualize a página.',
+      message: 'Um ou mais operadores, motoristas ou supervisores não estão cadastrados neste contrato. Atualize a página.',
+    });
+  }
+  // Equipamento e obra precisam ser do mesmo contrato.
+  if (alteracoes.some((item) => item.obraId && contratoPorObra.get(item.obraId) !== contratoPorTag.get(item.tag))) {
+    return res.status(400).json({
+      error: 'Obra invalida',
+      message: 'A obra e o equipamento precisam ser do mesmo contrato.',
     });
   }
 
   const resultado = await prisma.$transaction(async (tx) => {
     await bloquearEquipamentos(tx, [...tagsFrota, ...[...terceiroPorTag.values()].map(chaveTravaTerceiro)]);
     const mobilizados = await tx.mobDesmob.count({
-      where: { tag: { in: tagsFrota }, ...FILTRO_MOBILIZADOS },
+      where: { tag: { in: tagsFrota }, ...FILTRO_MOBILIZADOS, ...escopo },
     });
     const terceirosVigentes = await tx.veiculoTerceiro.count({
-      where: { id: { in: [...terceiroPorTag.values()] } },
+      where: { id: { in: [...terceiroPorTag.values()] }, ...escopo },
     });
     if (mobilizados !== tagsFrota.length || terceirosVigentes !== terceiroPorTag.size) return { indisponiveis: true };
     const bloqueadas = await tagsEmManutencao(tx, tagsFrota);
@@ -405,14 +423,14 @@ export const salvarProgramacaoEmLote = asyncHandler(async (req, res) => {
       if (terceiroId) {
         await tx.programacaoRecursoTerceiro.upsert({
           where: { veiculo_terceiro_id_data: { veiculo_terceiro_id: terceiroId, data } },
-          create: { veiculo_terceiro_id: terceiroId, data, obra_id: item.obraId, ...dadosPessoas(item, pessoasPorMatricula) },
+          create: { veiculo_terceiro_id: terceiroId, data, contrato: contratoPorTag.get(item.tag), obra_id: item.obraId, ...dadosPessoas(item, pessoasPorMatricula) },
           update: { obra_id: item.obraId, ...dadosPessoas(item, pessoasPorMatricula) },
         });
         continue;
       }
       await tx.programacaoRecurso.upsert({
         where: { tag_data: { tag: item.tag, data } },
-        create: { tag: item.tag, data, obra_id: item.obraId, ...dadosPessoas(item, pessoasPorMatricula) },
+        create: { tag: item.tag, data, contrato: contratoPorTag.get(item.tag), obra_id: item.obraId, ...dadosPessoas(item, pessoasPorMatricula) },
         update: { obra_id: item.obraId, ...dadosPessoas(item, pessoasPorMatricula) },
       });
     }
@@ -442,16 +460,20 @@ export const salvarProgramacao = asyncHandler(async (req, res) => {
   }
   if (motoristasRepetidos(req.body)) return erroMotoristasRepetidos(res);
   const matriculas = new Set(CAMPOS_PESSOA.map(([campo]) => req.body?.[campo]).filter(Boolean));
+  const escopo = filtroContrato(req);
   const [equipamento, obra, pessoasPorMatricula] = await Promise.all([
-    prisma.mobDesmob.findUnique({ where: { tag }, select: { tag: true, status: true, deletado_em: true } }),
-    prisma.obra.findUnique({ where: { id: obraId }, select: { id: true, ativo: true } }),
-    buscarPessoas(matriculas),
+    prisma.mobDesmob.findFirst({ where: { tag, ...escopo }, select: { tag: true, status: true, deletado_em: true, contrato: true } }),
+    prisma.obra.findFirst({ where: { id: obraId, ...escopo }, select: { id: true, ativo: true, contrato: true } }),
+    buscarPessoas(matriculas, escopo),
   ]);
   if (!equipamento || equipamento.deletado_em || equipamento.status !== 'Mobilizado') {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Equipamento nao mobilizado ou indisponivel na frota.' });
   }
   if (!obra) {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Obra nao encontrada.' });
+  }
+  if (obra.contrato !== equipamento.contrato) {
+    return res.status(400).json({ error: 'Obra invalida', message: 'A obra e o equipamento precisam ser do mesmo contrato.' });
   }
   if (!obra.ativo) {
     return res.status(400).json({ error: 'Obra inativa', message: 'Ative a obra antes de programar equipamentos nela.' });
@@ -472,7 +494,7 @@ export const salvarProgramacao = asyncHandler(async (req, res) => {
     if ((await tagsEmManutencao(tx, [tag])).length) return { bloqueadas: [tag] };
     const programacao = await tx.programacaoRecurso.upsert({
       where: { tag_data: { tag, data } },
-      create: { tag, data, obra_id: obraId, ...pessoas },
+      create: { tag, data, contrato: equipamento.contrato, obra_id: obraId, ...pessoas },
       update: { obra_id: obraId, ...pessoas },
       select: { tag: true, data: true, ...SELECT_PROGRAMACAO_DIA },
     });
@@ -503,10 +525,11 @@ export const removerProgramacao = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'TAG invalida', message: 'Informe a TAG do equipamento.' });
   }
 
+  const escopo = filtroContrato(req);
   const resultado = await prisma.$transaction(async (tx) => {
     await bloquearEquipamentos(tx, [tag]);
-    const equipamento = await tx.mobDesmob.findUnique({
-      where: { tag }, select: { status: true, deletado_em: true },
+    const equipamento = await tx.mobDesmob.findFirst({
+      where: { tag, ...escopo }, select: { status: true, deletado_em: true },
     });
     if (!equipamento || equipamento.deletado_em || equipamento.status !== 'Mobilizado') {
       return { indisponivel: true };

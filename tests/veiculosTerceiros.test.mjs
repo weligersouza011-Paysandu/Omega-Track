@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { randomUUID } from 'node:crypto';
 
-const ADMIN = { id: '00000000-0000-4000-8000-000000000001', nome: 'Gestor', matricula: '90000', tipo: 'ADMINISTRADOR', nivel: 'MASTER', setor: 'GESTAO' };
+const ADMIN = { id: '00000000-0000-4000-8000-000000000001', nome: 'Gestor', matricula: '90000', tipo: 'ADMINISTRADOR', nivel: 'MASTER', setor: 'GESTAO', contrato: '251' };
 const frota = new Map([['JI439', { tag: 'JI439' }]]);
 const terceiros = new Map();
 const porTag = (tag) => [...terceiros.values()].find((v) => v.tag === tag) || null;

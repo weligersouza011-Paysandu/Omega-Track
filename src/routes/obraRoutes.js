@@ -16,6 +16,9 @@ import {
   deletarObra,
 } from '../controllers/obraController.js';
 import { requerAdmin, requerSessao } from '../middleware/sessao.js';
+import { paramContrato } from '../middleware/escopo.js';
+import prisma from '../config/database.js';
+import { UUID } from '../utils/contrato.js';
 
 const SETORES_ESCRITA = ['GESTAO', 'PLANEJADOR', 'TRANSPORTE'];
 
@@ -33,6 +36,11 @@ function requerGestaoTransporte(req, res, next) {
 }
 
 const router = Router();
+
+// Obra de outro contrato => 404 (Master enxerga todas).
+router.param('id', paramContrato(async (id) => (UUID.test(id)
+  ? (await prisma.obra.findUnique({ where: { id }, select: { contrato: true } }))?.contrato
+  : null)));
 
 router.get('/', requerSessao, listarObras);
 router.get('/:id', requerSessao, buscarObra);

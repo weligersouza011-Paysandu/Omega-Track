@@ -79,7 +79,7 @@ async function main() {
     if (found) {
       if (comparablePlate(found.placa) !== comparablePlate(row.placa) ||
           String(found.modelo || '').toUpperCase() !== row.tipo.toUpperCase() ||
-          found.contrato !== 'CT-251') {
+          found.contrato !== '251') {
         throw new Error(`TAG ${row.tag} já existe com dados diferentes. Nenhum registro foi alterado.`);
       }
       row.acao = 'ja_existia';
@@ -96,7 +96,7 @@ async function main() {
       tag: row.tag,
       placa: row.placa,
       modelo: row.tipo,
-      contrato: 'CT-251',
+      contrato: '251',
       status: 'Mobilizado',
       data_mob: null,
     });
@@ -122,13 +122,13 @@ async function main() {
   if (stored.length !== input.length) throw new Error('Verificação final: faltam TAGs no banco.');
   for (const row of input) {
     const item = stored.find((value) => value.tag === row.tag);
-    if (!item || item.placa !== row.placaGravada || item.modelo !== row.tipo || item.contrato !== 'CT-251') {
+    if (!item || item.placa !== row.placaGravada || item.modelo !== row.tipo || item.contrato !== '251') {
       throw new Error(`Verificação final falhou para ${row.tag}.`);
     }
   }
   const report = {
     importedAt: new Date().toISOString(), source, sha256,
-    contract: 'CT-251', status: 'Mobilizado', mobilizationDate: null,
+    contract: '251', status: 'Mobilizado', mobilizationDate: null,
     totalRows: input.length, inserted: inserts.length, alreadyPresent: input.length - inserts.length,
     rows: input,
   };

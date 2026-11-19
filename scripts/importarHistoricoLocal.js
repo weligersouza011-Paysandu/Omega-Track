@@ -143,7 +143,7 @@ async function garantirTag(tag, tagsCriadas) {
     await prisma.mobDesmob.upsert({
       where:  { tag },
       update: {},
-      create: { tag, placa: placaFantasma, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
+      create: { tag, contrato: '251', placa: placaFantasma, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
     });
     console.log(`  [AVISO] TAG "${tag}" ausente em mob_desmob -> veiculo fantasma criado (placa: ${placaFantasma}).`);
   } catch (e) {
@@ -152,7 +152,7 @@ async function garantirTag(tag, tagsCriadas) {
       await prisma.mobDesmob.upsert({
         where:  { tag },
         update: {},
-        create: { tag, placa: placaAlt, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
+        create: { tag, contrato: '251', placa: placaAlt, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
       });
       console.log(`  [AVISO] TAG "${tag}" -> placa alternativa "${placaAlt}" usada.`);
     } else {
@@ -381,6 +381,7 @@ async function main() {
 
   for (let i = 0; i < criar.length; i += TAMANHO_LOTE) {
     const lote = criar.slice(i, i + TAMANHO_LOTE).map((c) => ({
+      contrato:           '251', // contrato historico
       tag:                c.tag,
       data:               c.dataUTC,
       status:             'APROVADO',

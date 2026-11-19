@@ -22,7 +22,7 @@ import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
-import { contratoOuNull, CONTRATO_PADRAO } from '../utils/contrato.js';
+import { contratoParaGravar, filtroContrato } from '../middleware/escopo.js';
 
 const LIMITE_ERROS_DETALHADOS = 50;
 const TAMANHO_LOTE_INSERT = 1000;
@@ -346,9 +346,10 @@ function escolherAba(workbook, solicitada) {
   return workbook.SheetNames[0] || null;
 }
 
-async function carregarVeiculosPorPlaca() {
+async function carregarVeiculosPorPlaca(contrato) {
   const veiculos = await comRetryConexao(
     () => prisma.mobDesmob.findMany({
+      where: { contrato },
       select: { tag: true, placa: true, modelo: true, contrato: true },
     }),
     3,
@@ -374,7 +375,7 @@ function chaveRegistro(codigo, placa, dataTransacao, litros) {
   ].join('|');
 }
 
-async function buscarChavesExistentes(codigos) {
+async function buscarChavesExistentes(codigos, contrato) {
   const existentes = new Set();
   const lista = [...codigos];
 
@@ -382,7 +383,7 @@ async function buscarChavesExistentes(codigos) {
     const lote = lista.slice(i, i + TAMANHO_LOTE_INSERT);
     const encontrados = await comRetryConexao(
       () => prisma.abastecimento.findMany({
-        where: { codigo_transacao: { in: lote } },
+        where: { codigo_transacao: { in: lote }, contrato },
         select: {
           codigo_transacao: true,
           placa: true,
@@ -411,6 +412,8 @@ async function buscarChavesExistentes(codigos) {
 // POST /api/abastecimentos/importar
 // ============================================================================
 export const importarAbastecimentos = asyncHandler(async (req, res) => {
+  // O abastecimento pertence ao contrato de quem importa (Master escolhe).
+  const contratoImportacao = contratoParaGravar(req);
   if (!req.file?.buffer) {
     return res.status(400).json({
       error: 'Arquivo ausente',
@@ -471,7 +474,7 @@ export const importarAbastecimentos = asyncHandler(async (req, res) => {
     });
   }
 
-  const veiculosPorPlaca = await carregarVeiculosPorPlaca();
+  const veiculosPorPlaca = await carregarVeiculosPorPlaca(contratoImportacao);
   const registros = [];
   const erros = [];
   const placasSemVeiculo = new Set();
@@ -541,8 +544,7 @@ export const importarAbastecimentos = asyncHandler(async (req, res) => {
       km_por_litro: kmPorLitro,
       emissao_co2_kg: calcularEmissaoCO2(litros, tipoCombustivel),
       estabelecimento: textoLimitado(valorDaLinha(linha, colunas.estabelecimento), 255),
-      // Coluna da planilha (se for 3 numeros) > contrato do veiculo > padrao.
-      contrato: contratoOuNull(valorDaLinha(linha, colunas.contrato)) ?? veiculo?.contrato ?? CONTRATO_PADRAO,
+      contrato: contratoImportacao,
       mes_referencia: mesReferencia(dataTransacao),
     });
   }
@@ -574,7 +576,7 @@ export const importarAbastecimentos = asyncHandler(async (req, res) => {
   }
 
   const chavesExistentes = codigosVistos.size > 0
-    ? await buscarChavesExistentes(codigosVistos)
+    ? await buscarChavesExistentes(codigosVistos, contratoImportacao)
     : new Set();
   const novos = registrosUnicos.filter((registro) => {
     const chave = chaveRegistro(
@@ -651,7 +653,7 @@ export const listarAbastecimentos = asyncHandler(async (req, res) => {
     });
   }
 
-  const where = {};
+  const where = { ...filtroContrato(req) };
   if (mes) where.mes_referencia = mes;
 
   const placa = texto(req.query.placa);
@@ -737,6 +739,7 @@ export const listarMeses = asyncHandler(async (req, res) => {
   const grupos = await comRetryConexao(
     () => prisma.abastecimento.groupBy({
       by: ['mes_referencia'],
+      where: filtroContrato(req),
       _count: { _all: true },
       _sum: { litros: true, emissao_co2_kg: true },
       orderBy: { mes_referencia: 'desc' },

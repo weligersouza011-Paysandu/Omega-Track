@@ -1,6 +1,7 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import config from '../config/index.js';
+import { filtroContrato, exigirAcessoContrato } from '../middleware/escopo.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
 
 function calcularFarol(validade) {
@@ -28,7 +29,7 @@ export const listarDocumentacoes = asyncHandler(async (req, res) => {
   if (tag) where.tag = tag;
   if (documento) where.documento = documento;
   // Controle de vencimentos considera SOMENTE veiculos mobilizados e ativos.
-  where.veiculo = { status: 'Mobilizado', deletado_em: null };
+  where.veiculo = { status: 'Mobilizado', deletado_em: null, ...filtroContrato(req) };
 
   const docs = await prisma.documentacaoVeiculo.findMany({
     where,
@@ -68,7 +69,7 @@ export const farolVencimentos = asyncHandler(async (req, res) => {
   const where = {};
   if (tag) where.tag = tag;
   // Farol considera SOMENTE veiculos mobilizados e ativos.
-  where.veiculo = { status: 'Mobilizado', deletado_em: null };
+  where.veiculo = { status: 'Mobilizado', deletado_em: null, ...filtroContrato(req) };
 
   const docs = await prisma.documentacaoVeiculo.findMany({
     where,
@@ -136,6 +137,7 @@ export const criarDocumentacao = asyncHandler(async (req, res) => {
   if (!veiculoAtivo) {
     return res.status(400).json({ error: 'Veiculo invalido', message: 'TAG nao encontrada na frota ativa.' });
   }
+  exigirAcessoContrato(req, veiculoAtivo.contrato);
 
   const doc = await prisma.documentacaoVeiculo.create({
     data: {

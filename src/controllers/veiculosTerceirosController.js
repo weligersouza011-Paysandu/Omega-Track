@@ -8,6 +8,7 @@ import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { validarUrlMidia } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
+import { contratoParaGravar, filtroContrato } from '../middleware/escopo.js';
 import { tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -86,6 +87,7 @@ async function garantirTagLivre(tag, idAtual = null) {
 
 export const listarVeiculosTerceiros = asyncHandler(async (req, res) => {
   const veiculos = await prisma.veiculoTerceiro.findMany({
+    where: filtroContrato(req),
     orderBy: [{ tipo: 'asc' }, { tag: 'asc' }],
   });
   res.json({ data: veiculos });
@@ -94,7 +96,9 @@ export const listarVeiculosTerceiros = asyncHandler(async (req, res) => {
 export const criarVeiculoTerceiro = asyncHandler(async (req, res) => {
   const dados = validarDados(req.body);
   await garantirTagLivre(dados.tag);
-  const veiculo = await prisma.veiculoTerceiro.create({ data: dados });
+  // Servico do veiculo terceiro: o contrato do usuario (Master escolhe).
+  const contrato = contratoParaGravar(req, req.body?.contrato);
+  const veiculo = await prisma.veiculoTerceiro.create({ data: { ...dados, contrato } });
   await registrarLogAtividade(req, {
     acao: 'CRIAR_VEICULO_TERCEIRO',
     modulo: 'Frota',

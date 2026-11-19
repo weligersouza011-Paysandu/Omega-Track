@@ -18,6 +18,7 @@
 import XLSX from 'xlsx';
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { filtroContrato, contratoParaGravar } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 
@@ -276,6 +277,8 @@ function normalizarEnquadramento(valor) {
 // 2. ENDPOINT DE IMPORTAÇÃO (POST /api/ecogestao/produtos-quimicos/importar)
 // ============================================================================
 export const importarProdutosQuimicos = asyncHandler(async (req, res) => {
+  // Os dados importados pertencem ao contrato de quem importa (Master escolhe).
+  const contratoImportacao = contratoParaGravar(req);
   if (!req.file || !req.file.buffer) {
     return res.status(400).json({
       error: 'Arquivo nao enviado',
@@ -404,6 +407,7 @@ export const importarProdutosQuimicos = asyncHandler(async (req, res) => {
 
   // Buscar produtos já cadastrados no banco para evitar duplicatas por (nome + marca)
   const produtosExistentes = await prisma.produtoQuimico.findMany({
+    where: { contrato: contratoImportacao },
     select: { id: true, nome_produto: true, marca_produto: true },
   });
 
@@ -424,7 +428,7 @@ export const importarProdutosQuimicos = asyncHandler(async (req, res) => {
       const lote = novosParaInserir.slice(i, i + TAMANHO_LOTE_INSERT);
       const resultado = await comRetryConexao(() =>
         prisma.produtoQuimico.createMany({
-          data: lote,
+          data: lote.map((registro) => ({ ...registro, contrato: contratoImportacao })),
         })
       );
       totalInseridos += resultado.count;
@@ -497,7 +501,7 @@ export const listarProdutosQuimicos = asyncHandler(async (req, res) => {
   const em30Dias = new Date(agora.getTime() + 30 * 24 * 60 * 60 * 1000);
 
   // Cláusula de filtro da listagem
-  const where = {};
+  const where = { ...filtroContrato(req) };
 
   if (enquadramento && enquadramento !== 'TODOS') {
     where.enquadramento_produto = enquadramento;
@@ -552,6 +556,7 @@ export const listarProdutosQuimicos = asyncHandler(async (req, res) => {
     prisma.produtoQuimico.count({ where }),
     // Consulta leve de todos os registros para calcular estatísticas globais
     prisma.produtoQuimico.findMany({
+      where: filtroContrato(req),
       select: {
         id: true,
         enquadramento_produto: true,
@@ -683,6 +688,7 @@ export const criarProdutoQuimico = asyncHandler(async (req, res) => {
 
   const novoProduto = await prisma.produtoQuimico.create({
     data: {
+        contrato: contratoParaGravar(req, req.body?.contrato),
       nome_produto: String(nome_produto).trim().toUpperCase(),
       fds_fispq: fds_fispq ? String(fds_fispq).trim().toUpperCase() : null,
       marca_produto: marca_produto ? String(marca_produto).trim().toUpperCase() : null,
@@ -862,7 +868,7 @@ export const excluirProdutosQuimicosLote = asyncHandler(async (req, res) => {
   const idsValidos = ids.map(String).filter(Boolean);
   const resultado = await comRetryConexao(
     () => prisma.produtoQuimico.deleteMany({
-      where: { id: { in: idsValidos } },
+      where: { id: { in: idsValidos }, ...filtroContrato(req) },
     }),
     3,
     500,

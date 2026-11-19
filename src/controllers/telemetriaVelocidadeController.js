@@ -11,6 +11,7 @@
 // ============================================================================
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { filtroContrato } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 import { erroHttp } from '../services/telemetriaPlanilhaService.js';
@@ -204,7 +205,7 @@ export const validarVelocidade = asyncHandler(async (req, res) => {
   const automatica = decisao === 'AUTOMATICA';
   // A validação da Central usa as mesmas colunas da fadiga (validacao_fadiga etc.).
   const { count } = await comRetry(() => prisma.eventoTelemetria.updateMany({
-    where: { id: { in: lista }, evento: EVENTOS.VELOCIDADE },
+    where: { id: { in: lista }, evento: EVENTOS.VELOCIDADE, ...filtroContrato(req) },
     data: {
       validacao_fadiga: automatica ? null : decisao,
       validacao_motivo: automatica ? null : motivo,

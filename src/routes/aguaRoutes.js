@@ -23,8 +23,13 @@ import {
   excluirConsumoAguaLote,
 } from '../controllers/aguaController.js';
 import { requerAdmin } from '../middleware/sessao.js';
+import { paramContrato } from '../middleware/escopo.js';
+import prisma from '../config/database.js';
 
 const router = Router();
+
+// Registro de outro contrato => 404 (Master enxerga todos).
+router.param('id', paramContrato(async (id) => (await prisma.consumoAgua.findUnique({ where: { id }, select: { contrato: true } }))?.contrato));
 
 // Upload em memória: a planilha é lida diretamente e descartada, sem salvar no disco
 const uploadPlanilha = multer({

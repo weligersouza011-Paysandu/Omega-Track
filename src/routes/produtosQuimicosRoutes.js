@@ -19,8 +19,13 @@ import {
   excluirProdutosQuimicosLote,
 } from '../controllers/produtosQuimicosController.js';
 import { requerAdmin } from '../middleware/sessao.js';
+import { paramContrato } from '../middleware/escopo.js';
+import prisma from '../config/database.js';
 
 const router = Router();
+
+// Registro de outro contrato => 404 (Master enxerga todos).
+router.param('id', paramContrato(async (id) => (await prisma.produtoQuimico.findUnique({ where: { id }, select: { contrato: true } }))?.contrato));
 
 // Upload em memória: a planilha é lida e descartada, sem gravar em disco
 const uploadPlanilha = multer({

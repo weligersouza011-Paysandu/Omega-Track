@@ -50,6 +50,7 @@
 // ============================================================================
 import XLSX from 'xlsx';
 import prisma from '../config/database.js';
+import { filtroContrato as whereContrato, contratoDoEscopo, contratoParaGravar, contratosDisponiveis } from '../middleware/escopo.js';
 import { asyncHandler } from '../middleware/error.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 
@@ -267,7 +268,8 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
 
   const filtroTag = normalizar(req.query.tag);
   const filtroModelo = normalizar(req.query.modelo);
-  const filtroContrato = normalizar(req.query.contrato);
+  // O contrato nao e mais um filtro livre: vale o escopo do usuario (Master escolhe ?contrato=).
+  const filtroContrato = null;
   const situacao = (normalizar(req.query.situacao) || 'MOB').toUpperCase(); // MOB | DESMOB | TODOS
 
   const inicioData = isoParaData(periodo.inicio);
@@ -277,7 +279,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   // Passo A: universo de veiculos + opcoes dos filtros (tabela completa).
   // ---------------------------------------------------------------------------
   const veiculosTodos = await comRetryConexao(() => prisma.mobDesmob.findMany({
-    where: { deletado_em: null },
+    where: { deletado_em: null, ...whereContrato(req) },
     select: { tag: true, placa: true, modelo: true, contrato: true, status: true, data_mob: true, data_desmob: true },
     orderBy: { tag: 'asc' },
   }), 3, 700, 'eficiencia');
@@ -285,7 +287,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   const opcoes = {
     tags: veiculosTodos.map((v) => ({ tag: v.tag, placa: v.placa, modelo: v.modelo || null, contrato: v.contrato || null })),
     modelos: [...new Set(veiculosTodos.map((v) => normalizar(v.modelo)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
-    contratos: [...new Set(veiculosTodos.map((v) => normalizar(v.contrato)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    contratos: await contratosDisponiveis(req),
   };
 
   const veiculos = veiculosTodos.filter((v) => {
@@ -304,7 +306,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
   const [partes, ignoradas] = await Promise.all([
     tags.length
       ? comRetryConexao(() => prisma.parteDiaria.findMany({
-        where: { tag: { in: tags }, deletado_em: null, veiculo: { deletado_em: null }, data: { gte: inicioData, lte: fimData } },
+        where: { tag: { in: tags }, deletado_em: null, veiculo: { deletado_em: null }, ...whereContrato(req), data: { gte: inicioData, lte: fimData } },
         select: {
           tag: true,
           data: true,
@@ -511,7 +513,7 @@ export const obterEficiencia = asyncHandler(async (req, res) => {
       filtros: {
         tag: filtroTag || null,
         modelo: filtroModelo || null,
-        contrato: filtroContrato || null,
+        contrato: contratoDoEscopo(req) ?? null,
         situacao,
       },
       indicadores: {
@@ -580,7 +582,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
 
   const filtroTag = normalizar(req.query.tag);
   const filtroModelo = normalizar(req.query.modelo);
-  const filtroContrato = normalizar(req.query.contrato);
+  const filtroContrato = null; // escopo do usuario (whereContrato)
   // Padrao TODOS: todas as TAGs com apontamento no mes. MOB/DESMOB refinam
   // esse conjunto pelo status atual (historico importado sem cadastro so
   // aparece em TODOS).
@@ -610,7 +612,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
   const fimData = isoParaData(fim);
 
   const veiculosTodos = await comRetryConexao(() => prisma.mobDesmob.findMany({
-    where: { deletado_em: null },
+    where: { deletado_em: null, ...whereContrato(req) },
     select: { tag: true, placa: true, modelo: true, contrato: true, status: true, data_mob: true, data_desmob: true },
     orderBy: { tag: 'asc' },
   }), 3, 700, 'eficiencia');
@@ -636,6 +638,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
         data: { gte: inicioData, lte: fimData },
         deletado_em: null,
         veiculo: { deletado_em: null },
+        ...whereContrato(req),
         ...(filtroTag ? { tag: filtroTag } : {}),
       },
       select: {
@@ -798,7 +801,7 @@ export const obterMatrizMensal = asyncHandler(async (req, res) => {
       filtros: {
         tag: filtroTag || null,
         modelo: filtroModelo || null,
-        contrato: filtroContrato || null,
+        contrato: contratoDoEscopo(req) ?? null,
         situacao,
       },
     },
@@ -847,10 +850,12 @@ function excelSerialParaDateBI(valor) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-async function garantirTagBI(tag, tagsCriadas) {
+async function garantirTagBI(tag, tagsCriadas, contrato) {
   if (tagsCriadas.has(tag)) return;
   const existe = await prisma.mobDesmob.findUnique({ where: { tag } });
   if (existe) {
+    // Veiculo de outro contrato nao pode receber historico deste importador.
+    if (existe.contrato !== contrato) throw new Error(`TAG ${tag} pertence a outro contrato.`);
     tagsCriadas.add(tag);
     return;
   }
@@ -860,7 +865,7 @@ async function garantirTagBI(tag, tagsCriadas) {
       await prisma.mobDesmob.upsert({
         where:  { tag },
         update: {},
-        create: { tag, placa: placaBase, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
+        create: { tag, contrato, placa: placaBase, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
       });
     } catch (e) {
       if (e.code === 'P2002') {
@@ -868,7 +873,7 @@ async function garantirTagBI(tag, tagsCriadas) {
         await prisma.mobDesmob.upsert({
           where:  { tag },
           update: {},
-          create: { tag, placa: placaAlt, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
+          create: { tag, contrato, placa: placaAlt, status: 'Mobilizado', data_mob: new Date('2026-01-01T00:00:00.000Z') },
         });
       } else {
         throw e;
@@ -879,6 +884,8 @@ async function garantirTagBI(tag, tagsCriadas) {
 }
 
 export const importarHistorico = asyncHandler(async (req, res) => {
+  // O historico importado pertence ao contrato de quem importa (Master escolhe).
+  const contratoImportacao = contratoParaGravar(req);
   if (!req.file || !req.file.buffer) {
     return res.status(400).json({
       error: 'Arquivo ausente',
@@ -958,7 +965,7 @@ export const importarHistorico = asyncHandler(async (req, res) => {
       if (statusOperacional === null)      { resumo.ignoradas_pendente++; continue; }
       if (statusOperacional === undefined) { resumo.ignoradas_status_desconhecido++; continue; }
 
-      await garantirTagBI(tagRaw, tagsCriadas);
+      await garantirTagBI(tagRaw, tagsCriadas, contratoImportacao);
 
       const dataISO = dataDate.toISOString().slice(0, 10);
       const dataUTC = new Date(`${dataISO}T00:00:00.000Z`);
@@ -981,6 +988,7 @@ export const importarHistorico = asyncHandler(async (req, res) => {
       } else {
         await prisma.parteDiaria.create({
           data: {
+            contrato:           contratoImportacao,
             tag:                tagRaw,
             data:               dataUTC,
             status:             'APROVADO',

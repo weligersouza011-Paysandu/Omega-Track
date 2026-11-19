@@ -14,6 +14,7 @@
 // ============================================================================
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
+import { filtroContrato, contratoParaGravar } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 import { erroHttp } from '../services/telemetriaPlanilhaService.js';
@@ -208,7 +209,7 @@ export const validarFadiga = asyncHandler(async (req, res) => {
   if (decisao === 'DESCARTADA' && !motivo) throw erroHttp(400, 'Informe o motivo do descarte.');
   const automatica = decisao === 'AUTOMATICA';
   const { count } = await comRetry(() => prisma.eventoTelemetria.updateMany({
-    where: { id: { in: ids }, evento: EVENTOS.FADIGA },
+    where: { id: { in: ids }, evento: EVENTOS.FADIGA, ...filtroContrato(req) },
     data: {
       validacao_fadiga: automatica ? null : decisao,
       validacao_motivo: automatica ? null : motivo,
@@ -230,11 +231,11 @@ export const historicoMotorista = asyncHandler(async (req, res) => {
 
   const [eventos, planos] = await Promise.all([
     comRetry(() => prisma.eventoTelemetria.findMany({
-      where: { motorista },
+      where: { motorista, ...filtroContrato(req) },
       orderBy: [{ data_hora: 'desc' }, { id: 'asc' }],
       take: 5000,
     }), 'historico'),
-    comRetry(() => prisma.planoAcaoTelemetria.findMany({ where: { motorista }, orderBy: { created_at: 'desc' } }), 'historico-planos'),
+    comRetry(() => prisma.planoAcaoTelemetria.findMany({ where: { motorista, ...filtroContrato(req) }, orderBy: { created_at: 'desc' } }), 'historico-planos'),
   ]);
 
   const deteccoes = eventos.filter((e) => e.evento === EVENTOS.FADIGA);
@@ -330,7 +331,7 @@ function prazoPadrao() {
 }
 
 export const listarPlanos = asyncHandler(async (req, res) => {
-  const where = {};
+  const where = { ...filtroContrato(req) };
   const status = String(req.query.status || '').toUpperCase().split(',').filter(Boolean);
   if (status.length) where.status = { in: status };
   if (req.query.motorista) where.motorista = String(req.query.motorista);
@@ -370,10 +371,11 @@ export const criarPlano = asyncHandler(async (req, res) => {
     ? medidaRecomendada(EVENTOS.VELOCIDADE, linha.replace('VELOCIDADE_', ''), nivel)
     : medidaFadiga(linha, nivel, elegivel !== false);
   const ids = dados.eventos_ids?.length ? idsValidos(dados.eventos_ids, 'eventos_ids') : [];
+  const contrato = contratoParaGravar(req, dados.contrato);
 
   if (ids.length) {
     const eventos = await comRetry(() => prisma.eventoTelemetria.findMany({
-      where: { id: { in: ids } }, select: { id: true, motorista: true, plano_acao_id: true },
+      where: { id: { in: ids }, contrato }, select: { id: true, motorista: true, plano_acao_id: true },
     }), 'plano-eventos');
     if (eventos.length !== ids.length) throw erroHttp(400, 'Algum evento informado nao existe mais.');
     const outros = eventos.filter((e) => e.motorista !== motorista);
@@ -382,6 +384,7 @@ export const criarPlano = asyncHandler(async (req, res) => {
 
   const plano = await comRetry(() => prisma.planoAcaoTelemetria.create({
     data: {
+      contrato,
       tipo,
       motorista,
       tag_placa: texto(dados.tag_placa, 60),
