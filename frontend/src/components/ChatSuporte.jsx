@@ -172,10 +172,36 @@ function CaixaDeEntrada({ aoMudar }) {
   );
 }
 
-export default function ChatSuporte({ usuario }) {
+const chaveDica = (usuario) => `omegatrack_dica_chamado_${usuario?.matricula || ''}`;
+
+export default function ChatSuporte({ usuario, operacional = false }) {
   const [aberto, setAberto] = useState(false);
   const [naoLidas, atualizarNaoLidas] = useNaoLidasSuporte();
   const master = usuario?.nivel === 'MASTER';
+  const botao = useRef(null);
+
+  // Aviso de uma vez so para o operacional: seta apontando para o botao de chamado.
+  const [dica, setDica] = useState(() => {
+    if (!operacional) return false;
+    try { return localStorage.getItem(chaveDica(usuario)) !== '1'; } catch { return true; }
+  });
+  const [setaX, setSetaX] = useState(null);
+  const fecharDica = () => {
+    setDica(false);
+    try { localStorage.setItem(chaveDica(usuario), '1'); } catch { /* sem armazenamento: some so nesta sessao */ }
+  };
+  useEffect(() => {
+    if (!dica) return undefined;
+    const medir = () => {
+      const r = botao.current?.getBoundingClientRect();
+      // Posicao da seta dentro do balao (o balao ocupa a tela toda no celular e 288px a direita no resto).
+      const esquerdaDoBalao = window.innerWidth >= 640 ? window.innerWidth - 16 - 288 : 8;
+      if (r) setSetaX(Math.round(r.left + r.width / 2 - esquerdaDoBalao));
+    };
+    medir();
+    window.addEventListener('resize', medir);
+    return () => window.removeEventListener('resize', medir);
+  }, [dica]);
 
   const carregar = useCallback(async () => (await api('/minha')).data, []);
   const enviar = useCallback((texto) => api('/minha', { method: 'POST', body: JSON.stringify({ texto }) }), []);
@@ -184,24 +210,48 @@ export default function ChatSuporte({ usuario }) {
     <>
       <button
         type="button"
-        onClick={() => setAberto((v) => !v)}
-        title="Teve algum problema? Fale com o nosso desenvolvedor"
-        aria-label="Teve algum problema? Fale com o nosso desenvolvedor"
+        ref={botao}
+        onClick={() => { setAberto((v) => !v); if (dica) fecharDica(); }}
+        title={operacional ? 'Abrir chamado' : 'Teve algum problema? Fale com o nosso desenvolvedor'}
+        aria-label={operacional ? 'Abrir chamado' : 'Teve algum problema? Fale com o nosso desenvolvedor'}
         aria-expanded={aberto}
-        className="relative shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-omega-accent hover:bg-omega-brand text-white px-2 min-[420px]:px-2.5 lg:px-3 h-8 sm:h-9 text-[11px] sm:text-xs font-bold shadow-sm transition-colors"
+        className={`${dica ? 'ring-2 ring-amber-400 ring-offset-1 animate-pulse ' : ''}relative shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-omega-accent hover:bg-omega-brand text-white px-2 min-[420px]:px-2.5 lg:px-3 h-8 sm:h-9 text-[11px] sm:text-xs font-bold shadow-sm transition-colors`}
       >
         <MessageCircle size={15} className="shrink-0" />
-        <span className="hidden lg:flex flex-col text-left leading-tight">
-          <span>{master ? 'Chamados dos usuários' : 'Teve algum problema?'}</span>
-          {!master && <span className="text-[10px] font-semibold text-white/85">Fale com o nosso desenvolvedor</span>}
-        </span>
-        <span className="hidden min-[420px]:inline lg:hidden">{master ? 'Chamados' : 'Ajuda'}</span>
+        {operacional ? (
+          <span>Abrir chamado</span>
+        ) : (
+          <>
+            <span className="hidden lg:flex flex-col text-left leading-tight">
+              <span>{master ? 'Chamados dos usuários' : 'Teve algum problema?'}</span>
+              {!master && <span className="text-[10px] font-semibold text-white/85">Fale com o nosso desenvolvedor</span>}
+            </span>
+            <span className="hidden min-[420px]:inline lg:hidden">{master ? 'Chamados' : 'Ajuda'}</span>
+          </>
+        )}
         {naoLidas > 0 && (
           <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-black text-white ring-2 ring-white">
             {naoLidas}
           </span>
         )}
       </button>
+
+      {dica && !aberto && (
+        <div className="fixed z-50 top-[3.6rem] md:top-[4.1rem] left-2 right-2 sm:left-auto sm:right-4 sm:w-72" role="status">
+          {/* Seta apontando para o botao de chamado */}
+          <div className="absolute -top-1.5 h-3 w-3 rotate-45 bg-omega-950 border-l border-t border-amber-400"
+            style={{ left: setaX == null ? '50%' : `${Math.max(setaX - 6, 12)}px` }} />
+          <div className="relative rounded-xl bg-omega-950 text-white border border-amber-400 shadow-2xl px-3.5 py-3">
+            <p className="text-[13px] font-semibold leading-snug">
+              Se houver algum problema, <span className="text-amber-300 font-extrabold">abra um chamado</span> aqui.
+            </p>
+            <button type="button" onClick={fecharDica}
+              className="mt-2.5 w-full rounded-lg bg-amber-400 hover:bg-amber-300 text-omega-950 text-sm font-extrabold py-1.5 transition-colors">
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
       {aberto && (
         <div className="fixed top-14 md:top-16 right-0 bottom-0 w-full sm:w-[380px] z-40 bg-white border-l border-omega-200 shadow-2xl flex flex-col"
