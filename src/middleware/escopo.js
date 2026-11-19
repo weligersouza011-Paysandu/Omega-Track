@@ -9,8 +9,9 @@
 // Registro de outro contrato responde 404 (nao revela que ele existe).
 // ============================================================================
 import prisma from '../config/database.js';
-import { lerSessao } from './sessao.js';
+import { lerSessao, buscarUsuarioPorId } from './sessao.js';
 import { contratoValido, exigirContrato } from '../utils/contrato.js';
+import { contextoDados } from '../config/escopoDados.js';
 
 export function ehMaster(usuario) {
   return !!usuario && usuario.tipo === 'ADMINISTRADOR' && usuario.nivel === 'MASTER';
@@ -31,7 +32,7 @@ export async function sessaoOpcional(req, _res, next) {
     if (!req.atuante) {
       const sessao = lerSessao(req);
       if (sessao?.sub) {
-        const usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+        const usuario = await buscarUsuarioPorId(sessao.sub);
         if (usuario) req.atuante = usuario;
       }
     }
@@ -150,4 +151,18 @@ export function escopoNaQuery(req, _res, next) {
   }
   req.query = query;
   next();
+}
+
+/**
+ * Define o contexto de dados da requisicao (AsyncLocalStorage): quem nao e Master
+ * fica RESTRITO ao proprio contrato em toda consulta ao banco (ver config/escopoDados.js).
+ * Sem usuario (rotas publicas/chave de API) ou Master: sem restricao automatica.
+ * Contrato ausente no usuario = fecha tudo (contrato vazio nao casa com nada).
+ */
+export function contextoDeDados(req, _res, next) {
+  const usuario = req.atuante;
+  req.contextoDados = usuario && !ehMaster(usuario)
+    ? { restrito: true, contrato: usuario.contrato || '' }
+    : { restrito: false };
+  contextoDados.run(req.contextoDados, next);
 }

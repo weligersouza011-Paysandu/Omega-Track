@@ -7,6 +7,7 @@
 // (src/config/database.js reaproveita `globalThis.prisma`).
 // ============================================================================
 import { randomUUID } from 'crypto';
+import { semanaISO } from '../../src/utils/semanasTelemetria.js';
 
 const valorDe = (v) => (v instanceof Date ? v.getTime() : v);
 
@@ -196,6 +197,26 @@ export function criarPrismaEmMemoria({ veiculos = [], administradores = [] } = {
       async findFirst({ where }) { return usuarios.find((u) => atende(u, where)) || null; },
     },
     logAtividade: { async create({ data }) { logs.push(data); return data; } },
+    /**
+     * Emula a consulta de semanas da telemetria (SQL cru agrupado por semana ISO, fuso -03:00).
+     * Valores da consulta, na ordem: VELOCIDADE, FADIGA, VELOCIDADE, FADIGA, FADIGA_SEM_PARADA[, contrato].
+     */
+    async $queryRaw(_texto, ...valores) {
+      const [velocidade, fadiga, , , semParada, filtro] = valores;
+      // O filtro de contrato chega como fragmento `Prisma.sql` (ainda nao achatado, pois nao e o cliente real).
+      const contrato = filtro && typeof filtro === 'object' && 'values' in filtro ? filtro.values[0] : filtro;
+      const grupos = new Map();
+      for (const e of eventos.filter((x) => contrato === undefined || (x.contrato ?? '251') === contrato)) {
+        const { ano, semana, chave } = semanaISO(e.data_hora);
+        const g = grupos.get(chave) || { ano, semana, total: 0, velocidade: 0, fadiga: 0, outros: 0 };
+        g.total += 1;
+        if (e.evento === velocidade) g.velocidade += 1;
+        else if (e.evento === fadiga) g.fadiga += 1;
+        else if (e.evento !== semParada) g.outros += 1;
+        grupos.set(chave, g);
+      }
+      return [...grupos.values()];
+    },
     async $transaction(operacoes) { return Promise.all(operacoes); },
     async $connect() {},
     async $disconnect() {},

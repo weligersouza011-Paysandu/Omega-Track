@@ -1,7 +1,7 @@
 // Aba "Trajeto & Rastreabilidade": veículo (TAG/placa), período em dias e janela de horário
 // (-03:00) -> mapa com a linha do trajeto em ordem cronológica + tabela. Dados: GET /api/telemetria/trajeto.
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { buscarTodasPaginas } from '../../utils/paginas.js';
+import { buscarTodasPaginas, buscarTodasPaginasComCache } from '../../utils/paginas.js';
 import { CircleMarker, MapContainer, Polyline, Popup, Tooltip, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -249,7 +249,7 @@ export default function TrajetoTab({ versao = 0 }) {
 
   useEffect(() => {
     let ativo = true;
-    buscarTodasPaginas('/api/mob-desmob', { headers: obterHeaders() })
+    buscarTodasPaginasComCache('/api/mob-desmob', { headers: obterHeaders() })
       .then((lista) => { if (ativo) setVeiculos(lista); })
       .catch(() => {})
       .finally(() => { if (ativo) setCarregandoFrota(false); });

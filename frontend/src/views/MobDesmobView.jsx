@@ -1,5 +1,5 @@
 import { soDigitosContrato, contratoValido, tagSemEspaco, MENSAGEM_CONTRATO, contratoDeLancamento } from '../utils/contrato.js';
-import { buscarTodasPaginas } from '../utils/paginas.js';
+import { buscarTodasPaginas, buscarTodasPaginasComCache } from '../utils/paginas.js';
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search, Filter, Download, X, LayoutGrid, BarChart3, FileText, CheckCircle2, RefreshCw, AlertTriangle, Briefcase, Loader2, SlidersHorizontal, Trash2 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
@@ -98,7 +98,7 @@ export default function MobDesmobView({ sessao }) {
     setCarregando(true);
     setErroApi(null);
     try {
-      setVeiculos(await buscarTodasPaginas('/api/mob-desmob'));
+      setVeiculos(await buscarTodasPaginasComCache('/api/mob-desmob'));
     } catch (e) {
       setErroApi('Não foi possível carregar a frota da API. Verifique se o backend está no ar.');
     } finally {

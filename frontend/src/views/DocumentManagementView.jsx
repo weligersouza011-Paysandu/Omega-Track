@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { buscarTodasPaginas } from '../utils/paginas.js';
+import { buscarTodasPaginas, buscarTodasPaginasComCache } from '../utils/paginas.js';
 import {
   Plus, Search, X, Pencil, Trash2, FileText, ExternalLink,
   RefreshCw, AlertTriangle, ImagePlus, Loader2, CheckCircle2, Filter,
@@ -63,7 +63,7 @@ export default function DocumentManagementView({ veiculos = [] }) {
         buscarTodasPaginas('/api/documentacao-veiculos'),
         veiculos.length > 0
           ? Promise.resolve(null)
-          : buscarTodasPaginas('/api/mob-desmob').catch(() => null),
+          : buscarTodasPaginasComCache('/api/mob-desmob').catch(() => null),
       ]);
       setDocs(listaDocs);
       if (listaFrota) setFrota(listaFrota);

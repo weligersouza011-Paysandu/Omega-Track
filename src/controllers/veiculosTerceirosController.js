@@ -10,6 +10,7 @@ import { validarUrlMidia } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { contratoParaGravar, filtroContrato } from '../middleware/escopo.js';
 import { tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js';
+import { semEscopo } from '../config/escopoDados.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -69,17 +70,19 @@ function validarDados(body = {}, { parcial = false } = {}) {
 // entao um terceiro nao pode reutilizar a TAG de um veiculo da frota (nem de
 // um veiculo na lixeira, que pode ser restaurado).
 async function garantirTagLivre(tag, idAtual = null) {
-  const [frota, terceiro] = await Promise.all([
+  // Consulta GLOBAL de proposito (a TAG e unica no sistema todo, em qualquer contrato);
+  // nada do que ela acha e devolvido ao usuario alem de "ja existe".
+  const [frota, terceiro] = await semEscopo(() => Promise.all([
     prisma.mobDesmob.findUnique({ where: { tag }, select: { tag: true } }),
     prisma.veiculoTerceiro.findUnique({ where: { tag }, select: { id: true } }),
-  ]);
+  ]));
   if (frota) {
-    const erro = new Error(`A TAG ${tag} ja pertence a um veiculo da frota propria.`);
+    const erro = new Error(`A TAG ${tag} ja esta em uso.`);
     erro.statusCode = 409;
     throw erro;
   }
   if (terceiro && terceiro.id !== idAtual) {
-    const erro = new Error(`Ja existe um veiculo terceiro com a TAG ${tag}.`);
+    const erro = new Error(`A TAG ${tag} ja esta em uso.`);
     erro.statusCode = 409;
     throw erro;
   }

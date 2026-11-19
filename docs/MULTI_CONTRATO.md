@@ -1,5 +1,8 @@
 # Multi-contrato no OmegaTrack
 
+> **Implantação passo a passo (subir a versão e criar um contrato novo): [IMPLANTACAO_CONTRATO.md](IMPLANTACAO_CONTRATO.md).**
+> Comandos: `npm run contrato:verificar` (integridade e relatório por contrato) e `npm run contrato:novo -- --arquivo <pedido.json> [--aplicar]`.
+
 Resumo das regras, de como operar e do roteiro de entrada em produção.
 
 ## Regras
@@ -18,6 +21,29 @@ Resumo das regras, de como operar e do roteiro de entrada em produção.
 - **Excluir usuário** não apaga o histórico (os registros guardam nome e matrícula em texto).
 - **Paginação:** listagens têm teto de 500 itens por página (`?page=&limit=`); as telas que precisam de todos os
   registros buscam página a página.
+
+## Segurança (camadas)
+1. **Rotas:** login obrigatório; Master/setor decidem o que cada perfil acessa.
+2. **Controllers:** cada consulta aplica o escopo de contrato (`filtroContrato`, `contratoParaGravar`, `router.param`).
+3. **Trava automática na camada de dados** (`src/config/escopoDados.js`): para quem **não é Master**, o cliente Prisma injeta
+   `contrato = <do usuário>` em toda leitura/escrita dos modelos de contrato e recusa criar/alterar registro de outro contrato —
+   mesmo que um controller novo esqueça o filtro. Consultas globais deliberadas (ex.: unicidade de TAG) usam `semEscopo(...)`.
+   Rotas sem login (chave de API) e scripts rodam sem a trava.
+4. **Teste de vazamento** (`tests/integracao/vazamento.test.mjs`): roda a pilha real contra **PostgreSQL (PGlite)** com dois contratos
+   e dados em todos os módulos; falha se um marcador de um contrato aparecer para o outro (leituras, por ID, escritas, exclusões em lote).
+   Rode com `npm test` (não precisa instalar Postgres). **Toda rota nova de dados deve entrar na lista `rotasLeitura` desse teste.**
+5. **Login:** limite de tentativas por IP e por matrícula (429) e cabeçalhos de segurança (nosniff, frame-deny, referrer, HSTS em produção).
+
+## Desempenho
+- **Semanas da telemetria** são agrupadas no banco (antes: até 200 mil eventos lidos para a memória do servidor). Medido com 96 mil
+  eventos num Postgres em memória: 391 ms lendo as linhas → 79 ms agrupando, e 27 linhas na resposta em vez de 96 mil.
+  O resultado é idêntico ao do cálculo em JS (teste com virada de ano ISO e a borda do fuso -03:00).
+- **Compressão gzip** das respostas (JSON e bundles) e **assets com hash em cache por 1 ano** (`index.html` e service worker sempre revalidam).
+- **Frontend:** cada tela é um pacote carregado só quando aberta: o pacote inicial caiu de 2,0 MB para 229 KB (72 KB comprimido).
+  As listas completas (frota etc.) têm cache de 20 s, com chamadas simultâneas compartilhadas e limpeza em qualquer escrita.
+- **Sessão:** o usuário de cada requisição fica em cache de 10 s no servidor e é descartado na hora em qualquer escrita em usuário
+  (contrato, nível, setor, assinatura, exclusão). `CACHE_USUARIO_MS=0` desliga.
+- **Índices:** com 120 mil eventos e 36 mil partes, `EXPLAIN` mostra as listagens usando `(contrato, data_hora)` e `(contrato, data)`.
 
 ## Locação (dentro do contrato)
 O que o sistema antigo chamava de "contrato" (Eletromecânica, Serra Leste) eram as **locações** do contrato 251. Cada veículo tem uma

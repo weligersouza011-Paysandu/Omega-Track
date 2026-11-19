@@ -8,6 +8,7 @@
 //   documentos    -> omegatrack/documentos    (anexos do Farol)
 // ============================================================================
 import 'dotenv/config';
+import { comContextoDaRequisicao } from './escopoDados.js';
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
@@ -93,11 +94,13 @@ export function storageParaPasta(pasta = 'mobilizacao') {
 // A pasta `documentos` aceita também PDF (anexos de documentação).
 export function uploadMiddleware(pasta = 'mobilizacao') {
   const tipos = pasta === 'documentos' ? TIPOS_DOCUMENTO : TIPOS_IMAGEM;
-  return multer({
+  const middleware = multer({
     storage: storageParaPasta(pasta),
     fileFilter: imageFileFilter(tipos),
     limits: { fileSize: LIMITE_ARQUIVO_BYTES, files: 1 },
   }).single('arquivo');
+  // O callback do multer perde o contexto da requisicao (trava de contrato): reentra nele.
+  return (req, res, proximo) => middleware(req, res, comContextoDaRequisicao(req, proximo));
 }
 
 // ============================================================================

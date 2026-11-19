@@ -1,0 +1,15 @@
+{
+  "contrato": "010",
+  "administradores": [
+    { "nome": "Fulano de Tal", "matricula": "20001", "setor": "GESTAO", "funcao": "Gestor do contrato" },
+    { "nome": "Beltrana da Silva", "matricula": "20002", "setor": "PLANEJADOR", "funcao": "Planejadora" },
+    { "nome": "Ciclano Souza", "matricula": "20003", "setor": "TRANSPORTE", "funcao": "Transporte" },
+    { "nome": "Analista Ambiental", "matricula": "20004", "setor": "MEIO_AMBIENTE", "funcao": "Meio Ambiente" }
+  ],
+  "operacionais": [
+    { "nome": "Motorista Exemplo", "matricula": "30001", "funcao": "Motorista" }
+  ],
+  "obras": [
+    { "nome": "Obra Exemplo", "numero_contrato": "4800001236", "contratante": "Vale", "gestao": "Fulano de Tal", "planejador_matricula": "20002" }
+  ]
+}

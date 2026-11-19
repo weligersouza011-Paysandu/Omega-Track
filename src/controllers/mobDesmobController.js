@@ -14,6 +14,7 @@ import { exigirContrato, tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js
 import { ehMeioAmbiente, CAMPOS_VEICULO_MEIO_AMBIENTE } from '../utils/setores.js';
 import { contratoParaGravar, filtroContrato, ehMaster } from '../middleware/escopo.js';
 import { lerPaginacao, blocoPaginacao } from '../utils/paginacao.js';
+import { semEscopo } from '../config/escopoDados.js';
 import { resolverLocacao } from '../utils/locacao.js';
 import { transferirContratoVeiculo, historicoContratoVeiculo } from '../services/transferenciaContratoService.js';
 
@@ -408,10 +409,11 @@ export const criarVeiculo = asyncHandler(async (req, res) => {
   validarUrlMidia(body.foto_veiculo, 'foto_veiculo');
 
   // A Programacao identifica cada linha pela TAG: nao pode colidir com terceiros.
-  if (dados.tag && await prisma.veiculoTerceiro.findUnique({ where: { tag: dados.tag }, select: { id: true } })) {
+  // Consulta global de proposito: a TAG nao pode colidir com terceiro de nenhum contrato.
+  if (dados.tag && await semEscopo(() => prisma.veiculoTerceiro.findUnique({ where: { tag: dados.tag }, select: { id: true } }))) {
     return res.status(409).json({
       error: 'TAG em uso',
-      message: `A TAG ${dados.tag} ja esta cadastrada como veiculo terceiro.`,
+      message: `A TAG ${dados.tag} ja esta em uso.`,
     });
   }
 

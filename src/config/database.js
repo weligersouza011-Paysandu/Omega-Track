@@ -1,13 +1,17 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { aplicarEscopo } from './escopoDados.js';
 
-const prisma = globalThis.prisma || new PrismaClient({
+const prismaBase = globalThis.prisma || new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
 });
 
 if (!globalThis.prisma) {
-  globalThis.prisma = prisma;
+  globalThis.prisma = prismaBase;
 }
+
+// Trava automatica de contrato (ver escopoDados.js). Stubs de teste (sem $extends) ficam como estao.
+const prisma = typeof prismaBase.$extends === 'function' ? aplicarEscopo(prismaBase) : prismaBase;
 
 async function testConnection(maxRetries = 3, delayMs = 2000) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {

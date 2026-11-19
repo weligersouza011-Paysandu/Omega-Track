@@ -1,4 +1,5 @@
 import config from '../config/index.js';
+import { contextoDados } from '../config/escopoDados.js';
 
 function notFoundHandler(req, res, next) {
   res.status(404).json({
@@ -63,7 +64,10 @@ function errorHandler(err, req, res, next) {
 
 function asyncHandler(fn) {
   return (req, res, next) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
+    const executar = () => Promise.resolve(fn(req, res, next)).catch(next);
+    // Reentra no contexto de dados da requisicao: callbacks de upload (multer) perdem o
+    // AsyncLocalStorage, e o handler precisa seguir sob a trava de contrato.
+    return req.contextoDados ? contextoDados.run(req.contextoDados, executar) : executar();
   };
 }
 

@@ -15,9 +15,10 @@
 //   GET    /api/telemetria/placas-nao-cadastradas
 //   DELETE /api/telemetria/por-placa/:placa  (Master, Gestão e Transporte)
 // ============================================================================
+import { Prisma } from '@prisma/client';
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
-import { filtroContrato, contratoParaGravar } from '../middleware/escopo.js';
+import { filtroContrato, contratoParaGravar, contratoDoEscopo } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
 import * as regras from '../utils/classificacaoTelemetria.js';
@@ -708,20 +709,24 @@ export const excluirEventosTelemetriaLote = asyncHandler(async (req, res) => {
  * mais recentes como seleção padrão.
  */
 export const listarSemanasTelemetria = asyncHandler(async (req, res) => {
-  const eventos = await comRetry(() => prisma.eventoTelemetria.findMany({
-    where: filtroContrato(req),
-    select: { data_hora: true, evento: true, valor: true },
-    take: 200000,
-  }), 'semanas');
+  // Agrupa NO BANCO (antes lia ate 200 mil eventos para a memoria do servidor). Consulta
+  // crua nao passa pela trava automatica de contrato: o contrato vai explicito (nao-Master
+  // sempre tem o proprio; so o Master em "Todos" fica sem filtro). Semana ISO no fuso -03:00.
+  const contrato = contratoDoEscopo(req);
+  const filtro = contrato === undefined ? Prisma.empty : Prisma.sql`WHERE contrato = ${contrato}`;
+  const linhas = await comRetry(() => prisma.$queryRaw`
+    SELECT EXTRACT(ISOYEAR FROM t)::int AS ano,
+           EXTRACT(WEEK FROM t)::int AS semana,
+           count(*)::int AS total,
+           (count(*) FILTER (WHERE evento = ${EVENTOS.VELOCIDADE}))::int AS velocidade,
+           (count(*) FILTER (WHERE evento = ${EVENTOS.FADIGA}))::int AS fadiga,
+           (count(*) FILTER (WHERE evento NOT IN (${EVENTOS.VELOCIDADE}, ${EVENTOS.FADIGA}, ${EVENTOS.FADIGA_SEM_PARADA})))::int AS outros
+      FROM (SELECT evento, data_hora - interval '3 hours' AS t FROM eventos_telemetria ${filtro}) e
+     GROUP BY 1, 2`, 'semanas');
   const semanas = new Map();
-  for (const e of eventos) {
-    const { ano, semana, chave } = semanaISO(e.data_hora);
-    const s = semanas.get(chave) || { chave, ano, semana, total: 0, velocidade: 0, fadiga: 0, outros: 0 };
-    s.total += 1;
-    if (e.evento === EVENTOS.VELOCIDADE) s.velocidade += 1;
-    else if (e.evento === EVENTOS.FADIGA) s.fadiga += 1;
-    else if (e.evento !== EVENTOS.FADIGA_SEM_PARADA) s.outros += 1;
-    semanas.set(chave, s);
+  for (const l of linhas) {
+    const chave = `${l.ano}-${String(l.semana).padStart(2, '0')}`;
+    semanas.set(chave, { chave, ano: l.ano, semana: l.semana, total: l.total, velocidade: l.velocidade, fadiga: l.fadiga, outros: l.outros });
   }
   const lista = [...semanas.values()]
     .map((s) => {

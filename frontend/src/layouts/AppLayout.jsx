@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from '../components/Sidebar.jsx';
 import Header from '../components/Header.jsx';
@@ -26,7 +26,10 @@ export default function AppLayout({ sessao, onSair, tema, onAlternarTema }) {
           tema={tema} onAlternarTema={onAlternarTema} />
         <main className="flex-1 px-3 py-2 md:p-6 overflow-auto">
           <BannerOffline />
-          <Outlet />
+          {/* Cada tela e um pacote separado, baixado so quando aberta (o menu e o cabecalho ficam). */}
+          <Suspense fallback={<div className="p-8 text-center text-sm font-semibold text-omega-500">Carregando…</div>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

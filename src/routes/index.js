@@ -22,7 +22,7 @@ import categoriasDesvioRoutes from './categoriasDesvioRoutes.js';
 import contratoRoutes from './contratoRoutes.js';
 import { aprovarLotePlanejamento, aprovarLoteTransporte } from '../controllers/parteDiariaController.js';
 import { requerPlanejamentoOuMaster, requerTransporteOuMaster } from '../middleware/sessao.js';
-import { sessaoOpcional } from '../middleware/escopo.js';
+import { sessaoOpcional, contextoDeDados } from '../middleware/escopo.js';
 
 const router = Router();
 
@@ -110,6 +110,8 @@ router.get('/ping', (req, res) => {
 
 // Carrega o usuario do JWT (sem exigir login) para o escopo por contrato.
 router.use(sessaoOpcional);
+// ...e trava o contrato na camada de dados para quem nao e Master (defesa em profundidade).
+router.use(contextoDeDados);
 
 router.use('/mob-desmob', mobDesmobRoutes);
 router.use('/documentacao-veiculos', documentacaoRoutes);

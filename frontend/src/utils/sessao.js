@@ -1,6 +1,7 @@
 // Sessao do usuario logado (JWT 12h em localStorage).
 import { limparCacheLeituras } from '../offline/armazenamento.js';
 import { lerContratoSelecionado, salvarContratoSelecionado } from './contrato.js';
+import { limparCachePaginas } from './paginas.js';
 const CHAVE = 'omegatrack_sessao';
 
 export function lerSessao() {
@@ -27,6 +28,7 @@ export function encerrarSessao() {
   // O filtro de contrato do Master e as leituras guardadas para o modo offline
   // não ficam para o próximo usuário.
   salvarContratoSelecionado('');
+  limparCachePaginas();
   limparCacheLeituras();
 }
 
@@ -88,6 +90,9 @@ export function instalarAutenticacaoApi() {
       const bruto = typeof input === 'string' ? input : (input?.url || '');
       const url = new URL(bruto, window.location.origin);
       if (url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
+        // Qualquer escrita deixa as listas em cache (frota, obras...) desatualizadas.
+        const metodo = String(init?.method || (typeof input === 'object' ? input.method : '') || 'GET').toUpperCase();
+        if (metodo !== 'GET' && metodo !== 'HEAD') limparCachePaginas();
         const sessao = lerSessao();
         const token = sessao?.token;
         if (token) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buscarTodasPaginas } from '../utils/paginas.js';
+import { buscarTodasPaginas, buscarTodasPaginasComCache } from '../utils/paginas.js';
 import { ExternalLink, AlertTriangle, Clock, CheckCircle2, FileWarning, FileText } from 'lucide-react';
 import { veiculos } from '../data/mockData.js';
 import { calcularFarol, textoDias, FAROL_LABEL, FAROL_LABEL_CURTO, FAROL_COR } from '../utils/farol.js';
@@ -49,7 +49,7 @@ export default function DashboardExecutivoView() {
   useEffect(() => {
     let ativo = true;
     Promise.all([
-      buscarTodasPaginas('/api/mob-desmob')
+      buscarTodasPaginasComCache('/api/mob-desmob')
         .then((lista) => { if (ativo) setFrota(lista); })
         .catch(() => {}),
       buscarTodasPaginas('/api/documentacao-veiculos')

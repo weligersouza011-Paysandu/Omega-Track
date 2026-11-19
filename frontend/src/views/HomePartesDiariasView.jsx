@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { buscarTodasPaginas } from '../utils/paginas.js';
+import { buscarTodasPaginas, buscarTodasPaginasComCache } from '../utils/paginas.js';
 import {
   Plus, Search, Eye, Pencil, Trash2, X, RefreshCw, AlertTriangle,
   CheckCircle2, ClipboardList, Filter, FileText, Loader2, ChevronDown, CalendarClock, FileSpreadsheet, FolderArchive,
@@ -236,7 +236,7 @@ export default function HomePartesDiariasView({ sessao }) {
 
   const carregarVeiculos = async () => {
     try {
-      setVeiculos(await buscarTodasPaginas('/api/mob-desmob'));
+      setVeiculos(await buscarTodasPaginasComCache('/api/mob-desmob'));
     } catch {
       /* TAG segue como campo livre */
     }

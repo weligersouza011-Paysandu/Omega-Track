@@ -8,6 +8,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config/index.js';
 import prisma from '../config/database.js';
 import { ehSetorGestao } from '../utils/setores.js';
+import { TTL_USUARIO_MS, lerUsuarioDoCache, guardarUsuarioNoCache } from '../config/cacheUsuario.js';
 
 export function assinarSessao(usuario) {
   return jwt.sign(
@@ -33,6 +34,21 @@ export function sessaoOperacional(req) {
   }
 }
 
+/**
+ * Usuario da sessao por id, com cache curtissimo (ver config/cacheUsuario.js). Sem cache
+ * quando o cliente do banco e um stub de teste (nao tem $extends).
+ */
+export async function buscarUsuarioPorId(id) {
+  const usaCache = TTL_USUARIO_MS > 0 && typeof prisma.$extends === 'function';
+  if (usaCache) {
+    const guardado = lerUsuarioDoCache(id);
+    if (guardado) return guardado;
+  }
+  const usuario = await prisma.usuario.findUnique({ where: { id } });
+  if (usaCache) guardarUsuarioNoCache(id, usuario);
+  return usuario;
+}
+
 export function lerSessao(req) {
   const auth = req.headers.authorization || '';
   if (!auth.startsWith('Bearer ')) return null;
@@ -48,7 +64,7 @@ export async function atuanteDaRequisicao(req) {
   if (req.atuante?.tipo === 'ADMINISTRADOR') return req.atuante; // ja carregado pelo JWT
   const sessao = lerSessao(req);
   if (!sessao?.sub) return null;
-  const u = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+  const u = await buscarUsuarioPorId(sessao.sub);
   return u && u.tipo === 'ADMINISTRADOR' ? u : null;
 }
 
@@ -57,7 +73,7 @@ export async function requerSessao(req, res, next) {
   if (req.atuante) return next(); // ja carregado do JWT por sessaoOpcional
   const sessao = lerSessao(req);
   const usuario = sessao?.sub
-    ? await prisma.usuario.findUnique({ where: { id: sessao.sub } })
+    ? await buscarUsuarioPorId(sessao.sub)
     : null;
   if (!usuario) {
     return res.status(401).json({
@@ -92,7 +108,7 @@ export async function requerAdminAutenticado(req, res, next) {
       message: 'Sessao ausente ou invalida. Faca login.',
     });
   }
-  const usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+  const usuario = await buscarUsuarioPorId(sessao.sub);
   if (!usuario || usuario.tipo !== 'ADMINISTRADOR') {
     return res.status(403).json({
       error: 'Sem permissao',
@@ -127,7 +143,7 @@ function requerAdministradorJwt(permitido, mensagem) {
         message: 'Sessao ausente ou invalida. Faca login.',
       });
     }
-    const usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+    const usuario = await buscarUsuarioPorId(sessao.sub);
     if (!usuario || usuario.tipo !== 'ADMINISTRADOR' || !permitido(usuario)) {
       return res.status(403).json({ error: 'Sem permissao', message: mensagem });
     }
@@ -174,7 +190,7 @@ export async function requerMasterMatriz(req, res, next) {
       message: 'Sessao ausente ou invalida. Faca login.',
     });
   }
-  const usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+  const usuario = await buscarUsuarioPorId(sessao.sub);
   if (!usuario || usuario.tipo !== 'ADMINISTRADOR' || usuario.nivel !== 'MASTER') {
     return res.status(403).json({
       error: 'Sem permissao',
