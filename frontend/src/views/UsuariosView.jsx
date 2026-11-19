@@ -119,6 +119,7 @@ export default function UsuariosView({ sessao }) {
   const [filtrosLog, setFiltrosLog] = useState({
     q: '', usuario_id: '', modulo: '', acao: '', data_inicio: '', data_fim: '',
   });
+  const [porContrato, setPorContrato] = useState([]);
   const [lixeira, setLixeira] = useState({ veiculos: [], partes: [] });
   const [carregandoLixeira, setCarregandoLixeira] = useState(false);
   const [restaurando, setRestaurando] = useState(null);
@@ -149,7 +150,19 @@ export default function UsuariosView({ sessao }) {
     }
   };
 
-  useEffect(() => { carregar(); }, []);
+  // Quantos usuarios existem por contrato (Master: todos; demais: o proprio).
+  const carregarPorContrato = async () => {
+    try {
+      const resp = await fetch('/api/usuarios/resumo-contratos');
+      if (!resp.ok) return;
+      const corpo = await resp.json();
+      setPorContrato(Array.isArray(corpo?.data) ? corpo.data : []);
+    } catch {
+      /* a tabela e informativa */
+    }
+  };
+
+  useEffect(() => { carregar(); carregarPorContrato(); }, []);
 
   const admins = useMemo(() => usuarios.filter((u) => u.tipo === 'ADMINISTRADOR'), [usuarios]);
   const operacionais = useMemo(() => usuarios.filter((u) => u.tipo === 'OPERACIONAL'), [usuarios]);
@@ -411,6 +424,38 @@ export default function UsuariosView({ sessao }) {
 
       {aba === 'lista' && (
         <div className="space-y-5">
+          {porContrato.length > 0 && (
+            <div className="card overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-omega-100 bg-omega-50/50">
+                <div className="text-sm font-bold text-omega-900">Usuários por contrato</div>
+                <div className="text-[11px] text-omega-500 ml-auto">
+                  {porContrato.reduce((soma, l) => soma + l.total, 0)} usuário(s) no total
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-[10px] uppercase tracking-wider text-omega-500">
+                    <tr>
+                      <th className="text-left font-bold px-4 py-2">Contrato</th>
+                      <th className="text-right font-bold px-4 py-2">Administrativos</th>
+                      <th className="text-right font-bold px-4 py-2">Operacionais</th>
+                      <th className="text-right font-bold px-4 py-2">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-omega-100">
+                    {porContrato.map((linha) => (
+                      <tr key={linha.contrato}>
+                        <td className="px-4 py-2 font-mono font-bold text-omega-800">{linha.contrato}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-omega-700">{linha.administradores}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-omega-700">{linha.operacionais}</td>
+                        <td className="px-4 py-2 text-right tabular-nums font-bold text-omega-900">{linha.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <div className="card overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-omega-100 bg-omega-50/50">
               <div className="w-7 h-7 rounded-lg bg-violet-500/15 flex items-center justify-center text-violet-600">

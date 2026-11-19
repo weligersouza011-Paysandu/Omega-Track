@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, ImagePlus, Loader2, Plus, Trash2, Truck, X } fr
 import Modal from './Modal.jsx';
 import CampoListaComCriador from './CampoListaComCriador.jsx';
 import { authHeaders } from '../utils/sessao.js';
+import { lerContratoSelecionado, CONTRATO_TODOS, contratoValido } from '../utils/contrato.js';
 import { EVENTO_SINCRONIZADO, MENSAGEM_SALVO_LOCAL, mensagemFalha, salvoNaFila } from '../offline/index.js';
 
 // Veículos de empresas terceirizadas: cadastro simples, usado SOMENTE como
@@ -10,7 +11,7 @@ import { EVENTO_SINCRONIZADO, MENSAGEM_SALVO_LOCAL, mensagemFalha, salvoNaFila }
 // documentação ou desmobilização). Fica recolhido por padrão no rodapé da frota.
 
 const formInicial = () => ({
-  tag: '', tipo: '', empresa_terceira: '', placa: '', modelo: '', observacao: '', foto_url: '',
+  tag: '', tipo: '', empresa_terceira: '', placa: '', modelo: '', observacao: '', foto_url: '', contrato: '',
 });
 
 async function lerErro(resp, padrao) {
@@ -28,6 +29,29 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
   const [erroCadastro, setErroCadastro] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const [contratos, setContratos] = useState({ data: [], meu: '', master: false });
+
+  // O veiculo terceiro presta servico a UM contrato: o do usuario (Master escolhe).
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await fetch('/api/contratos');
+        if (resp.ok) setContratos(await resp.json());
+      } catch {
+        /* sem a lista, o servidor grava o contrato do usuario */
+      }
+    })();
+  }, []);
+
+  const abrirCadastro = () => {
+    const exibido = lerContratoSelecionado();
+    const contrato = contratos.master
+      ? (exibido && exibido !== CONTRATO_TODOS ? exibido : (exibido === CONTRATO_TODOS ? '' : contratos.meu))
+      : contratos.meu;
+    setForm({ ...formInicial(), contrato });
+    setErroCadastro('');
+    setModalCadastro(true);
+  };
   const [excluir, setExcluir] = useState(null);
   const [excluindo, setExcluindo] = useState(false);
 
@@ -95,6 +119,7 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
     const faltando = [];
     if (!form.tag.trim()) faltando.push('TAG');
     if (!String(form.tipo || '').trim()) faltando.push('Tipo de Veículo');
+    if (contratos.master && !contratoValido(form.contrato)) faltando.push('Contrato');
     if (faltando.length) {
       setErroCadastro(`Preencha os campos obrigatórios: ${faltando.join(', ')}.`);
       return;
@@ -110,6 +135,7 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
         modelo: form.modelo.trim() || null,
         observacao: form.observacao.trim() || null,
         foto_url: form.foto_url || null,
+        ...(contratos.master ? { contrato: form.contrato } : {}),
       };
       const resp = await fetch('/api/veiculos-terceiros', {
         method: 'POST',
@@ -175,7 +201,7 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
             <p className="text-[11px] text-omega-500">
               Disponíveis somente para alocação na Programação de Recursos. Não entram em Parte Diária, telemetria ou indicadores da frota própria.
             </p>
-            <button type="button" className="btn-primary !py-1.5 text-xs" onClick={() => setModalCadastro(true)}>
+            <button type="button" className="btn-primary !py-1.5 text-xs" onClick={abrirCadastro}>
               <Plus size={14} /> Adicionar Veículo Terceiro
             </button>
           </div>
@@ -199,6 +225,7 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
                     <th className="text-left font-bold px-4 py-2">TAG</th>
                     <th className="text-left font-bold px-2 py-2">Tipo</th>
                     <th className="text-left font-bold px-2 py-2 hidden sm:table-cell">Empresa</th>
+                    <th className="text-left font-bold px-2 py-2">Contrato</th>
                     <th className="text-left font-bold px-2 py-2 hidden md:table-cell">Placa</th>
                     <th className="text-left font-bold px-2 py-2 hidden lg:table-cell">Modelo</th>
                     <th className="px-4 py-2 w-12" aria-label="Ações" />
@@ -225,6 +252,7 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
                       </td>
                       <td className="px-2 py-2 text-omega-700">{v.tipo}</td>
                       <td className="px-2 py-2 text-omega-600 hidden sm:table-cell">{v.empresa_terceira || '—'}</td>
+                      <td className="px-2 py-2 font-mono font-bold text-omega-700">{v.contrato || '—'}</td>
                       <td className="px-2 py-2 font-mono text-omega-600 hidden md:table-cell">{v.placa || '—'}</td>
                       <td className="px-2 py-2 text-omega-600 hidden lg:table-cell">{v.modelo || '—'}</td>
                       <td className="px-4 py-2 text-right">
@@ -266,6 +294,17 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
           <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200/60 text-sm text-red-800">{erroCadastro}</div>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="label" htmlFor="ter-contrato">A serviço do contrato {contratos.master && <span className="text-status-vermelho">*</span>}</label>
+            {contratos.master ? (
+              <select id="ter-contrato" value={form.contrato} onChange={(e) => setForm({ ...form, contrato: e.target.value })} className="input font-mono">
+                <option value="">Selecione o contrato...</option>
+                {contratos.data.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : (
+              <input id="ter-contrato" value={contratos.meu} readOnly disabled className="input font-mono" title="O veículo terceiro fica a serviço do seu contrato" />
+            )}
+          </div>
           <div>
             <label className="label" htmlFor="ter-tag">TAG <span className="text-status-vermelho">*</span></label>
             <input id="ter-tag" value={form.tag} onChange={(e) => setForm({ ...form, tag: e.target.value.replace(/\s/g, '') })}

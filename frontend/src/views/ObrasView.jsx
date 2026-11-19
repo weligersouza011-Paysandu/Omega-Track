@@ -7,6 +7,7 @@ import Modal from '../components/Modal.jsx';
 import StatCard from '../components/StatCard.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { podeEscrever } from '../utils/permissoes.js';
+import { lerContratoSelecionado, CONTRATO_TODOS, contratoValido } from '../utils/contrato.js';
 
 function formVazio() {
   return {
@@ -15,6 +16,8 @@ function formVazio() {
     contratante: 'Vale',
     gestao: 'Denilson Silva',
     planejador: '',
+    planejadorMatricula: '',
+    contrato: '',
     ativo: true,
   };
 }
@@ -34,6 +37,28 @@ export default function ObrasView({ sessao }) {
   const [salvando, setSalvando] = useState(false);
   const [erroForm, setErroForm] = useState(null);
   const [toast, setToast] = useState(null);
+  const [contratos, setContratos] = useState({ data: [], meu: usuario?.contrato || '', master: false });
+  const [planejadoresUsuarios, setPlanejadoresUsuarios] = useState([]);
+
+  // Contratos disponiveis (Master escolhe; demais usam o proprio) e usuarios Planejador
+  // de todos os contratos visiveis, para vincular o planejador a obra.
+  useEffect(() => {
+    (async () => {
+      try {
+        const [rc, ru] = await Promise.all([
+          fetch('/api/contratos'),
+          fetch('/api/usuarios?tipo=ADMINISTRADOR&contrato=todos'),
+        ]);
+        if (rc.ok) setContratos(await rc.json());
+        if (ru.ok) {
+          const corpo = await ru.json();
+          setPlanejadoresUsuarios((corpo?.data || []).filter((u) => u.setor === 'PLANEJADOR'));
+        }
+      } catch {
+        /* sem os usuarios, o campo Planejador cai para texto livre */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -65,7 +90,7 @@ export default function ObrasView({ sessao }) {
       if (filtroAtivo === 'ativas' && !o.ativo) return false;
       if (filtroAtivo === 'inativas' && o.ativo) return false;
       if (!q) return true;
-      return [o.nome, o.numeroContrato, o.contratante, o.gestao, o.planejador]
+      return [o.nome, o.contrato, o.numeroContrato, o.contratante, o.gestao, o.planejador]
         .some((v) => String(v || '').toUpperCase().includes(q));
     });
   }, [obras, busca, filtroAtivo]);
@@ -85,9 +110,20 @@ export default function ObrasView({ sessao }) {
     [obras]
   );
 
+  // Usuarios com setor Planejador do contrato da obra em edicao (o vinculo exige o mesmo contrato).
+  const planejadoresDoContrato = useMemo(
+    () => planejadoresUsuarios.filter((u) => u.contrato === modal?.form?.contrato),
+    [planejadoresUsuarios, modal?.form?.contrato]
+  );
+
   const abrirNovo = () => {
     setErroForm(null);
-    setModal({ modo: 'novo', id: null, form: formVazio() });
+    // Contrato da obra = o do usuario. O Master parte do contrato exibido (se estiver em "Todos", escolhe).
+    const exibido = lerContratoSelecionado();
+    const contrato = contratos.master
+      ? (exibido && exibido !== CONTRATO_TODOS ? exibido : (exibido === CONTRATO_TODOS ? '' : contratos.meu))
+      : contratos.meu;
+    setModal({ modo: 'novo', id: null, form: { ...formVazio(), contrato } });
   };
 
   const abrirEdicao = (o) => {
@@ -101,6 +137,8 @@ export default function ObrasView({ sessao }) {
         contratante: o.contratante || 'Vale',
         gestao: o.gestao || '',
         planejador: o.planejador || '',
+        planejadorMatricula: o.planejadorMatricula || '',
+        contrato: o.contrato || '',
         ativo: o.ativo !== false,
       },
     });
@@ -113,6 +151,10 @@ export default function ObrasView({ sessao }) {
       setErroForm('Nome da Obra é obrigatório.');
       return;
     }
+    if (modal.modo === 'novo' && !contratoValido(f.contrato)) {
+      setErroForm('Escolha o contrato da obra.');
+      return;
+    }
     setErroForm(null);
     setSalvando(true);
     try {
@@ -122,6 +164,8 @@ export default function ObrasView({ sessao }) {
         contratante: String(f.contratante || '').trim() || 'Vale',
         gestao: String(f.gestao || '').trim() || null,
         planejador: String(f.planejador || '').trim() || null,
+        planejadorMatricula: f.planejadorMatricula || null,
+        ...(modal.modo === 'novo' ? { contrato: f.contrato } : {}),
         ativo: !!f.ativo,
       };
       const url = modal.modo === 'novo' ? '/api/obras' : `/api/obras/${modal.id}`;
@@ -260,10 +304,11 @@ export default function ObrasView({ sessao }) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[900px]">
+            <table className="w-full text-sm min-w-[960px]">
               <thead className="bg-omega-50/70">
                 <tr className="text-left text-[11px] uppercase tracking-wider text-omega-500 font-bold border-b border-omega-100">
                   <th className="px-4 py-3">Nome da Obra</th>
+                  <th className="px-4 py-3">Contrato</th>
                   <th className="px-4 py-3">Nº do Contrato</th>
                   <th className="px-4 py-3">Contratante</th>
                   <th className="px-4 py-3">Gestão</th>
@@ -276,6 +321,7 @@ export default function ObrasView({ sessao }) {
                 {visiveis.map((o) => (
                   <tr key={o.id} className="hover:bg-omega-50/60">
                     <td className="px-4 py-2.5 font-bold text-omega-900">{o.nome}</td>
+                    <td className="px-4 py-2.5 font-mono font-bold text-omega-800">{o.contrato || '—'}</td>
                     <td className="px-4 py-2.5 font-mono text-omega-700">{o.numeroContrato || '—'}</td>
                     <td className="px-4 py-2.5 text-omega-700">{o.contratante || '—'}</td>
                     <td className="px-4 py-2.5 text-omega-700">{o.gestao || '—'}</td>
@@ -335,6 +381,21 @@ export default function ObrasView({ sessao }) {
                 placeholder="Ex: 998 - CEP Centro de Empresas Parceiras"
               />
             </div>
+            <div>
+              <label className="label">Contrato (ID) <span className="text-status-vermelho">*</span></label>
+              {modal.modo === 'novo' && contratos.master ? (
+                <select
+                  value={modal.form.contrato}
+                  onChange={(e) => setModal({ ...modal, form: { ...modal.form, contrato: e.target.value, planejadorMatricula: '', planejador: '' } })}
+                  className="input font-mono"
+                >
+                  <option value="">Selecione o contrato...</option>
+                  {contratos.data.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              ) : (
+                <input value={modal.form.contrato} readOnly disabled className="input font-mono" title="O contrato da obra é o do usuário que a cadastra" />
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="label">Nº do Contrato</label>
@@ -367,6 +428,24 @@ export default function ObrasView({ sessao }) {
               </div>
               <div>
                 <label className="label">Planejador</label>
+                {planejadoresDoContrato.length > 0 ? (
+                  <>
+                    <select
+                      value={modal.form.planejadorMatricula}
+                      onChange={(e) => {
+                        const escolhido = planejadoresDoContrato.find((u) => u.matricula === e.target.value);
+                        setModal({ ...modal, form: { ...modal.form, planejadorMatricula: e.target.value, planejador: escolhido ? escolhido.nome : '' } });
+                      }}
+                      className="input"
+                    >
+                      <option value="">Sem planejador vinculado</option>
+                      {planejadoresDoContrato.map((u) => <option key={u.matricula} value={u.matricula}>{u.nome} ({u.matricula})</option>)}
+                    </select>
+                    {modal.form.planejador && !modal.form.planejadorMatricula && (
+                      <p className="mt-1 text-[11px] text-omega-500">Atual (sem vínculo): {modal.form.planejador}</p>
+                    )}
+                  </>
+                ) : (
                 <input
                   value={modal.form.planejador}
                   onChange={(e) => setModal({ ...modal, form: { ...modal.form, planejador: e.target.value } })}
@@ -375,11 +454,14 @@ export default function ObrasView({ sessao }) {
                   list="obras-planejadores"
                   autoComplete="off"
                 />
+                )}
+                {planejadoresDoContrato.length === 0 && (
                 <datalist id="obras-planejadores">
                   {planejadoresSugeridos.map((nome) => (
                     <option key={nome} value={nome} />
                   ))}
                 </datalist>
+                )}
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm font-medium text-omega-700 cursor-pointer">

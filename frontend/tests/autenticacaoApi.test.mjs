@@ -42,3 +42,37 @@ test('sem sessao nao inventa token', async () => {
   await window.fetch('/api/obras');
   assert.equal(auth(5), null);
 });
+
+const logar = (usuario) => armazem.set('omegatrack_sessao', JSON.stringify({ token: 'TOKEN123', usuario }));
+const urlDe = (i) => String(chamadas[i].input);
+
+test('Master com contrato escolhido: o filtro vai em toda chamada /api (menos login/contratos/upload)', async () => {
+  logar({ matricula: '1', tipo: 'ADMINISTRADOR', nivel: 'MASTER' });
+  armazem.set('omegatrack_contrato_filtro', '010');
+  const antes = chamadas.length;
+  await window.fetch('/api/mob-desmob?limit=200');
+  await window.fetch('/api/obras');
+  await window.fetch('/api/obras?contrato=todos');      // parametro proprio da tela prevalece
+  await window.fetch('/api/contratos');
+  await window.fetch('/api/login/eu');
+  await window.fetch('/api/obras', { method: 'POST', body: '{}' });
+  assert.equal(urlDe(antes), '/api/mob-desmob?limit=200&contrato=010');
+  assert.equal(urlDe(antes + 1), '/api/obras?contrato=010');
+  assert.equal(urlDe(antes + 2), '/api/obras?contrato=todos');
+  assert.equal(urlDe(antes + 3), '/api/contratos');
+  assert.equal(urlDe(antes + 4), '/api/login/eu');
+  assert.equal(urlDe(antes + 5), '/api/obras?contrato=010');
+  assert.equal(new Headers(chamadas[antes].init.headers).get('Authorization'), 'Bearer TOKEN123');
+});
+
+test('Nao-Master e Master sem escolha nao recebem o parametro', async () => {
+  const antes = chamadas.length;
+  logar({ matricula: '2', tipo: 'ADMINISTRADOR', nivel: 'NORMAL' });
+  armazem.set('omegatrack_contrato_filtro', '010');
+  await window.fetch('/api/obras');
+  logar({ matricula: '1', tipo: 'ADMINISTRADOR', nivel: 'MASTER' });
+  armazem.delete('omegatrack_contrato_filtro');
+  await window.fetch('/api/obras');
+  assert.equal(urlDe(antes), '/api/obras');
+  assert.equal(urlDe(antes + 1), '/api/obras');
+});

@@ -1,5 +1,6 @@
 // Sessao do usuario logado (JWT 12h em localStorage).
 import { limparCacheLeituras } from '../offline/armazenamento.js';
+import { lerContratoSelecionado, salvarContratoSelecionado } from './contrato.js';
 const CHAVE = 'omegatrack_sessao';
 
 export function lerSessao() {
@@ -23,7 +24,9 @@ export function encerrarSessao() {
   } catch {
     /* sem armazenamento */
   }
-  // Leituras guardadas para o modo offline não ficam para o próximo usuário.
+  // O filtro de contrato do Master e as leituras guardadas para o modo offline
+  // não ficam para o próximo usuário.
+  salvarContratoSelecionado('');
   limparCacheLeituras();
 }
 
@@ -73,6 +76,9 @@ export function rotaInicialPorSetor(usuario) {
 // em todas as rotas de dados. Em vez de repetir o cabecalho em cada chamada,
 // o fetch global anexa o token da sessao as chamadas para /api/ que ainda nao
 // trazem `Authorization`. Chamar antes de instalarModoOffline().
+const ROTAS_SEM_FILTRO_CONTRATO = ['/api/login', '/api/contratos', '/api/upload'];
+const ehMaster = (u) => u?.tipo === 'ADMINISTRADOR' && u?.nivel === 'MASTER';
+
 export function instalarAutenticacaoApi() {
   if (typeof window === 'undefined' || window.__omegaAuthFetch) return;
   const fetchBase = window.fetch.bind(window);
@@ -82,13 +88,25 @@ export function instalarAutenticacaoApi() {
       const bruto = typeof input === 'string' ? input : (input?.url || '');
       const url = new URL(bruto, window.location.origin);
       if (url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
-        const token = lerSessao()?.token;
+        const sessao = lerSessao();
+        const token = sessao?.token;
         if (token) {
           const cabecalhos = new Headers(init?.headers || (typeof input === 'object' ? input.headers : undefined));
+          const opcoes = { ...(init || {}) };
+          let alvo = input;
           if (!cabecalhos.has('Authorization')) {
             cabecalhos.set('Authorization', `Bearer ${token}`);
-            return fetchBase(input, { ...(init || {}), headers: cabecalhos });
+            opcoes.headers = cabecalhos;
           }
+          // Filtro de contrato do Master: vale para todas as telas, sem mexer em cada fetch.
+          // (Nao-Master: o servidor ignora o parametro e usa sempre o proprio contrato.)
+          const selecionado = lerContratoSelecionado();
+          if (selecionado && typeof input === 'string' && ehMaster(sessao.usuario)
+              && !url.searchParams.has('contrato') && !ROTAS_SEM_FILTRO_CONTRATO.some((r) => url.pathname.startsWith(r))) {
+            url.searchParams.set('contrato', selecionado);
+            alvo = `${url.pathname}${url.search}`;
+          }
+          if (opcoes.headers || alvo !== input) return fetchBase(alvo, opcoes);
         }
       }
     } catch {

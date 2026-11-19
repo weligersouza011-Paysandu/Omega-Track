@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Search, Menu, Clock, LogOut, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { lerSessao, authHeaders } from '../utils/sessao.js';
 import { ehOperacional } from '../utils/permissoes.js';
+import SeletorContrato from './SeletorContrato.jsx';
 
 export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }) {
   const hoje = new Date();
@@ -89,6 +90,9 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
         <span className="capitalize text-center truncate">{dataFormatada}</span>
       </div>
 
+      {/* Contrato exibido (pre-definido: o do usuario; Master troca ou ve todos) */}
+      {usuario && <div className="shrink-0 ml-auto xl:ml-0"><SeletorContrato usuario={usuario} /></div>}
+
       {/* Direita: Busca Operacional */}
       <div className="hidden xl:flex items-center gap-2 w-72 ml-auto">
         <div className="relative w-full">
@@ -107,7 +111,7 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
         aria-label={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
         title={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
         aria-pressed={tema === 'dark'}
-        className="theme-toggle relative ml-auto sm:ml-0 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-omega-200 bg-white text-omega-700 shadow-sm outline-none transition-colors duration-300 hover:border-omega-accent hover:text-omega-accent focus-visible:ring-2 focus-visible:ring-omega-accent focus-visible:ring-offset-2"
+        className="theme-toggle relative sm:ml-0 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-omega-200 bg-white text-omega-700 shadow-sm outline-none transition-colors duration-300 hover:border-omega-accent hover:text-omega-accent focus-visible:ring-2 focus-visible:ring-omega-accent focus-visible:ring-offset-2"
       >
         <Moon size={18} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? '-rotate-90 scale-50 opacity-0' : 'rotate-0 scale-100 opacity-100'}`} />
         <Sun size={18} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? 'rotate-0 scale-100 opacity-100' : 'rotate-90 scale-50 opacity-0'}`} />
