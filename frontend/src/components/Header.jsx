@@ -92,10 +92,10 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
       </div>
 
       {/* Contrato exibido (pre-definido: o do usuario; Master troca ou ve todos) */}
-      {usuario && <div className="shrink-0 ml-auto xl:ml-0 min-w-0"><SeletorContrato usuario={usuario} /></div>}
+      {usuario && !operacional && <div className="shrink-0 ml-auto xl:ml-0 min-w-0"><SeletorContrato usuario={usuario} /></div>}
 
       {/* Aba de suporte: fala direto com o desenvolvedor (Master ve a caixa de entrada) */}
-      {usuario && <ChatSuporte usuario={usuario} />}
+      {usuario && <div className={operacional ? 'ml-auto xl:ml-0' : ''}><ChatSuporte usuario={usuario} /></div>}
 
       {/* Direita: Busca Operacional */}
       <div className="hidden xl:flex items-center gap-2 w-72 ml-auto">
