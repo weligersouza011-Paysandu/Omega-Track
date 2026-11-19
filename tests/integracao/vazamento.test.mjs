@@ -251,3 +251,27 @@ test('o contexto da requisicao sobrevive a callbacks (multer) e o semEscopo e de
 
   assert.equal(await semEscopo(() => prismaComTrava.mobDesmob.count()), 4);
 });
+
+test('parte diaria: so aceita veiculo do contrato de quem lanca (criar, editar e apontar)', async () => {
+  const o = ids['999'];
+  const meu = ids['251'];
+  const antes = await semente.parteDiaria.count({ where: { tag: o.tag } });
+  const corpo = { tag: o.tag, data: DIA_ISO, status_operacional: 'Manutenção', funcionario: 'Invasor', funcao: 'Op' };
+  // Tanto o operacional quanto a gestao do 251 tentam lancar para o veiculo do 999.
+  for (const perfil of ['operador', 'gestao']) {
+    const r = await chamar(meu[perfil], 'POST', '/partes-diarias', corpo);
+    assert.ok(r.status >= 400 && r.status < 500, `criar -> ${r.status}: ${r.texto.slice(0, 150)}`);
+    const equip = await chamar(meu[perfil], 'POST', '/partes-diarias', { ...corpo, tag: undefined, equipamentos: [{ tag_patrimonio: o.tag }] });
+    assert.ok(equip.status >= 400 && equip.status < 500, `criar por equipamentos -> ${equip.status}`);
+  }
+  // Editar uma parte propria trocando o veiculo para o de outro contrato.
+  const troca = await chamar(meu.gestao, 'PUT', `/partes-diarias/${meu.parte}`, { tag: o.tag });
+  // A edicao ignora o campo `tag` (ou recusa): o que nao pode acontecer e a parte mudar de veiculo.
+  assert.ok(troca.status < 500, `trocar veiculo -> ${troca.status}: ${troca.texto.slice(0, 150)}`);
+  assert.equal((await semente.parteDiaria.findUnique({ where: { id: meu.parte } })).tag, meu.tag, 'a parte nao pode ter migrado de veiculo');
+  // Apontamento rapido (area de gestao) para veiculo de outro contrato.
+  const rapido = await chamar(meu.gestao, 'POST', '/partes-diarias/apontamento-rapido', { tag: o.tag, data: DIA_ISO, status_operacional: 'Parado' });
+  assert.ok(rapido.status >= 400 && rapido.status < 500, `apontamento rapido -> ${rapido.status}`);
+  assert.equal(await semente.parteDiaria.count({ where: { tag: o.tag } }), antes, 'nenhuma parte nova no veiculo do outro contrato');
+  assert.equal(await semente.parteDiaria.count({ where: { contrato: '251', tag: o.tag } }), 0);
+});
