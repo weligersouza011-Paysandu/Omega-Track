@@ -115,7 +115,7 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
         aria-label={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
         title={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
         aria-pressed={tema === 'dark'}
-        className="theme-toggle relative sm:ml-0 flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-omega-200 bg-white text-omega-700 shadow-sm outline-none transition-colors duration-300 hover:border-omega-accent hover:text-omega-accent focus-visible:ring-2 focus-visible:ring-omega-accent focus-visible:ring-offset-2"
+        className="theme-toggle relative sm:ml-0 flex max-[339px]:hidden h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-omega-200 bg-white text-omega-700 shadow-sm outline-none transition-colors duration-300 hover:border-omega-accent hover:text-omega-accent focus-visible:ring-2 focus-visible:ring-omega-accent focus-visible:ring-offset-2"
       >
         <Moon size={18} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? '-rotate-90 scale-50 opacity-0' : 'rotate-0 scale-100 opacity-100'}`} />
         <Sun size={18} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? 'rotate-0 scale-100 opacity-100' : 'rotate-90 scale-50 opacity-0'}`} />

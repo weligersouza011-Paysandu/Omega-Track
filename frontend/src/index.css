@@ -6,9 +6,13 @@
   html {
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
+    /* Nada pode alargar a pagina: no celular, conteudo mais largo que a tela faz o
+       navegador reduzir o zoom e a interface inteira encolhe. */
+    overflow-x: clip;
   }
   body {
     @apply bg-omega-50 text-omega-900;
+    overflow-x: clip;
   }
 }
 

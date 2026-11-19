@@ -65,7 +65,7 @@ export default function SeletorContrato({ usuario }) {
       title={selecionado === CONTRATO_TODOS
         ? 'Visão de todos os contratos. Para lançar ou importar dados, escolha um contrato.'
         : 'Contrato exibido nas telas'}
-      className={'inline-flex items-center gap-1 sm:gap-1.5 rounded-lg border px-1.5 sm:px-2 py-1 text-[11px] sm:text-xs font-bold max-w-[110px] sm:max-w-none ' +
+      className={'inline-flex items-center gap-1 sm:gap-1.5 rounded-lg border px-1.5 sm:px-2 py-1 text-[11px] sm:text-xs font-bold max-w-[96px] min-[380px]:max-w-[110px] min-w-0 sm:max-w-none ' +
         (selecionado === CONTRATO_TODOS
           ? 'border-amber-300 bg-amber-50 text-amber-800'
           : 'border-omega-200 bg-omega-50 text-omega-700')}
