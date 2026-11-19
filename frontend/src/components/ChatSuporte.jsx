@@ -90,7 +90,7 @@ function Conversa({ carregar, enviar, titulo, onVoltar, aoMudar }) {
         )}
         {mensagens.map((m) => (
           <div key={m.id} className={`flex ${m.de_dev ? 'justify-start' : 'justify-end'}`}>
-            <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${m.de_dev ? 'bg-white border border-omega-200 text-omega-900' : 'bg-omega-accent text-white'}`}>
+            <div className={`max-w-[85%] rounded-2xl px-2.5 sm:px-3 py-1.5 sm:py-2 text-[13px] sm:text-sm shadow-sm ${m.de_dev ? 'bg-white border border-omega-200 text-omega-900' : 'bg-omega-accent text-white'}`}>
               <div className={`text-[10px] font-bold mb-0.5 ${m.de_dev ? 'text-omega-brand' : 'text-white/80'}`}>
                 {m.de_dev ? `Desenvolvedor · ${m.autor_nome}` : m.autor_nome}
               </div>
@@ -102,7 +102,7 @@ function Conversa({ carregar, enviar, titulo, onVoltar, aoMudar }) {
         <div ref={fim} />
       </div>
       {erro && <div className="px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 border-t border-red-100">{erro}</div>}
-      <form onSubmit={mandar} className="flex items-end gap-2 p-3 border-t border-omega-200 bg-white">
+      <form onSubmit={mandar} className="flex items-end gap-2 p-2.5 sm:p-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] border-t border-omega-200 bg-white">
         <textarea
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
@@ -110,7 +110,7 @@ function Conversa({ carregar, enviar, titulo, onVoltar, aoMudar }) {
           rows={2}
           maxLength={2000}
           placeholder="Escreva sua mensagem…"
-          className="input flex-1 resize-none text-sm"
+          className="input flex-1 resize-none text-base sm:text-sm"
         />
         <button type="submit" disabled={enviando || !texto.trim()} aria-label="Enviar mensagem"
           className="h-10 w-10 shrink-0 flex items-center justify-center rounded-xl bg-omega-accent text-white disabled:opacity-40">
@@ -188,14 +188,14 @@ export default function ChatSuporte({ usuario }) {
         title="Teve algum problema? Fale com o nosso desenvolvedor"
         aria-label="Teve algum problema? Fale com o nosso desenvolvedor"
         aria-expanded={aberto}
-        className="relative shrink-0 inline-flex items-center gap-2 rounded-xl bg-omega-accent hover:bg-omega-brand text-white px-3 py-2 text-xs font-bold shadow-sm transition-colors"
+        className="relative shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-omega-accent hover:bg-omega-brand text-white px-2 min-[420px]:px-2.5 lg:px-3 h-8 sm:h-9 text-[11px] sm:text-xs font-bold shadow-sm transition-colors"
       >
-        <MessageCircle size={16} />
+        <MessageCircle size={15} className="shrink-0" />
         <span className="hidden lg:flex flex-col text-left leading-tight">
           <span>{master ? 'Chamados dos usuários' : 'Teve algum problema?'}</span>
           {!master && <span className="text-[10px] font-semibold text-white/85">Fale com o nosso desenvolvedor</span>}
         </span>
-        <span className="lg:hidden">{master ? 'Chamados' : 'Ajuda'}</span>
+        <span className="hidden min-[420px]:inline lg:hidden">{master ? 'Chamados' : 'Ajuda'}</span>
         {naoLidas > 0 && (
           <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-black text-white ring-2 ring-white">
             {naoLidas}
@@ -204,11 +204,11 @@ export default function ChatSuporte({ usuario }) {
       </button>
 
       {aberto && (
-        <div className="fixed top-16 right-0 bottom-0 w-full sm:w-[380px] z-40 bg-white border-l border-omega-200 shadow-2xl flex flex-col"
+        <div className="fixed top-14 md:top-16 right-0 bottom-0 w-full sm:w-[380px] z-40 bg-white border-l border-omega-200 shadow-2xl flex flex-col"
           role="dialog" aria-label="Chat com o desenvolvedor">
-          <div className="flex items-center justify-between px-4 py-3 bg-omega-950 text-white">
-            <div className="leading-tight">
-              <div className="text-sm font-extrabold">{master ? 'Chamados dos usuários' : 'Fale com o desenvolvedor'}</div>
+          <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 bg-omega-950 text-white">
+            <div className="leading-tight min-w-0">
+              <div className="text-[13px] sm:text-sm font-extrabold truncate">{master ? 'Chamados dos usuários' : 'Fale com o desenvolvedor'}</div>
               <div className="text-[11px] text-white/70">{master ? 'Todos os Master veem as mesmas conversas' : 'Weliger Souza responde por aqui'}</div>
             </div>
             <button type="button" onClick={() => setAberto(false)} aria-label="Fechar chat" className="p-1.5 rounded-lg hover:bg-white/10"><X size={18} /></button>

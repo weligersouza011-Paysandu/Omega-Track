@@ -39,7 +39,7 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
   }, [operacional, usuario?.matricula]);
 
   return (
-    <header className="h-16 bg-white border-b border-omega-200 px-3 sm:px-4 md:px-6 flex items-center gap-3 md:gap-4 sticky top-0 z-20 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+    <header className="h-14 md:h-16 bg-white border-b border-omega-200 px-2.5 sm:px-4 md:px-6 flex items-center gap-1.5 sm:gap-3 md:gap-4 sticky top-0 z-20 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       {/* Linha fina com o gradiente da marca corporativa Omega */}
       <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-omega-brand via-omega-accent to-omega-950" />
 
@@ -48,19 +48,19 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
         onClick={onMenu}
         title="Abrir menu de navegação"
         aria-label="Abrir menu de navegação"
-        className="md:hidden p-2 -ml-1 rounded-lg hover:bg-omega-100 text-omega-700 transition-colors shrink-0"
+        className="md:hidden p-1.5 -ml-1 rounded-lg hover:bg-omega-100 text-omega-700 transition-colors shrink-0"
       >
         <Menu size={20} />
       </button>
 
       {/* Identidade Corporativa Omega Oficial (Alinhada à Esquerda) */}
       <div className="flex items-center gap-3 shrink-0">
-        <Link to="/inicio" className="flex items-center gap-2.5 md:gap-3 group focus:outline-none" title="Omega Track · Gestão Operacional">
+        <Link to="/inicio" className="flex items-center gap-2 md:gap-3 group focus:outline-none" title="Omega Track · Gestão Operacional">
           <div className="theme-logo flex items-center justify-center p-0.5 rounded-full bg-white border border-omega-200/90 shadow-sm group-hover:border-omega-brand/50 transition-colors">
             <img
               src="/logo/omega-circle.png"
               alt="Omega Serviços e Montagens Industriais"
-              className="h-8 md:h-9 w-8 md:w-9 rounded-full object-contain shrink-0"
+              className="h-7 sm:h-8 md:h-9 w-7 sm:w-8 md:w-9 rounded-full object-contain shrink-0"
               onError={(e) => {
                 if (!e.target.dataset.fb) {
                   e.target.dataset.fb = '1';
@@ -69,7 +69,7 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
               }}
             />
           </div>
-          <div className="flex flex-col text-left leading-tight">
+          <div className="hidden sm:flex flex-col text-left leading-tight">
             <div className="flex items-center gap-2">
               <span className="font-extrabold text-sm md:text-base tracking-tight text-omega-950 group-hover:text-omega-brand transition-colors">
                 Omega Track
@@ -92,7 +92,7 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
       </div>
 
       {/* Contrato exibido (pre-definido: o do usuario; Master troca ou ve todos) */}
-      {usuario && <div className="shrink-0 ml-auto xl:ml-0"><SeletorContrato usuario={usuario} /></div>}
+      {usuario && <div className="shrink-0 ml-auto xl:ml-0 min-w-0"><SeletorContrato usuario={usuario} /></div>}
 
       {/* Aba de suporte: fala direto com o desenvolvedor (Master ve a caixa de entrada) */}
       {usuario && <ChatSuporte usuario={usuario} />}
@@ -115,21 +115,21 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
         aria-label={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
         title={tema === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
         aria-pressed={tema === 'dark'}
-        className="theme-toggle relative sm:ml-0 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-omega-200 bg-white text-omega-700 shadow-sm outline-none transition-colors duration-300 hover:border-omega-accent hover:text-omega-accent focus-visible:ring-2 focus-visible:ring-omega-accent focus-visible:ring-offset-2"
+        className="theme-toggle relative sm:ml-0 flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-omega-200 bg-white text-omega-700 shadow-sm outline-none transition-colors duration-300 hover:border-omega-accent hover:text-omega-accent focus-visible:ring-2 focus-visible:ring-omega-accent focus-visible:ring-offset-2"
       >
         <Moon size={18} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? '-rotate-90 scale-50 opacity-0' : 'rotate-0 scale-100 opacity-100'}`} />
         <Sun size={18} aria-hidden="true" className={`absolute transition-all duration-300 ${tema === 'dark' ? 'rotate-0 scale-100 opacity-100' : 'rotate-90 scale-50 opacity-0'}`} />
       </button>
 
       {usuario && (
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-0.5 sm:gap-2 shrink-0">
           <Link
             to="/perfil"
             title="Meu perfil"
             className="flex items-center gap-2 rounded-xl hover:bg-omega-100 pl-1 pr-2 py-1 transition-colors"
           >
             <span
-              className="relative w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-omega-accent flex items-center justify-center font-black text-white text-sm"
+              className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-violet-500 to-omega-accent flex items-center justify-center font-black text-white text-sm"
               title={operacional && pendenciasDias > 0 ? `${pendenciasDias} dia(s) com lançamento pendente` : undefined}
             >
               {inicial}
@@ -153,7 +153,7 @@ export default function Header({ usuario, onSair, onMenu, tema, onAlternarTema }
           <button
             onClick={onSair}
             title="Sair"
-            className="p-2 rounded-lg hover:bg-red-50 text-omega-400 hover:text-red-600 transition-colors"
+            className="p-1.5 sm:p-2 rounded-lg hover:bg-red-50 text-omega-400 hover:text-red-600 transition-colors"
           >
             <LogOut size={17} />
           </button>

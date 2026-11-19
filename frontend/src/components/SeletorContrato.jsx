@@ -46,9 +46,9 @@ export default function SeletorContrato({ usuario }) {
     return (
       <span
         title="Você enxerga os dados do seu contrato"
-        className="inline-flex items-center gap-1.5 rounded-lg border border-omega-200 bg-omega-50 px-2.5 py-1.5 text-xs font-bold text-omega-700"
+        className="inline-flex items-center gap-1 sm:gap-1.5 rounded-lg border border-omega-200 bg-omega-50 px-2 sm:px-2.5 py-1 sm:py-1.5 text-[11px] sm:text-xs font-bold text-omega-700 whitespace-nowrap"
       >
-        <Briefcase size={13} className="text-omega-400" /> Contrato {info.meu}
+        <Briefcase size={12} className="text-omega-400 shrink-0" /> <span className="hidden min-[420px]:inline">Contrato</span> {info.meu}
       </span>
     );
   }
@@ -65,7 +65,7 @@ export default function SeletorContrato({ usuario }) {
       title={selecionado === CONTRATO_TODOS
         ? 'Visão de todos os contratos. Para lançar ou importar dados, escolha um contrato.'
         : 'Contrato exibido nas telas'}
-      className={'inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-bold ' +
+      className={'inline-flex items-center gap-1 sm:gap-1.5 rounded-lg border px-1.5 sm:px-2 py-1 text-[11px] sm:text-xs font-bold max-w-[110px] sm:max-w-none ' +
         (selecionado === CONTRATO_TODOS
           ? 'border-amber-300 bg-amber-50 text-amber-800'
           : 'border-omega-200 bg-omega-50 text-omega-700')}
@@ -75,7 +75,7 @@ export default function SeletorContrato({ usuario }) {
         value={selecionado}
         onChange={trocar}
         aria-label="Contrato exibido"
-        className="bg-transparent text-xs font-bold outline-none cursor-pointer"
+        className="bg-transparent text-[11px] sm:text-xs font-bold outline-none cursor-pointer min-w-0 w-full text-ellipsis"
       >
         {info.data.map((c) => <option key={c} value={c}>Contrato {c}</option>)}
         <option value={CONTRATO_TODOS}>Todos os contratos</option>
