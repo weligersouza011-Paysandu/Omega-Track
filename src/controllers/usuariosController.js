@@ -12,6 +12,7 @@ import { hashSenha } from '../utils/senha.js';
 import { atuanteDaRequisicao } from '../middleware/sessao.js';
 import { exigirContrato } from '../utils/contrato.js';
 import { filtroContrato, contratoDoEscopo } from '../middleware/escopo.js';
+import { transferirContratoUsuario } from '../services/transferenciaContratoService.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { respostaAssinatura, salvarAssinaturaPadrao } from '../services/assinaturaService.js';
 
@@ -306,12 +307,15 @@ export const atualizarUsuario = asyncHandler(async (req, res) => {
     if (!alvoAtual) {
       return res.status(404).json({ error: 'Nao encontrado', message: 'Usuario nao encontrado.' });
     }
-    // Trocar o contrato de um usuario e prerrogativa do Master.
+    // Trocar o contrato de um usuario e prerrogativa do Master e pede o dia da troca.
     if (novoContrato !== alvoAtual.contrato) {
       if (atuante.nivel !== 'MASTER') {
         return res.status(403).json({ error: 'Sem permissao', message: 'Apenas ADM Master pode trocar o contrato de um usuário.' });
       }
-      data.contrato = novoContrato;
+      return res.status(400).json({
+        error: 'Use a transferencia de contrato',
+        message: 'Para trocar o contrato do usuário use "Transferir contrato": ele pede o dia da troca.',
+      });
     }
   }
   if (funcao !== undefined) data.funcao = strOuNull(funcao);
@@ -630,4 +634,23 @@ export const restaurarParteDiaria = asyncHandler(async (req, res) => {
     detalhes: { id: restaurada.id, tag: restaurada.tag, data: restaurada.data, deletado_em: parte.deletado_em },
   });
   res.json({ data: restaurada });
+});
+
+// POST /api/usuarios/:id/transferir-contrato { contrato, data_efetiva } (Master)
+export const transferirContratoDoUsuario = asyncHandler(async (req, res) => {
+  const resultado = await transferirContratoUsuario({
+    id: req.params.id,
+    contrato: req.body?.contrato,
+    dataEfetiva: req.body?.data_efetiva,
+    autor: req.atuante?.nome ?? null,
+  });
+  await registrarLogAtividade(req, {
+    acao: 'TRANSFERIR_CONTRATO_USUARIO',
+    modulo: 'Usuarios',
+    detalhes: {
+      id: resultado.usuario.id, nome: resultado.usuario.nome, matricula: resultado.usuario.matricula,
+      de: resultado.de, para: resultado.para, data_efetiva: resultado.data_efetiva,
+    },
+  });
+  res.json({ data: semSenha(resultado.usuario), transferencia: { de: resultado.de, para: resultado.para, data_efetiva: resultado.data_efetiva } });
 });

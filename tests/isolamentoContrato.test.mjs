@@ -51,6 +51,7 @@ globalThis.prisma = {
   },
   logAtividade: { create: async () => ({}) },
   veiculoTerceiro: { findUnique: async () => null },
+  veiculoContratoHistorico: { create: async () => ({}) },
   mobDesmob: {
     findMany: async ({ where = {} } = {}) => VEICULOS.filter((v) => atende(v, where)),
     count: async ({ where = {} } = {}) => VEICULOS.filter((v) => atende(v, where)).length,

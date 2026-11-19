@@ -12,6 +12,8 @@ import {
   desmobilizarVeiculo,
   atualizarFotoVeiculo,
   vincularTelemetriaPorPlaca,
+  transferirContratoDoVeiculo,
+  historicoDeContratoDoVeiculo,
 } from '../controllers/mobDesmobController.js';
 import { requerAdmin, requerMaster, requerSessao } from '../middleware/sessao.js';
 import { paramContrato } from '../middleware/escopo.js';
@@ -47,6 +49,9 @@ router.get('/placa/:placa/telemetria', requerSessao, vincularTelemetriaPorPlaca)
 // Diagnóstico da preventiva (antes das rotas `/:tag` de escrita — sem conflito).
 router.get('/:tag/status-manutencao', requerSessao, buscarStatusManutencao);
 router.post('/:tag/preventiva', requerAdmin, registrarPreventiva);
+// Troca de contrato com data efetiva: so o Master (historico anterior permanece).
+router.post('/:tag/transferir-contrato', requerAdmin, requerMaster, transferirContratoDoVeiculo);
+router.get('/:tag/historico-contrato', requerAdmin, historicoDeContratoDoVeiculo);
 router.post('/', requerAdmin, criarVeiculo);
 router.put('/:tag/desmobilizar', requerAdmin, desmobilizarVeiculo);
 // Edição rápida dos dados técnicos (ficha do veículo) — atualização parcial.

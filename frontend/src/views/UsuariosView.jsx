@@ -12,6 +12,7 @@ import {
 } from '../utils/permissoes.js';
 import { authHeaders } from '../utils/sessao.js';
 import AvisoContratoLancamento from '../components/AvisoContratoLancamento.jsx';
+import TransferirContratoModal from '../components/TransferirContratoModal.jsx';
 import { soDigitosContrato, contratoValido, MENSAGEM_CONTRATO } from '../utils/contrato.js';
 
 const SETOR_BADGE = {
@@ -129,6 +130,7 @@ export default function UsuariosView({ sessao }) {
   });
   const [modalEdicao, setModalEdicao] = useState(null); // { id, tipo, nome, contrato, setor, senha, assinatura_url, assinatura_base64 }
   const [canvasEdicaoAberto, setCanvasEdicaoAberto] = useState(false);
+  const [transferindoUsuario, setTransferindoUsuario] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -249,11 +251,7 @@ export default function UsuariosView({ sessao }) {
     setSalvando(true);
     try {
       const corpo = { nome: modalEdicao.nome, funcao: modalEdicao.funcao || null };
-      // Contrato so vai quando o Master o altera (3 numeros).
-      if (souMaster && modalEdicao.contrato) {
-        if (!contratoValido(modalEdicao.contrato)) throw new Error(MENSAGEM_CONTRATO);
-        corpo.contrato = modalEdicao.contrato;
-      }
+      // O contrato nao muda aqui: a troca e a "Transferir contrato" (pede o dia da troca).
       if (modalEdicao.tipo === 'ADMINISTRADOR') corpo.setor = modalEdicao.setor;
       if (modalEdicao.senha) corpo.senha = modalEdicao.senha;
       if (modalEdicao.remover_assinatura) corpo.remover_assinatura = true;
@@ -1143,12 +1141,14 @@ export default function UsuariosView({ sessao }) {
           )}
           <div>
             <label className="label">Contrato</label>
-            <input
-              value={modalEdicao?.contrato || ''}
-              onChange={(e) => setModalEdicao({ ...modalEdicao, contrato: soDigitosContrato(e.target.value) })}
-              className="input" inputMode="numeric" maxLength={3} placeholder="Ex: 251"
-              disabled={!souMaster} title={souMaster ? '3 números' : 'Só o ADM Master troca o contrato de um usuário'}
-            />
+            <div className="flex gap-2">
+              <input value={modalEdicao?.contrato || ''} readOnly disabled className="input font-mono" title="O contrato só muda pela transferência (com a data da troca)" />
+              {souMaster && (
+                <button type="button" onClick={() => setTransferindoUsuario(true)} className="btn-secondary whitespace-nowrap text-xs">
+                  Transferir…
+                </button>
+              )}
+            </div>
           </div>
           {modalEdicao?.tipo === 'ADMINISTRADOR' && (
             <div>
@@ -1220,6 +1220,22 @@ export default function UsuariosView({ sessao }) {
         }}
         titulo={`Assinatura de ${modalEdicao?.nome || 'Usuário'}`}
         subtitulo="Desenhe a assinatura no quadro. Ao salvar a edição do usuário, a imagem será enviada para o Cloudinary."
+      />
+
+      <TransferirContratoModal
+        open={transferindoUsuario}
+        onClose={() => setTransferindoUsuario(false)}
+        titulo={`Transferir ${modalEdicao?.nome || 'usuário'} de contrato`}
+        descricao="O usuário passa a pertencer ao novo contrato; o que ele lançou antes permanece no contrato de origem."
+        contratoAtual={modalEdicao?.contrato || ''}
+        endpoint={`/api/usuarios/${modalEdicao?.id}/transferir-contrato`}
+        aoConcluir={() => {
+          setTransferindoUsuario(false);
+          setModalEdicao(null);
+          setToast('Usuário transferido de contrato.');
+          carregar();
+          carregarPorContrato();
+        }}
       />
 
       {toast && (

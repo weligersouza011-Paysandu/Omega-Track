@@ -6,6 +6,7 @@ import { Router } from 'express';
 import {
   listarUsuarios,
   resumoUsuariosPorContrato,
+  transferirContratoDoUsuario,
   criarAdmin,
   criarLoteOperacionais,
   criarUsuarioRapido,
@@ -50,6 +51,7 @@ router.post('/rapido', requerAdminAutenticado, requerGestaoTransporte, criarUsua
 router.put('/:id', requerAdmin, atualizarUsuario);
 router.post('/:id/assinatura', requerAdmin, salvarAssinaturaUsuario);
 router.patch('/:id/nivel', requerAdmin, alterarNivel);
+router.post('/:id/transferir-contrato', requerAdmin, requerMaster, transferirContratoDoUsuario);
 router.delete('/:id', requerAdmin, excluirUsuario);
 
 export default router;

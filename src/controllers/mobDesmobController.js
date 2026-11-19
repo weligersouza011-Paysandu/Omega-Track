@@ -13,6 +13,7 @@ import { registrarLogAtividade } from '../services/auditService.js';
 import { exigirContrato, tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js';
 import { ehMeioAmbiente, CAMPOS_VEICULO_MEIO_AMBIENTE } from '../utils/setores.js';
 import { contratoParaGravar, filtroContrato, ehMaster } from '../middleware/escopo.js';
+import { transferirContratoVeiculo, historicoContratoVeiculo } from '../services/transferenciaContratoService.js';
 
 const CINCO_DIAS_MS = 5 * 24 * 60 * 60 * 1000;
 const ANO_MINIMO_VEICULO = 1900;
@@ -423,6 +424,16 @@ export const criarVeiculo = asyncHandler(async (req, res) => {
     },
   });
 
+  // Primeira vigencia do historico de contrato do veiculo (desde a MOB).
+  try {
+    await prisma.veiculoContratoHistorico.create({
+      data: { tag: veiculo.tag, contrato: veiculo.contrato, vigente_desde: veiculo.data_mob ?? new Date(), alterado_por: req.atuante?.nome ?? null },
+    });
+  } catch (erro) {
+    // A troca de contrato recompõe a base do histórico se ela faltar.
+    console.error('[contrato] historico inicial do veiculo nao gravado:', erro.message);
+  }
+
   await registrarLogAtividade(req, {
     acao: 'CRIAR_VEICULO',
     modulo: 'Frota',
@@ -466,6 +477,13 @@ export const atualizarVeiculo = asyncHandler(async (req, res) => {
   // efetiva, preservando o historico, vem na fase de transferencia).
   if (temCampo('contrato') && String(body.contrato ?? '').trim() !== anterior.contrato && !ehMaster(req.atuante)) {
     return res.status(403).json({ error: 'Sem permissao', message: 'Apenas ADM Master pode trocar o contrato de um veículo.' });
+  }
+
+  if (temCampo('contrato') && String(body.contrato ?? '').trim() !== anterior.contrato) {
+    return res.status(400).json({
+      error: 'Use a transferencia de contrato',
+      message: 'Para trocar o contrato do veículo use "Transferir contrato": ele pede o dia da troca e preserva o histórico anterior.',
+    });
   }
 
   const dados = validarDadosMobilizacao({
@@ -761,4 +779,30 @@ export const vincularTelemetriaPorPlaca = asyncHandler(async (req, res) => {
       timestamp: new Date().toISOString(),
     },
   });
+});
+
+// POST /api/mob-desmob/:tag/transferir-contrato { contrato, data_efetiva, confirmar_limpeza_programacao? } (Master)
+export const transferirContratoDoVeiculo = asyncHandler(async (req, res) => {
+  let resultado;
+  try {
+    resultado = await transferirContratoVeiculo({
+      tag: req.params.tag,
+      contrato: req.body?.contrato,
+      dataEfetiva: req.body?.data_efetiva,
+      confirmarLimpeza: req.body?.confirmar_limpeza_programacao === true,
+      autor: req.atuante?.nome ?? null,
+    });
+  } catch (erro) {
+    if (erro.codigo) {
+      return res.status(erro.statusCode).json({ error: erro.error, message: erro.message, codigo: erro.codigo, programacoes: erro.programacoes });
+    }
+    throw erro;
+  }
+  await registrarLogAtividade(req, { acao: 'TRANSFERIR_CONTRATO_VEICULO', modulo: 'Frota', detalhes: resultado });
+  res.json({ data: resultado });
+});
+
+// GET /api/mob-desmob/:tag/historico-contrato
+export const historicoDeContratoDoVeiculo = asyncHandler(async (req, res) => {
+  res.json({ data: await historicoContratoVeiculo(req.params.tag) });
 });

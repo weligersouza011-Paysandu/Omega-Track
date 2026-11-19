@@ -4,10 +4,13 @@ import Modal from './Modal.jsx';
 import CampoListaComCriador from './CampoListaComCriador.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { paraInputData } from '../utils/datas.js';
-import { soDigitosContrato, contratoValido, MENSAGEM_CONTRATO } from '../utils/contrato.js';
+import { contratoValido, MENSAGEM_CONTRATO } from '../utils/contrato.js';
+import { ehMaster } from '../utils/permissoes.js';
+import TransferirContratoModal from './TransferirContratoModal.jsx';
 
 export default function EditVehicleModal({ open, veiculo, contratos = [], modelos = [], sessao, onClose, onSaved }) {
   const [form, setForm] = useState({ placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: '', data_desmob: '', km_limite_preventiva: '', km_ultima_preventiva: '' });
+  const [transferindo, setTransferindo] = useState(false);
   const [arquivo, setArquivo] = useState(null);
   const [previewNova, setPreviewNova] = useState(null);
   const [salvando, setSalvando] = useState(false);
@@ -148,6 +151,7 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
   const fotoAtual = previewNova || veiculo.foto_veiculo;
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -231,16 +235,15 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
             />
           </div>
           <div>
-            <CampoListaComCriador
-              id="edit-contrato"
-              label="Contrato"
-              required
-              value={form.contrato}
-              onChange={(e) => setForm((f) => ({ ...f, contrato: soDigitosContrato(e.target.value) }))}
-              opcoes={contratos.map((c) => c.nome).filter((nome) => nome !== 'Sem contrato')}
-              placeholderSelecionar="Selecione o contrato..."
-              placeholderNovo="Digite o contrato (3 números)..."
-            />
+            <label className="label" htmlFor="edit-contrato">Contrato</label>
+            <div className="flex gap-2">
+              <input id="edit-contrato" value={form.contrato} readOnly disabled className="input font-mono" title="O contrato só muda pela transferência (com a data da troca)" />
+              {ehMaster(sessao?.usuario) && (
+                <button type="button" onClick={() => setTransferindo(true)} className="btn-secondary whitespace-nowrap text-xs">
+                  Transferir…
+                </button>
+              )}
+            </div>
           </div>
           <div>
             <label className="label" htmlFor="edit-status">Status <span className="text-status-vermelho">*</span></label>
@@ -299,5 +302,16 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
         </div>
       </div>
     </Modal>
+    <TransferirContratoModal
+      open={transferindo}
+      onClose={() => setTransferindo(false)}
+      titulo={`Transferir ${veiculo?.tag || 'veículo'} de contrato`}
+      descricao="O veículo passa a pertencer ao novo contrato a partir do dia informado; o histórico anterior permanece no contrato antigo."
+      contratoAtual={form.contrato}
+      endpoint={`/api/mob-desmob/${encodeURIComponent(veiculo?.tag || '')}/transferir-contrato`}
+      historicoEndpoint={veiculo?.tag ? `/api/mob-desmob/${encodeURIComponent(veiculo.tag)}/historico-contrato` : null}
+      aoConcluir={() => window.location.reload()}
+    />
+    </>
   );
 }
