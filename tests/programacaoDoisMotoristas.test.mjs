@@ -3,20 +3,21 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 
-const GESTOR = { id: '00000000-0000-4000-8000-000000000001', nome: 'Gestor', matricula: '90000', tipo: 'ADMINISTRADOR', nivel: 'NORMAL', setor: 'GESTAO' };
-const AMBIENTAL = { id: '00000000-0000-4000-8000-000000000002', nome: 'Analista', matricula: '90001', tipo: 'ADMINISTRADOR', nivel: 'NORMAL', setor: 'MEIO_AMBIENTE' };
+const GESTOR = { id: '00000000-0000-4000-8000-000000000001', nome: 'Gestor', matricula: '90000', tipo: 'ADMINISTRADOR', nivel: 'NORMAL', setor: 'GESTAO', contrato: '251' };
+const AMBIENTAL = { id: '00000000-0000-4000-8000-000000000002', nome: 'Analista', matricula: '90001', tipo: 'ADMINISTRADOR', nivel: 'NORMAL', setor: 'MEIO_AMBIENTE', contrato: '251' };
 const OBRA = '11111111-1111-4111-8111-111111111111';
 const TERCEIRO_ID = '22222222-2222-4222-8222-222222222222';
 const DATA = '2026-11-16';
 const ANTERIOR = new Date('2026-11-13T00:00:00.000Z');
 
+const MASTER_010 = { id: '00000000-0000-4000-8000-000000000003', nome: 'Master', matricula: '90002', tipo: 'ADMINISTRADOR', nivel: 'MASTER', setor: 'GESTAO', contrato: '010' };
 let usuarios;
 let gravados; // chamadas de escrita na programação
 let criadosNoBanco; // data enviada a usuario.create
 const pessoa = (matricula, nome) => ({ id: `u-${matricula}`, matricula, nome, funcao: 'Motorista', tipo: 'OPERACIONAL' });
 
 beforeEach(() => {
-  usuarios = [GESTOR, AMBIENTAL, pessoa('100', 'Ana Manhã'), pessoa('101', 'Bruno Tarde'), pessoa('200', 'Carla Supervisora')];
+  usuarios = [GESTOR, AMBIENTAL, MASTER_010, pessoa('100', 'Ana Manhã'), pessoa('101', 'Bruno Tarde'), pessoa('200', 'Carla Supervisora')];
   gravados = [];
   criadosNoBanco = [];
 });
@@ -241,11 +242,29 @@ test('cadastro rápido = Usuário Operacional: função livre e nada administrat
   assert.equal(r.status, 201);
   assert.equal(r.corpo.data.funcao, 'Operador de Munck');
   assert.equal(r.corpo.data.tipo, 'OPERACIONAL');
-  assert.deepEqual(criadosNoBanco.at(-1), { nome: 'Hugo Munck', matricula: '7788', funcao: 'Operador de Munck', tipo: 'OPERACIONAL' });
+  assert.deepEqual(criadosNoBanco.at(-1), { nome: 'Hugo Munck', matricula: '7788', funcao: 'Operador de Munck', tipo: 'OPERACIONAL', contrato: '251' });
 });
 
 test('cadastro rápido sem função grava função vazia (como no cadastro operacional)', async () => {
   const r = await api('/usuarios/rapido', { method: 'POST', body: { matricula: '7789', nome: 'Ivo Ajudante' } });
   assert.equal(r.status, 201);
   assert.equal(r.corpo.data.funcao, null);
+});
+
+test('cadastro rápido herda o contrato de quem cadastra; só Master escolhe outro contrato', async () => {
+  const herdado = await api('/usuarios/rapido', { method: 'POST', body: { matricula: '8001', nome: 'Herdeiro Um' } });
+  assert.equal(herdado.status, 201);
+  assert.equal(criadosNoBanco.at(-1).contrato, '251');
+  // Master sem informar usa o próprio (010); informando, usa o escolhido.
+  const proprio = await api('/usuarios/rapido', { method: 'POST', usuario: MASTER_010, body: { matricula: '8002', nome: 'Herdeiro Dois' } });
+  assert.equal(proprio.status, 201);
+  assert.equal(criadosNoBanco.at(-1).contrato, '010');
+  const escolhido = await api('/usuarios/rapido', { method: 'POST', usuario: MASTER_010, body: { matricula: '8003', nome: 'Herdeiro Tres', contrato: '251' } });
+  assert.equal(escolhido.status, 201);
+  assert.equal(criadosNoBanco.at(-1).contrato, '251');
+  // Não-Master não cadastra em outro contrato; formato inválido é recusado.
+  assert.equal((await api('/usuarios/rapido', { method: 'POST', body: { matricula: '8004', nome: 'Fora', contrato: '010' } })).status, 403);
+  for (const ruim of ['25', '2511', '25a', '2 5', 'CT-251', 251]) {
+    assert.equal((await api('/usuarios/rapido', { method: 'POST', usuario: MASTER_010, body: { matricula: '8005', nome: 'Ruim', contrato: ruim } })).status, 400, String(ruim));
+  }
 });

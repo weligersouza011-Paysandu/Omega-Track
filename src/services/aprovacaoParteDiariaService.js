@@ -95,7 +95,7 @@ export const MSG_DESVIO_LOTE = 'Item com desvio de programação — abra para r
 /** Gestão (Técnico de Planejamento) ou ADM Master. */
 export function podeAprovarLotePlanejamento(usuario) {
   if (!usuario || usuario.tipo !== 'ADMINISTRADOR') return false;
-  return usuario.nivel === 'MASTER' || usuario.setor === 'GESTAO';
+  return usuario.nivel === 'MASTER' || ['GESTAO', 'PLANEJADOR'].includes(usuario.setor);
 }
 
 /** Desvio de programação = RDO programado que não seguiu a programação. */

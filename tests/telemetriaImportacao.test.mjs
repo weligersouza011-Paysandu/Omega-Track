@@ -14,7 +14,8 @@ globalThis.prisma = banco;
 const { default: app } = await import('../src/app.js');
 const { montarModeloTelemetria, COLUNAS_MODELO_TELEMETRIA } = await import('../frontend/src/utils/gerarModeloTelemetria.js');
 
-const AUTH = { 'x-acting-matricula': '90000' };
+const { assinarSessao } = await import('../src/middleware/sessao.js');
+const AUTH = { Authorization: `Bearer ${assinarSessao({ id: '00000000-0000-4000-8000-000000000001', matricula: '90000', nome: 'Admin', tipo: 'ADMINISTRADOR', setor: 'GESTAO', nivel: 'MASTER' })}` };
 let servidor;
 let base;
 

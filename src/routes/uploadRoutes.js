@@ -7,11 +7,12 @@
 // evidencia_url). Nenhum binário é gravado no banco.
 // ============================================================================
 import { Router } from 'express';
+import { requerSessao } from '../middleware/sessao.js';
 import { uploadMiddleware, PASTAS, cloudinaryConfigured, cloudinary } from '../config/cloudinary.js';
 
 const router = Router();
 
-router.post('/', (req, res, next) => {
+router.post('/', requerSessao, (req, res, next) => {
   if (!cloudinaryConfigured) {
     return res.status(503).json({
       error: 'Servico indisponivel',
@@ -56,7 +57,7 @@ router.post('/', (req, res, next) => {
 // Body JSON: { "public_id": "omegatrack/mobilizacao/123-arquivo" }
 // Uso: ao trocar/excluir foto da galeria, apague o arquivo antigo na nuvem
 // e depois limpe a URL no Neon (PUT com foto_veiculo/anexo_url/evidencia_url = null).
-router.delete('/', async (req, res, next) => {
+router.delete('/', requerSessao, async (req, res, next) => {
   try {
     if (!cloudinaryConfigured) {
       return res.status(503).json({

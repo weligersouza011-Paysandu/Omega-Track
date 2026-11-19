@@ -11,11 +11,13 @@ import {
   SETOR_LABEL, ehMaster,
 } from '../utils/permissoes.js';
 import { authHeaders } from '../utils/sessao.js';
+import { soDigitosContrato, contratoValido, MENSAGEM_CONTRATO } from '../utils/contrato.js';
 
 const SETOR_BADGE = {
   MEIO_AMBIENTE: 'bg-emerald-500/15 text-emerald-700',
   TRANSPORTE: 'bg-omega-accent/15 text-omega-accent',
   GESTAO: 'bg-violet-500/15 text-violet-700',
+  PLANEJADOR: 'bg-sky-500/15 text-sky-700',
 };
 
 function formatarData(valor) {
@@ -121,7 +123,7 @@ export default function UsuariosView({ sessao }) {
   const [carregandoLixeira, setCarregandoLixeira] = useState(false);
   const [restaurando, setRestaurando] = useState(null);
   const [formAdmin, setFormAdmin] = useState({
-    nome: '', matricula: '', funcao: '', contrato: '', setor: 'TRANSPORTE', nivel: 'NORMAL', senha: '',
+    nome: '', matricula: '', funcao: '', contrato: sessao?.usuario?.contrato || '', setor: 'TRANSPORTE', nivel: 'NORMAL', senha: '',
   });
   const [modalEdicao, setModalEdicao] = useState(null); // { id, tipo, nome, contrato, setor, senha, assinatura_url, assinatura_base64 }
   const [canvasEdicaoAberto, setCanvasEdicaoAberto] = useState(false);
@@ -172,16 +174,21 @@ export default function UsuariosView({ sessao }) {
       setToast('Nome e matrícula são obrigatórios.');
       return;
     }
+    const contratoAdmin = souMaster ? formAdmin.contrato : (atuante?.contrato || formAdmin.contrato);
+    if (!contratoValido(contratoAdmin)) {
+      setToast(MENSAGEM_CONTRATO);
+      return;
+    }
     setSalvando(true);
     try {
       const resp = await fetch('/api/usuarios/admin', {
         method: 'POST',
         headers: headers(),
-        body: JSON.stringify(formAdmin),
+        body: JSON.stringify({ ...formAdmin, contrato: contratoAdmin }),
       });
       if (!resp.ok) await tratarErroApi(resp, 'Falha ao cadastrar administrador');
       setToast('Administrador cadastrado com sucesso!');
-      setFormAdmin({ nome: '', matricula: '', funcao: '', contrato: '', setor: 'TRANSPORTE', nivel: 'NORMAL', senha: '' });
+      setFormAdmin({ nome: '', matricula: '', funcao: '', contrato: atuante?.contrato || '', setor: 'TRANSPORTE', nivel: 'NORMAL', senha: '' });
       carregar();
     } catch (e) {
       setToast(e.message);
@@ -227,7 +234,12 @@ export default function UsuariosView({ sessao }) {
     if (!modalEdicao) return;
     setSalvando(true);
     try {
-      const corpo = { nome: modalEdicao.nome, contrato: modalEdicao.contrato || null, funcao: modalEdicao.funcao || null };
+      const corpo = { nome: modalEdicao.nome, funcao: modalEdicao.funcao || null };
+      // Contrato so vai quando o Master o altera (3 numeros).
+      if (souMaster && modalEdicao.contrato) {
+        if (!contratoValido(modalEdicao.contrato)) throw new Error(MENSAGEM_CONTRATO);
+        corpo.contrato = modalEdicao.contrato;
+      }
       if (modalEdicao.tipo === 'ADMINISTRADOR') corpo.setor = modalEdicao.setor;
       if (modalEdicao.senha) corpo.senha = modalEdicao.senha;
       if (modalEdicao.remover_assinatura) corpo.remover_assinatura = true;
@@ -681,8 +693,13 @@ export default function UsuariosView({ sessao }) {
                   </datalist>
                 </div>
                 <div>
-                  <label className="label">Contrato</label>
-                  <input value={formAdmin.contrato} onChange={(e) => setFormAdmin({ ...formAdmin, contrato: e.target.value })} className="input" placeholder="Ex: CT251" />
+                  <label className="label">Contrato <span className="text-status-vermelho">*</span></label>
+                  <input
+                    value={formAdmin.contrato}
+                    onChange={(e) => setFormAdmin({ ...formAdmin, contrato: soDigitosContrato(e.target.value) })}
+                    className="input" placeholder="Ex: 251" inputMode="numeric" maxLength={3}
+                    disabled={!souMaster} title={souMaster ? '3 números' : 'Você só cadastra no seu contrato'}
+                  />
                 </div>
                 <div>
                   <label className="label">Senha de Acesso <span className="text-status-vermelho">*</span></label>
@@ -694,6 +711,7 @@ export default function UsuariosView({ sessao }) {
                     <option value="MEIO_AMBIENTE">Meio Ambiente</option>
                     <option value="TRANSPORTE">Transporte</option>
                     <option value="GESTAO">Gestão</option>
+                    <option value="PLANEJADOR">Planejador</option>
                   </select>
                 </div>
                 <div>
@@ -1072,12 +1090,18 @@ export default function UsuariosView({ sessao }) {
                 <option value="MEIO_AMBIENTE">Meio Ambiente</option>
                 <option value="TRANSPORTE">Transporte</option>
                 <option value="GESTAO">Gestão</option>
+                <option value="PLANEJADOR">Planejador</option>
               </select>
             </div>
           )}
           <div>
             <label className="label">Contrato</label>
-            <input value={modalEdicao?.contrato || ''} onChange={(e) => setModalEdicao({ ...modalEdicao, contrato: e.target.value })} className="input" />
+            <input
+              value={modalEdicao?.contrato || ''}
+              onChange={(e) => setModalEdicao({ ...modalEdicao, contrato: soDigitosContrato(e.target.value) })}
+              className="input" inputMode="numeric" maxLength={3} placeholder="Ex: 251"
+              disabled={!souMaster} title={souMaster ? '3 números' : 'Só o ADM Master troca o contrato de um usuário'}
+            />
           </div>
           {modalEdicao?.tipo === 'ADMINISTRADOR' && (
             <div>

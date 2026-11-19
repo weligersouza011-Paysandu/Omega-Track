@@ -1,6 +1,7 @@
 import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { KM_LIMITE_PREVENTIVA_PADRAO } from '../services/manutencaoService.js';
+import { exigirContrato } from '../utils/contrato.js';
 
 // ============================================================================
 // Parâmetros de preventiva por categoria (modelo) e contrato.
@@ -11,9 +12,10 @@ export function normalizarCategoria(v) {
   return String(v || '').trim().toUpperCase();
 }
 
+// Vazio = regra global (null). Preenchido = exatamente 3 numeros.
 export function normalizarContrato(v) {
-  const s = String(v || '').trim();
-  return s === '' ? null : s;
+  const s = String(v ?? '').trim();
+  return s === '' ? null : exigirContrato(s);
 }
 
 // `km_limite_preventiva` estritamente inteiro positivo (> 0).

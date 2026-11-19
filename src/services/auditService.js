@@ -32,7 +32,6 @@ export async function registrarLogAtividade(req, { acao, modulo, detalhes = null
     const nome = String(
       usuario?.nome
       || atuante?.nome
-      || req?.headers?.['x-acting-nome']
       || req?.body?.atualizado_por
       || req?.body?.criado_por
       || 'Sistema'

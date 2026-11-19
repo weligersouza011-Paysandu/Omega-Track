@@ -68,3 +68,32 @@ export function rotaInicialPorSetor(usuario) {
   if (usuario?.setor === 'TRANSPORTE') return '/inicio';
   return '/inicio';
 }
+
+// Todas as telas chamam fetch('/api/...') direto e a API passou a exigir login
+// em todas as rotas de dados. Em vez de repetir o cabecalho em cada chamada,
+// o fetch global anexa o token da sessao as chamadas para /api/ que ainda nao
+// trazem `Authorization`. Chamar antes de instalarModoOffline().
+export function instalarAutenticacaoApi() {
+  if (typeof window === 'undefined' || window.__omegaAuthFetch) return;
+  const fetchBase = window.fetch.bind(window);
+  window.__omegaAuthFetch = true;
+  window.fetch = (input, init) => {
+    try {
+      const bruto = typeof input === 'string' ? input : (input?.url || '');
+      const url = new URL(bruto, window.location.origin);
+      if (url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
+        const token = lerSessao()?.token;
+        if (token) {
+          const cabecalhos = new Headers(init?.headers || (typeof input === 'object' ? input.headers : undefined));
+          if (!cabecalhos.has('Authorization')) {
+            cabecalhos.set('Authorization', `Bearer ${token}`);
+            return fetchBase(input, { ...(init || {}), headers: cabecalhos });
+          }
+        }
+      }
+    } catch {
+      /* URL invalida: segue sem alterar */
+    }
+    return fetchBase(input, init);
+  };
+}

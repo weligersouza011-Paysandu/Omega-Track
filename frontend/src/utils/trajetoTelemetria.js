@@ -119,7 +119,7 @@ export function textoVelocidade(p) {
 /** Quem pode excluir a telemetria de uma placa (mesma regra do back-end). */
 export function podeExcluirPorPlaca(usuario) {
   return !!usuario && usuario.tipo === 'ADMINISTRADOR'
-    && (usuario.nivel === 'MASTER' || ['GESTAO', 'TRANSPORTE'].includes(usuario.setor));
+    && (usuario.nivel === 'MASTER' || ['GESTAO', 'PLANEJADOR', 'TRANSPORTE'].includes(usuario.setor));
 }
 
 const registros = (n) => `${n} ${n === 1 ? 'registro' : 'registros'}`;

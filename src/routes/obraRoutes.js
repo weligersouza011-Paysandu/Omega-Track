@@ -1,12 +1,11 @@
 // ============================================================================
 // src/routes/obraRoutes.js — Gestão de Obras
-//   GET    /api/obras      (aberto — alimenta o dropdown da Parte Diária)
-//   GET    /api/obras/:id  (aberto)
+//   GET    /api/obras      (login obrigatorio — alimenta o dropdown da Parte Diária)
+//   GET    /api/obras/:id  (login obrigatorio)
 //   POST   /api/obras      (restrito: Gestão/Transporte ou ADM Master)
 //   PUT    /api/obras/:id  (restrito)
 //   DELETE /api/obras/:id  (restrito)
-// Sessão via `Authorization: Bearer <token>` (login) com fallback para
-// `x-acting-matricula` (mesmo padrão das demais rotas de gestão).
+// Sessão via `Authorization: Bearer <token>` (login).
 // ============================================================================
 import { Router } from 'express';
 import {
@@ -16,9 +15,9 @@ import {
   atualizarObra,
   deletarObra,
 } from '../controllers/obraController.js';
-import { requerAdmin } from '../middleware/sessao.js';
+import { requerAdmin, requerSessao } from '../middleware/sessao.js';
 
-const SETORES_ESCRITA = ['GESTAO', 'TRANSPORTE'];
+const SETORES_ESCRITA = ['GESTAO', 'PLANEJADOR', 'TRANSPORTE'];
 
 function requerGestaoTransporte(req, res, next) {
   const atuante = req.atuante;
@@ -35,8 +34,8 @@ function requerGestaoTransporte(req, res, next) {
 
 const router = Router();
 
-router.get('/', listarObras);
-router.get('/:id', buscarObra);
+router.get('/', requerSessao, listarObras);
+router.get('/:id', requerSessao, buscarObra);
 router.post('/', requerAdmin, requerGestaoTransporte, criarObra);
 router.put('/:id', requerAdmin, requerGestaoTransporte, atualizarObra);
 router.delete('/:id', requerAdmin, requerGestaoTransporte, deletarObra);

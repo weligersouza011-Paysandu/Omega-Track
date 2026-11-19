@@ -12,7 +12,8 @@ const banco = criarPrismaEmMemoria({
 globalThis.prisma = banco;
 const { default: app } = await import('../src/app.js');
 
-const AUTH = { 'x-acting-matricula': '90000' };
+const { assinarSessao } = await import('../src/middleware/sessao.js');
+const AUTH = { Authorization: `Bearer ${assinarSessao({ id: '00000000-0000-4000-8000-000000000001', matricula: '90000', nome: 'Admin', tipo: 'ADMINISTRADOR', setor: 'GESTAO', nivel: 'MASTER' })}` };
 const JSON_AUTH = { ...AUTH, 'Content-Type': 'application/json' };
 let base;
 let servidor;

@@ -13,23 +13,23 @@ import {
   atualizarFotoVeiculo,
   vincularTelemetriaPorPlaca,
 } from '../controllers/mobDesmobController.js';
-import { requerAdmin, requerMaster } from '../middleware/sessao.js';
+import { requerAdmin, requerMaster, requerSessao } from '../middleware/sessao.js';
 
 const router = Router();
 
-router.get('/', listarVeiculos);
-router.get('/tag/:tag', buscarVeiculoPorTag);
-router.get('/placa/:placa', buscarVeiculoPorPlaca);
-router.get('/placa/:placa/telemetria', vincularTelemetriaPorPlaca);
+router.get('/', requerSessao, listarVeiculos);
+router.get('/tag/:tag', requerSessao, buscarVeiculoPorTag);
+router.get('/placa/:placa', requerSessao, buscarVeiculoPorPlaca);
+router.get('/placa/:placa/telemetria', requerSessao, vincularTelemetriaPorPlaca);
 // Diagnóstico da preventiva (antes das rotas `/:tag` de escrita — sem conflito).
-router.get('/:tag/status-manutencao', buscarStatusManutencao);
-router.post('/:tag/preventiva', registrarPreventiva);
-router.post('/', criarVeiculo);
-router.put('/:tag/desmobilizar', desmobilizarVeiculo);
+router.get('/:tag/status-manutencao', requerSessao, buscarStatusManutencao);
+router.post('/:tag/preventiva', requerAdmin, registrarPreventiva);
+router.post('/', requerAdmin, criarVeiculo);
+router.put('/:tag/desmobilizar', requerAdmin, desmobilizarVeiculo);
 // Edição rápida dos dados técnicos (ficha do veículo) — atualização parcial.
-router.patch('/:tag', atualizarDadosTecnicosVeiculo);
-router.put('/:tag', atualizarVeiculo);
-router.post('/:tag/foto', atualizarFotoVeiculo);
+router.patch('/:tag', requerAdmin, atualizarDadosTecnicosVeiculo);
+router.put('/:tag', requerAdmin, atualizarVeiculo);
+router.post('/:tag/foto', requerAdmin, atualizarFotoVeiculo);
 router.delete('/:tag', requerAdmin, requerMaster, deletarVeiculo);
 
 export default router;

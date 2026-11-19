@@ -1,3 +1,4 @@
+import { soDigitosContrato, contratoValido, tagSemEspaco, MENSAGEM_CONTRATO } from '../utils/contrato.js';
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search, Filter, Download, X, LayoutGrid, BarChart3, FileText, CheckCircle2, RefreshCw, AlertTriangle, Briefcase, Loader2, SlidersHorizontal, Trash2 } from 'lucide-react';
 import Modal from '../components/Modal.jsx';
@@ -201,6 +202,10 @@ export default function MobDesmobView({ sessao }) {
 
     if (faltando.length > 0) {
       setErroCadastro(`Preencha os campos obrigatórios: ${faltando.join(', ')}.`);
+      return;
+    }
+    if (!contratoValido(form.contrato)) {
+      setErroCadastro(MENSAGEM_CONTRATO);
       return;
     }
     if (
@@ -719,9 +724,9 @@ export default function MobDesmobView({ sessao }) {
             <input
               id="cad-tag"
               value={form.tag}
-              onChange={e => setForm({ ...form, tag: e.target.value })}
+              onChange={e => setForm({ ...form, tag: tagSemEspaco(e.target.value) })}
               className="input"
-              placeholder="Ex: JI439"
+              placeholder="Ex: JI439 (sem espaços)"
               required
             />
           </div>
@@ -754,10 +759,10 @@ export default function MobDesmobView({ sessao }) {
               label="Contrato"
               required
               value={form.contrato}
-              onChange={e => setForm({ ...form, contrato: e.target.value })}
+              onChange={e => setForm({ ...form, contrato: soDigitosContrato(e.target.value) })}
               opcoes={contratos.map((c) => c.nome).filter((nome) => nome !== 'Sem contrato')}
               placeholderSelecionar="Selecione o contrato..."
-              placeholderNovo="Digite o novo contrato..."
+              placeholderNovo="Digite o contrato (3 números)..."
             />
           </div>
           <div>

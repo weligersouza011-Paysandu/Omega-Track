@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requerAdmin, requerSessao } from '../middleware/sessao.js';
 import {
   listarDocumentacoes,
   farolVencimentos,
@@ -11,12 +12,12 @@ import {
 
 const router = Router();
 
-router.get('/', listarDocumentacoes);
-router.get('/farol', farolVencimentos);
-router.get('/:id', buscarDocumentacao);
-router.post('/', criarDocumentacao);
-router.put('/:id', atualizarDocumentacao);
-router.post('/:id/anexo', anexarArquivo);
-router.delete('/:id', deletarDocumentacao);
+router.get('/', requerSessao, listarDocumentacoes);
+router.get('/farol', requerSessao, farolVencimentos);
+router.get('/:id', requerSessao, buscarDocumentacao);
+router.post('/', requerAdmin, criarDocumentacao);
+router.put('/:id', requerAdmin, atualizarDocumentacao);
+router.post('/:id/anexo', requerAdmin, anexarArquivo);
+router.delete('/:id', requerAdmin, deletarDocumentacao);
 
 export default router;

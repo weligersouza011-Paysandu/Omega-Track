@@ -8,6 +8,7 @@ import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { validarUrlMidia } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
+import { tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -40,6 +41,7 @@ function validarDados(body = {}, { parcial = false } = {}) {
   if (!parcial || body.tag !== undefined) {
     const tag = typeof body.tag === 'string' ? body.tag.trim().toUpperCase() : '';
     if (!tag) throw erroValidacao('Informe a TAG do veiculo terceiro.');
+    if (!tagSemEspaco(tag)) throw erroValidacao(MENSAGEM_TAG);
     if (tag.length > 50) throw erroValidacao('A TAG aceita no maximo 50 caracteres.');
     dados.tag = tag;
   }

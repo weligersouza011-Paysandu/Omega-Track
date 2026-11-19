@@ -21,8 +21,8 @@ const { default: app } = await import('../src/app.js');
 const { assinarSessao } = await import('../src/middleware/sessao.js');
 const { lerFiltroTrajeto, filtroDataHoraTrajeto, normalizarPlaca, statusMobilizacao } = await import('../src/services/telemetriaTrajetoService.js');
 
-const AUTH = { 'x-acting-matricula': ADMIN_GESTAO.matricula };
 const jwt = (u) => ({ Authorization: `Bearer ${assinarSessao({ tipo: 'ADMINISTRADOR', ...u })}` });
+const AUTH = jwt(ADMIN_GESTAO);
 let servidor;
 let base;
 
@@ -218,7 +218,7 @@ test('exclusão por placa: só Master, Gestão e Transporte, com JWT', async () 
   await semear([evento('ABC-1D23', '2026-11-05T10:00:00Z')]);
   const semPerfil = await chamar('/por-placa/ABC1D23', { method: 'DELETE', headers: jwt(ADMIN_MANUTENCAO) });
   assert.equal(semPerfil.status, 403);
-  const semJwt = await chamar('/por-placa/ABC1D23', { method: 'DELETE' }); // só x-acting-matricula
+  const semJwt = await chamar('/por-placa/ABC1D23', { method: 'DELETE', headers: { 'x-acting-matricula': ADMIN_GESTAO.matricula } }); // só a matrícula não autentica
   assert.equal(semJwt.status, 401);
   assert.equal(banco.eventos.length, 1);
   const master = await chamar('/por-placa/ABC1D23', {

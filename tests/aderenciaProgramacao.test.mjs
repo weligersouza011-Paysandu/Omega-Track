@@ -223,7 +223,8 @@ test('justificativa acima do limite ou categoria inativa barram o salvamento', a
 });
 
 test('categorias: listar ativas, criar, renomear, e excluir em uso apenas desativa', async () => {
-  const ativas = await api('/categorias-desvio?ativas=1', { auth: false });
+  assert.equal((await api('/categorias-desvio?ativas=1', { auth: false })).status, 401);
+  const ativas = await api('/categorias-desvio?ativas=1');
   assert.equal(ativas.status, 200);
 
   assert.equal((await api('/categorias-desvio', { method: 'POST', body: { nome: 'Chuva' }, auth: false })).status, 401);

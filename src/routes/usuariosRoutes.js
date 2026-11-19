@@ -1,6 +1,6 @@
 // ============================================================================
 // src/routes/usuariosRoutes.js — Gestao de Usuarios (admins + operacionais)
-// Atuante via header `x-acting-matricula` (demo). Ver regras no controller.
+// Atuante via JWT. Ver regras no controller.
 // ============================================================================
 import { Router } from 'express';
 import {
@@ -27,19 +27,19 @@ const router = Router();
 
 router.get('/minha-assinatura', requerSessao, obterMinhaAssinatura);
 router.put('/minha-assinatura', requerSessao, salvarMinhaAssinatura);
-router.get('/', listarUsuarios);
+router.get('/', requerSessao, listarUsuarios);
 // Historico global de atividades (admin) e lixeira (somente Master).
 router.get('/logs', requerAdmin, listarLogsAtividade);
 router.get('/lixeira', requerAdmin, requerMaster, listarLixeira);
 router.post('/lixeira/veiculos/:tag/restaurar', requerAdmin, requerMaster, restaurarVeiculo);
 router.post('/lixeira/partes/:id/restaurar', requerAdmin, requerMaster, restaurarParteDiaria);
 router.post('/admin', criarAdmin);
-router.post('/lote', criarLoteOperacionais);
+router.post('/lote', requerAdmin, criarLoteOperacionais);
 // Cadastro rapido de Operador/Supervisor pela Programacao de Recursos.
 router.post('/rapido', requerAdminAutenticado, requerGestaoTransporte, criarUsuarioRapido);
-router.put('/:id', atualizarUsuario);
-router.post('/:id/assinatura', salvarAssinaturaUsuario);
-router.patch('/:id/nivel', alterarNivel);
-router.delete('/:id', excluirUsuario);
+router.put('/:id', requerAdmin, atualizarUsuario);
+router.post('/:id/assinatura', requerAdmin, salvarAssinaturaUsuario);
+router.patch('/:id/nivel', requerAdmin, alterarNivel);
+router.delete('/:id', requerAdmin, excluirUsuario);
 
 export default router;

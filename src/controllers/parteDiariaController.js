@@ -208,8 +208,8 @@ function autorDaRequisicao(req, corpo = {}) {
   return (
     corpo.atualizado_por ||
     corpo.criado_por ||
-    req.headers['x-acting-matricula'] ||
-    req.headers['x-acting-nome'] ||
+    req.atuante?.matricula ||
+    req.atuante?.nome ||
     null
   );
 }
@@ -227,7 +227,7 @@ async function ehMasterAutenticado(req) {
   return atuante?.nivel === 'MASTER';
 }
 
-// Usuario logado (JWT ou x-acting-matricula) para persistir a assinatura
+// Usuario logado (JWT) para persistir a assinatura
 // padrao no proprio perfil. Diferente de atuanteDaRequisicao, aceita tambem
 // OPERACIONAL — qualquer perfil pode salvar a propria assinatura.
 async function usuarioDaRequisicao(req) {
@@ -237,9 +237,7 @@ async function usuarioDaRequisicao(req) {
     const usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
     if (usuario) return usuario;
   }
-  const matricula = req.headers['x-acting-matricula'];
-  if (!matricula) return null;
-  return prisma.usuario.findFirst({ where: { matricula: String(matricula) } });
+  return null;
 }
 
 function flagVerdadeira(valor) {
@@ -730,10 +728,10 @@ export const criarParteDiaria = asyncHandler(async (req, res) => {
   }
 
   // Rastreabilidade do autor: corpo > 1º registro da mão de obra >
-  // matricula atuante do header (x-acting-matricula) quando presente.
+  // matricula do usuario autenticado (JWT) quando presente.
   const operadorFinal = operador
     || (responsavelModulo.matricula ? String(responsavelModulo.matricula).trim() : null)
-    || req.headers['x-acting-matricula']
+    || req.atuante?.matricula
     || null;
   const funcionarioFinal = funcionario
     || (responsavelModulo.nome ? String(responsavelModulo.nome).trim() : null);
@@ -1267,7 +1265,7 @@ export const deletarParteDiaria = asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Parte diaria nao encontrada ou ja excluida.' });
   }
 
-  const deletadoPor = req.atuante?.nome || req.headers['x-acting-nome'] || 'Sistema';
+  const deletadoPor = req.atuante?.nome || 'Sistema';
   const agora = new Date();
   await prisma.parteDiaria.update({
     where: { id },

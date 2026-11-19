@@ -1,15 +1,17 @@
 // ============================================================================
 // src/middleware/sessao.js — Sessao JWT (login de administradores).
-// Header: `Authorization: Bearer <token>` (12h). Fallback demo legado:
-// `x-acting-matricula` (usado pela tela de Usuarios sem login real).
+// Header: `Authorization: Bearer <token>` (12h). A identidade vem SOMENTE do
+// JWT assinado: o header legado `x-acting-matricula` nao autentica mais ninguem
+// (bastava conhecer a matricula de um Master para se passar por ele).
 // ============================================================================
 import jwt from 'jsonwebtoken';
 import config from '../config/index.js';
 import prisma from '../config/database.js';
+import { ehSetorGestao } from '../utils/setores.js';
 
 export function assinarSessao(usuario) {
   return jwt.sign(
-    { sub: usuario.id, matricula: usuario.matricula, nome: usuario.nome, tipo: usuario.tipo, setor: usuario.setor, nivel: usuario.nivel },
+    { sub: usuario.id, matricula: usuario.matricula, nome: usuario.nome, tipo: usuario.tipo, setor: usuario.setor, nivel: usuario.nivel, contrato: usuario.contrato },
     config.loginSecret,
     { expiresIn: '12h' }
   );
@@ -41,31 +43,20 @@ export function lerSessao(req) {
   }
 }
 
+// Administrador autenticado pelo JWT (ou null).
 export async function atuanteDaRequisicao(req) {
   const sessao = lerSessao(req);
-  if (sessao?.sub) {
-    const u = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
-    if (u && u.tipo === 'ADMINISTRADOR') return u;
-  }
-  const mat = req.headers['x-acting-matricula'];
-  if (!mat) return null;
-  return prisma.usuario.findFirst({
-    where: { matricula: String(mat), tipo: 'ADMINISTRADOR' },
-  });
+  if (!sessao?.sub) return null;
+  const u = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
+  return u && u.tipo === 'ADMINISTRADOR' ? u : null;
 }
 
-// Sessão autenticada de qualquer perfil (admin ou operacional). O fallback
-// `x-acting-matricula` continua disponível para o modo demo administrativo.
+// Sessão autenticada de qualquer perfil (admin ou operacional), sempre pelo JWT.
 export async function requerSessao(req, res, next) {
   const sessao = lerSessao(req);
-  let usuario = null;
-
-  if (sessao?.sub) {
-    usuario = await prisma.usuario.findUnique({ where: { id: sessao.sub } });
-  }
-  if (!usuario) {
-    usuario = await atuanteDaRequisicao(req);
-  }
+  const usuario = sessao?.sub
+    ? await prisma.usuario.findUnique({ where: { id: sessao.sub } })
+    : null;
   if (!usuario) {
     return res.status(401).json({
       error: 'Nao autenticado',
@@ -114,7 +105,7 @@ export async function requerAdminAutenticado(req, res, next) {
 // por ela). Usar depois de requerAdminAutenticado (precisa de req.atuante).
 export function requerGestaoTransporte(req, res, next) {
   const usuario = req.atuante;
-  if (usuario?.nivel !== 'MASTER' && !['GESTAO', 'TRANSPORTE'].includes(usuario?.setor)) {
+  if (usuario?.nivel !== 'MASTER' && !ehSetorGestao(usuario?.setor) && usuario?.setor !== 'TRANSPORTE') {
     return res.status(403).json({
       error: 'Sem permissao',
       message: 'Apenas Gestao, Transporte ou ADM Master podem alterar a programacao.',
@@ -151,13 +142,13 @@ export const requerTransporteOuMaster = requerAdministradorJwt(
 
 // Etapa final: Gestao (Tecnico de Planejamento) ou nivel Master.
 export const requerPlanejamentoOuMaster = requerAdministradorJwt(
-  (u) => u.nivel === 'MASTER' || u.setor === 'GESTAO',
+  (u) => u.nivel === 'MASTER' || ehSetorGestao(u.setor),
   'Apenas a Gestão / Planejamento ou ADM Master podem aprovar Partes Diárias em lote.',
 );
 
 // Exclusão em massa de telemetria por placa: Master, Gestão ou Transporte (JWT, sem fallback).
 export const requerMasterGestaoTransporte = requerAdministradorJwt(
-  (u) => u.nivel === 'MASTER' || ['GESTAO', 'TRANSPORTE'].includes(u.setor),
+  (u) => u.nivel === 'MASTER' || ehSetorGestao(u.setor) || u.setor === 'TRANSPORTE',
   'Apenas ADM Master, Gestão ou Transporte podem excluir a telemetria de uma placa.',
 );
 

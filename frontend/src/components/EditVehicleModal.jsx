@@ -4,6 +4,7 @@ import Modal from './Modal.jsx';
 import CampoListaComCriador from './CampoListaComCriador.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { paraInputData } from '../utils/datas.js';
+import { soDigitosContrato, contratoValido, MENSAGEM_CONTRATO } from '../utils/contrato.js';
 
 export default function EditVehicleModal({ open, veiculo, contratos = [], modelos = [], sessao, onClose, onSaved }) {
   const [form, setForm] = useState({ placa: '', modelo: '', contrato: '', status: 'Mobilizado', data_mob: '', data_desmob: '', km_limite_preventiva: '', km_ultima_preventiva: '' });
@@ -55,6 +56,10 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
 
     if (faltando.length > 0) {
       setErro(`Preencha os campos obrigatórios: ${faltando.join(', ')}.`);
+      return;
+    }
+    if (!contratoValido(form.contrato.trim())) {
+      setErro(MENSAGEM_CONTRATO);
       return;
     }
     if (
@@ -231,10 +236,10 @@ export default function EditVehicleModal({ open, veiculo, contratos = [], modelo
               label="Contrato"
               required
               value={form.contrato}
-              onChange={set('contrato')}
+              onChange={(e) => setForm((f) => ({ ...f, contrato: soDigitosContrato(e.target.value) }))}
               opcoes={contratos.map((c) => c.nome).filter((nome) => nome !== 'Sem contrato')}
               placeholderSelecionar="Selecione o contrato..."
-              placeholderNovo="Digite o novo contrato..."
+              placeholderNovo="Digite o contrato (3 números)..."
             />
           </div>
           <div>

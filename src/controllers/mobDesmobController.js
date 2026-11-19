@@ -10,6 +10,7 @@ import {
 } from '../services/manutencaoService.js';
 import { uploadMiddleware, cloudinaryConfigured, validarUrlMidia, excluirAssetCloudinary } from '../config/cloudinary.js';
 import { registrarLogAtividade } from '../services/auditService.js';
+import { exigirContrato, tagSemEspaco, MENSAGEM_TAG } from '../utils/contrato.js';
 
 const CINCO_DIAS_MS = 5 * 24 * 60 * 60 * 1000;
 const ANO_MINIMO_VEICULO = 1900;
@@ -67,6 +68,12 @@ function validarDadosMobilizacao(dados = {}) {
   if (estaVazio(dados.status)) faltando.push('Status');
   if (estaVazio(dados.data_mob)) faltando.push('Data MOB');
 
+  // Contrato: exatamente 3 numeros. TAG: sem espacos.
+  const contrato = exigirContrato(String(dados.contrato).trim());
+  if (!tagSemEspaco(String(dados.tag).trim())) {
+    throw erroValidacao(MENSAGEM_TAG, 'TAG invalida');
+  }
+
   const status = String(dados.status || '').trim();
   if (status && !STATUS_VEICULO_VALIDOS.includes(status)) {
     throw erroValidacao(
@@ -100,7 +107,7 @@ function validarDadosMobilizacao(dados = {}) {
     tag: String(dados.tag).trim(),
     placa: String(dados.placa).trim().toUpperCase(),
     modelo: String(dados.modelo).trim(),
-    contrato: String(dados.contrato).trim(),
+    contrato,
     status,
     data_mob: dataMob,
     // Data de desmobilização só existe enquanto o veículo estiver desmobilizado.
@@ -551,7 +558,7 @@ export const deletarVeiculo = asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'Nao encontrado', message: 'Veiculo nao encontrado ou ja excluido.' });
   }
 
-  const deletadoPor = req.atuante?.nome || req.headers['x-acting-nome'] || 'Sistema';
+  const deletadoPor = req.atuante?.nome || 'Sistema';
   const agora = new Date();
   await prisma.mobDesmob.update({
     where: { tag },

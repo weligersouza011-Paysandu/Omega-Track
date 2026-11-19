@@ -17,7 +17,7 @@ model MobDesmob {
   responsavel_desmob String?   @db.VarChar(255)
   observacao_desmob  String?   @db.Text
   modelo             String?   @db.VarChar(100)
-  contrato           String?   @db.VarChar(100)
+  contrato           String    @default("251") @db.VarChar(3)
   created_at         DateTime  @default(now()) @db.Timestamp(6)
 
   // === Manutenção preventiva (FASE 2) ===
@@ -46,6 +46,7 @@ model MobDesmob {
   @@index([placa])
   @@index([status])
   @@index([deletado_em])
+  @@index([contrato])
   @@map("mob_desmob")
 }
 
@@ -174,6 +175,11 @@ model ParteDiaria {
   @@index([deletado_em])
   @@index([data, aderencia])
   @@index([categoria_desvio_id])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
+  @@index([contrato, data])
   @@map("partes_diarias")
 }
 
@@ -322,6 +328,8 @@ model Obra {
   contratante     String   @default("Vale") @db.VarChar(255)
   gestao          String?  @db.VarChar(255)
   planejador      String?  @db.VarChar(255)
+  // Matricula do usuario Planejador vinculado a obra (texto: sobrevive a exclusao do usuario).
+  planejador_matricula String? @db.VarChar(50)
   ativo           Boolean  @default(true)
   created_at      DateTime @default(now()) @db.Timestamp(6)
   updated_at      DateTime @default(now()) @updatedAt @db.Timestamp(6)
@@ -333,6 +341,10 @@ model Obra {
 
   @@index([ativo])
   @@index([nome])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
   @@map("obras")
 }
 
@@ -360,6 +372,10 @@ model ProgramacaoRecurso {
   @@unique([tag, data])
   @@index([data])
   @@index([obra_id, data])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
   @@map("programacao_recursos")
 }
 
@@ -381,6 +397,10 @@ model VeiculoTerceiro {
   programacoes ProgramacaoRecursoTerceiro[]
 
   @@index([tipo])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
   @@map("veiculos_terceiros")
 }
 
@@ -408,6 +428,10 @@ model ProgramacaoRecursoTerceiro {
   @@unique([veiculo_terceiro_id, data])
   @@index([data])
   @@index([obra_id, data])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
   @@map("programacao_recursos_terceiros")
 }
 
@@ -503,13 +527,14 @@ model Abastecimento {
   km_por_litro        Float?
   emissao_co2_kg      Float?
   estabelecimento     String?  @db.VarChar(255)
-  contrato            String?  @db.VarChar(100)
+  contrato            String   @default("251") @db.VarChar(3)
   mes_referencia      String   @db.VarChar(7)
   created_at          DateTime @default(now()) @db.Timestamp(6)
 
   @@index([placa])
   @@index([mes_referencia])
   @@index([tipo_combustivel])
+  @@index([contrato])
   @@map("abastecimentos")
 }
 
@@ -527,6 +552,10 @@ model Residuo {
   @@index([mes_ano])
   @@index([tipo_residuos])
   @@index([destinacao])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
   @@map("residuos")
 }
 
@@ -542,6 +571,10 @@ model ConsumoAgua {
 
   @@index([ano_mes])
   @@index([pontos_captacao])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
   @@map("consumo_agua")
 }
 
@@ -559,6 +592,10 @@ model AtoAutorizativo {
   @@index([status])
   @@index([validade])
   @@index([farol_de_vencimentos])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
   @@map("atos_autorizativos")
 }
 
@@ -587,6 +624,10 @@ model ProdutoQuimico {
 
   @@index([enquadramento_produto])
   @@index([validade_produto])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
   @@map("produtos_quimicos")
 }
 
@@ -650,6 +691,11 @@ model EventoTelemetria {
   @@index([status_tratativa, prazo_tratativa])
   @@index([tag_placa, data_hora]) // Trajeto por veículo (placa exata + período)
   @@index([tag, data_hora])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
+  @@index([contrato, data_hora])
   @@map("eventos_telemetria")
 }
 
@@ -679,6 +725,10 @@ model PlanoAcaoTelemetria {
 
   @@index([motorista])
   @@index([status])
+  // Contrato (3 digitos). Default 251 = contrato historico; o app passa a gravar o do usuario.
+  contrato String @default("251") @db.VarChar(3)
+
+  @@index([contrato])
   @@map("planos_acao_telemetria")
 }
 
@@ -688,7 +738,7 @@ model ParametroPreventiva {
   id                   String   @id @default(uuid()) @db.Uuid
   categoria            String   @db.VarChar(100)
   km_limite_preventiva Int
-  contrato             String?  @db.VarChar(100)
+  contrato             String?  @db.VarChar(3)
   created_at           DateTime @default(now()) @db.Timestamp(6)
   updated_at           DateTime @default(now()) @updatedAt @db.Timestamp(6)
 
@@ -701,6 +751,8 @@ enum SetorUsuario {
   MEIO_AMBIENTE
   TRANSPORTE
   GESTAO
+  // Mesmas atribuicoes da Gestao; separado so por setor.
+  PLANEJADOR
 }
 
 enum NivelUsuario {
@@ -717,7 +769,8 @@ model Usuario {
   id                String        @id @default(uuid()) @db.Uuid
   nome              String        @db.VarChar(255)
   matricula         String        @unique @db.VarChar(50)
-  contrato          String?       @db.VarChar(100)
+  // Cada usuario pertence a UM contrato (3 digitos). MASTER enxerga todos.
+  contrato          String        @default("251") @db.VarChar(3)
   funcao            String?       @db.VarChar(100)
   tipo              TipoUsuario   @default(OPERACIONAL)
   setor             SetorUsuario?
@@ -730,6 +783,7 @@ model Usuario {
   logs_atividade LogAtividade[]
 
   @@index([tipo])
+  @@index([contrato])
   @@map("usuarios")
 }
 
@@ -745,6 +799,8 @@ model LogAtividade {
   modulo         String   @db.VarChar(100)
   detalhes       Json?
   ip_address     String?  @db.VarChar(100)
+  // Contrato do autor no momento da acao (nulo = acao do sistema).
+  contrato       String?  @db.VarChar(3)
   created_at     DateTime @default(now()) @db.Timestamp(6)
 
   usuario Usuario? @relation(fields: [usuario_id], references: [id], onDelete: SetNull)
@@ -754,5 +810,37 @@ model LogAtividade {
   @@index([modulo])
   @@index([acao])
   @@index([modulo, acao])
+  @@index([contrato])
   @@map("logs_atividade")
+}
+
+// Historico de contratos de cada veiculo. Ao trocar o contrato informa-se a data
+// efetiva: registros dessa data em diante passam ao contrato novo; os anteriores
+// permanecem no antigo. Sem FK de proposito: o historico sobrevive a exclusao.
+model VeiculoContratoHistorico {
+  id            String    @id @default(uuid()) @db.Uuid
+  tag           String    @db.VarChar(50)
+  contrato      String    @db.VarChar(3)
+  vigente_desde DateTime  @db.Date
+  vigente_ate   DateTime? @db.Date
+  alterado_por  String?   @db.VarChar(255)
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([tag, vigente_desde])
+  @@index([contrato])
+  @@map("veiculo_contrato_historico")
+}
+
+// Copia dos valores de contrato (texto livre) existentes antes da padronizacao
+// para 3 digitos. Permite conferir/reverter manualmente. Pode ser apagada depois.
+model ContratoLegadoBackup {
+  id              Int      @id @default(autoincrement())
+  tabela          String   @db.VarChar(60)
+  chave           String   @db.Text
+  contrato_antigo String?  @db.Text
+  dados           Json?
+  criado_em       DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([tabela])
+  @@map("contrato_legado_backup")
 }

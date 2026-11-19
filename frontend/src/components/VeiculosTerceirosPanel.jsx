@@ -268,8 +268,8 @@ export default function VeiculosTerceirosPanel({ sessao, tiposFrota = [], onToas
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="label" htmlFor="ter-tag">TAG <span className="text-status-vermelho">*</span></label>
-            <input id="ter-tag" value={form.tag} onChange={(e) => setForm({ ...form, tag: e.target.value })}
-              className="input uppercase" placeholder="Ex: TER-01 ou placa" maxLength={50} required />
+            <input id="ter-tag" value={form.tag} onChange={(e) => setForm({ ...form, tag: e.target.value.replace(/\s/g, '') })}
+              className="input uppercase" placeholder="Ex: TER-01 ou placa (sem espaços)" maxLength={50} required />
           </div>
           <CampoListaComCriador
             id="ter-tipo"

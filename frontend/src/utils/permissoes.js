@@ -3,6 +3,7 @@
 //   MEIO_AMBIENTE: escreve nos modulos ambientais; transporte e read-only.
 //   TRANSPORTE:    escreve nos modulos de transporte; ambiental e read-only.
 //   GESTAO:        escrita total.
+//   PLANEJADOR:    mesmas atribuicoes da Gestao (separado so por setor).
 // Uso: desabilite botoes/formularios quando `podeEscrever` for false.
 // ============================================================================
 
@@ -13,6 +14,7 @@ export const SETOR_LABEL = {
   MEIO_AMBIENTE: 'Meio Ambiente',
   TRANSPORTE: 'Transporte',
   GESTAO: 'Gestão',
+  PLANEJADOR: 'Planejador',
 };
 
 export function ehMaster(usuario) {
@@ -40,7 +42,7 @@ export function podeAlterarStatusOperacional(usuario) {
 
 export function podeEscrever(usuario, modulo) {
   if (!usuario || usuario.tipo !== 'ADMINISTRADOR') return false;
-  if (usuario.setor === 'GESTAO') return true;
+  if (usuario.setor === 'GESTAO' || usuario.setor === 'PLANEJADOR') return true;
   if (usuario.setor === 'MEIO_AMBIENTE') return MODULOS_AMBIENTAIS.includes(modulo);
   if (usuario.setor === 'TRANSPORTE') return MODULOS_TRANSPORTE.includes(modulo);
   return false;

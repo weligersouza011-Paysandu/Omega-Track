@@ -13,9 +13,9 @@ import {
   salvarParametro,
   removerParametro,
 } from '../controllers/parametroPreventivaController.js';
-import { requerAdmin } from '../middleware/sessao.js';
+import { requerAdmin, requerSessao } from '../middleware/sessao.js';
 
-const SETORES_ESCRITA = ['GESTAO', 'TRANSPORTE'];
+const SETORES_ESCRITA = ['GESTAO', 'PLANEJADOR', 'TRANSPORTE'];
 
 function requerGestaoTransporte(req, res, next) {
   const atuante = req.atuante;
@@ -32,8 +32,8 @@ function requerGestaoTransporte(req, res, next) {
 
 const router = Router();
 
-router.get('/', listarParametros);
-router.get('/categoria/:tipo', buscarPorCategoria);
+router.get('/', requerSessao, listarParametros);
+router.get('/categoria/:tipo', requerSessao, buscarPorCategoria);
 router.post('/', requerAdmin, requerGestaoTransporte, salvarParametro);
 router.delete('/:id', requerAdmin, requerGestaoTransporte, removerParametro);
 

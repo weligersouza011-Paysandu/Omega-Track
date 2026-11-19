@@ -1,7 +1,7 @@
 // ============================================================================
 // src/controllers/usuariosController.js — Gestao de Usuarios (RBAC por setor)
 // Tipos: ADMINISTRADOR (setor + nivel + senha) | OPERACIONAL (equipe de campo).
-// Sem sessao real: o atuante vai no header `x-acting-matricula` (demo).
+// O atuante vem do JWT (Authorization: Bearer).
 // Regras: promover/rebaixar/excluir-MASTER exigem atuante MASTER; demais
 // operacoes exigem atuante admin. Banco vazio (bootstrap) libera o 1o cadastro.
 // ============================================================================
@@ -10,10 +10,11 @@ import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { hashSenha } from '../utils/senha.js';
 import { atuanteDaRequisicao } from '../middleware/sessao.js';
+import { exigirContrato } from '../utils/contrato.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { respostaAssinatura, salvarAssinaturaPadrao } from '../services/assinaturaService.js';
 
-const SETORES = ['MEIO_AMBIENTE', 'TRANSPORTE', 'GESTAO'];
+const SETORES = ['MEIO_AMBIENTE', 'TRANSPORTE', 'GESTAO', 'PLANEJADOR'];
 const NIVEIS = ['MASTER', 'NORMAL'];
 const DIAS_RECUPERACAO = 5;
 const JANELA_RECUPERACAO_MS = DIAS_RECUPERACAO * 24 * 60 * 60 * 1000;
@@ -41,6 +42,26 @@ function normUpper(v) {
   return String(v || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
 }
 
+// Contrato em que o usuario sera cadastrado. Cada usuario pertence a UM contrato.
+// MASTER escolhe (ou, sem escolher, usa o proprio); os demais so cadastram no
+// proprio contrato. `bootstrap` = primeiro administrador do sistema (sem atuante).
+function contratoDoCadastro(atuante, informado, { bootstrap = false } = {}) {
+  if (bootstrap || atuante?.nivel === 'MASTER') {
+    const escolhido = informado === undefined || informado === null || String(informado).trim() === ''
+      ? atuante?.contrato
+      : informado;
+    return exigirContrato(escolhido);
+  }
+  const proprio = exigirContrato(atuante?.contrato, 'Contrato do seu usuário');
+  if (informado !== undefined && informado !== null && String(informado).trim() !== '' && String(informado).trim() !== proprio) {
+    const erro = new Error('Você só pode cadastrar usuários no seu próprio contrato.');
+    erro.statusCode = 403;
+    erro.error = 'Sem permissao';
+    throw erro;
+  }
+  return proprio;
+}
+
 function strOuNull(v) {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
@@ -51,9 +72,13 @@ export const listarUsuarios = asyncHandler(async (req, res) => {
   const { tipo } = req.query;
   const where = {};
   if (tipo === 'ADMINISTRADOR' || tipo === 'OPERACIONAL') where.tipo = tipo;
+  // Perfil operacional so precisa da lista para escolher pessoas (operador,
+  // supervisor): sem assinatura, setor, nivel ou contrato dos demais.
+  const restrito = req.atuante?.tipo !== 'ADMINISTRADOR';
   const usuarios = await prisma.usuario.findMany({
     where,
     orderBy: [{ tipo: 'asc' }, { nome: 'asc' }],
+    ...(restrito ? { select: { id: true, nome: true, matricula: true, funcao: true, tipo: true } } : {}),
   });
   res.json({ data: usuarios.map(semSenha) });
 });
@@ -82,11 +107,13 @@ export const criarAdmin = asyncHandler(async (req, res) => {
   const bootstrap = !(await haAdministradores());
   const atuante = await obterAtuante(req);
   if (!bootstrap && !atuante) {
-    return res.status(403).json({ error: 'Sem permissao', message: 'Informe um administrador atuante (x-acting-matricula).' });
+    return res.status(403).json({ error: 'Sem permissao', message: 'Faca login como administrador.' });
   }
   if (nivelNorm === 'MASTER' && !bootstrap && atuante.nivel !== 'MASTER') {
     return res.status(403).json({ error: 'Sem permissao', message: 'Apenas ADM Master pode criar outro Master.' });
   }
+
+  const contratoFinal = contratoDoCadastro(atuante, contrato, { bootstrap });
 
   const existente = await prisma.usuario.findUnique({ where: { matricula: String(matricula).trim() } });
   if (existente) {
@@ -97,7 +124,7 @@ export const criarAdmin = asyncHandler(async (req, res) => {
     data: {
       nome: String(nome).trim(),
       matricula: String(matricula).trim(),
-      contrato: contrato ? String(contrato).trim() : null,
+      contrato: contratoFinal,
       funcao: strOuNull(funcao),
       tipo: 'ADMINISTRADOR',
       setor: setorNorm,
@@ -108,7 +135,7 @@ export const criarAdmin = asyncHandler(async (req, res) => {
   await registrarLogAtividade(req, {
     acao: 'CRIAR_USUARIO',
     modulo: 'Usuarios',
-    detalhes: { id: criado.id, nome: criado.nome, matricula: criado.matricula, setor: criado.setor, nivel: criado.nivel },
+    detalhes: { id: criado.id, nome: criado.nome, matricula: criado.matricula, contrato: criado.contrato, setor: criado.setor, nivel: criado.nivel },
   });
   res.status(201).json({ data: semSenha(criado) });
 });
@@ -116,7 +143,7 @@ export const criarAdmin = asyncHandler(async (req, res) => {
 export const criarLoteOperacionais = asyncHandler(async (req, res) => {
   const atuante = await obterAtuante(req);
   if (!atuante) {
-    return res.status(403).json({ error: 'Sem permissao', message: 'Informe um administrador atuante (x-acting-matricula).' });
+    return res.status(403).json({ error: 'Sem permissao', message: 'Faca login como administrador.' });
   }
   const lista = req.body?.usuarios;
   if (!Array.isArray(lista) || lista.length === 0) {
@@ -125,6 +152,7 @@ export const criarLoteOperacionais = asyncHandler(async (req, res) => {
   if (lista.length > 500) {
     return res.status(400).json({ error: 'Lote grande', message: 'Maximo de 500 usuarios por lote.' });
   }
+  const contratoLote = contratoDoCadastro(atuante, req.body?.contrato);
 
   const existentes = await prisma.usuario.findMany({
     where: { matricula: { in: lista.map((u) => String(u.matricula || '').trim()).filter(Boolean) } },
@@ -139,7 +167,7 @@ export const criarLoteOperacionais = asyncHandler(async (req, res) => {
     const nome = String(u.nome || '').trim();
     if (!matricula || !nome) return ignorados.push({ linha: i + 1, motivo: 'matricula/nome ausentes' });
     if (jaTem.has(matricula)) return ignorados.push({ linha: i + 1, matricula, motivo: 'ja cadastrada' });
-    paraCriar.push({ matricula, nome, funcao: strOuNull(u.funcao), tipo: 'OPERACIONAL' });
+    paraCriar.push({ matricula, nome, funcao: strOuNull(u.funcao), tipo: 'OPERACIONAL', contrato: contratoLote });
   });
 
   let criados = 0;
@@ -150,7 +178,7 @@ export const criarLoteOperacionais = asyncHandler(async (req, res) => {
   await registrarLogAtividade(req, {
     acao: 'CRIAR_USUARIOS_LOTE',
     modulo: 'Usuarios',
-    detalhes: { criados, ignorados: ignorados.length, total_recebido: lista.length },
+    detalhes: { criados, ignorados: ignorados.length, total_recebido: lista.length, contrato: contratoLote },
   });
   res.status(201).json({ data: { criados, ignorados } });
 });
@@ -188,6 +216,8 @@ export const criarUsuarioRapido = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Dados invalidos', message: 'Matrícula inválida (até 50 caracteres, sem espaços).' });
   }
 
+  const contratoRapido = contratoDoCadastro(req.atuante, body.contrato);
+
   let matricula = matriculaInformada;
   if (matricula) {
     const existente = await prisma.usuario.findUnique({
@@ -214,8 +244,8 @@ export const criarUsuarioRapido = asyncHandler(async (req, res) => {
   let criado;
   try {
     criado = await prisma.usuario.create({
-      data: { nome, matricula, funcao, tipo: 'OPERACIONAL' },
-      select: { id: true, matricula: true, nome: true, funcao: true, tipo: true },
+      data: { nome, matricula, funcao, tipo: 'OPERACIONAL', contrato: contratoRapido },
+      select: { id: true, matricula: true, nome: true, funcao: true, tipo: true, contrato: true },
     });
   } catch (erro) {
     // Corrida: outra pessoa cadastrou a mesma matricula entre a checagem e o insert.
@@ -239,13 +269,26 @@ export const criarUsuarioRapido = asyncHandler(async (req, res) => {
 export const atualizarUsuario = asyncHandler(async (req, res) => {
   const atuante = await obterAtuante(req);
   if (!atuante) {
-    return res.status(403).json({ error: 'Sem permissao', message: 'Informe um administrador atuante (x-acting-matricula).' });
+    return res.status(403).json({ error: 'Sem permissao', message: 'Faca login como administrador.' });
   }
   const { id } = req.params;
   const { nome, contrato, funcao, setor, senha, assinatura_url, assinatura_base64, remover_assinatura } = req.body || {};
   const data = {};
   if (nome !== undefined) data.nome = String(nome).trim();
-  if (contrato !== undefined) data.contrato = contrato ? String(contrato).trim() : null;
+  if (contrato !== undefined) {
+    const novoContrato = exigirContrato(contrato);
+    const alvoAtual = await prisma.usuario.findUnique({ where: { id }, select: { contrato: true } });
+    if (!alvoAtual) {
+      return res.status(404).json({ error: 'Nao encontrado', message: 'Usuario nao encontrado.' });
+    }
+    // Trocar o contrato de um usuario e prerrogativa do Master.
+    if (novoContrato !== alvoAtual.contrato) {
+      if (atuante.nivel !== 'MASTER') {
+        return res.status(403).json({ error: 'Sem permissao', message: 'Apenas ADM Master pode trocar o contrato de um usuário.' });
+      }
+      data.contrato = novoContrato;
+    }
+  }
   if (funcao !== undefined) data.funcao = strOuNull(funcao);
   if (setor !== undefined) {
     const s = normUpper(setor);
@@ -324,7 +367,7 @@ export const salvarMinhaAssinatura = asyncHandler(async (req, res) => {
 export const salvarAssinaturaUsuario = asyncHandler(async (req, res) => {
   const atuante = await obterAtuante(req);
   if (!atuante) {
-    return res.status(403).json({ error: 'Sem permissao', message: 'Informe um administrador atuante (x-acting-matricula).' });
+    return res.status(403).json({ error: 'Sem permissao', message: 'Faca login como administrador.' });
   }
   const { id } = req.params;
   const { assinatura_base64, assinatura_url, remover } = req.body || {};
@@ -380,7 +423,7 @@ export const alterarNivel = asyncHandler(async (req, res) => {
 export const excluirUsuario = asyncHandler(async (req, res) => {
   const atuante = await obterAtuante(req);
   if (!atuante) {
-    return res.status(403).json({ error: 'Sem permissao', message: 'Informe um administrador atuante (x-acting-matricula).' });
+    return res.status(403).json({ error: 'Sem permissao', message: 'Faca login como administrador.' });
   }
   const alvo = await prisma.usuario.findUnique({ where: { id: req.params.id } });
   if (!alvo) {

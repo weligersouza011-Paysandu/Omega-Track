@@ -7,7 +7,7 @@ import { requerAdmin } from '../middleware/sessao.js';
 
 const router = Router();
 
-const SETORES_ESCRITA_AMBIENTAL = ['GESTAO', 'MEIO_AMBIENTE'];
+const SETORES_ESCRITA_AMBIENTAL = ['GESTAO', 'PLANEJADOR', 'MEIO_AMBIENTE'];
 
 function requerEdicaoAmbiental(req, res, next) {
   const atuante = req.atuante;

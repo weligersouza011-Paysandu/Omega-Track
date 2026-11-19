@@ -11,7 +11,7 @@ import { requerAdminAutenticado, requerGestaoTransporte, requerSessao } from '..
 // ("+ Adicionar nova categoria..." na Parte Diaria, feita pelo operador).
 // Renomear, ativar/desativar e excluir: so quem gere a programacao.
 const router = Router();
-router.get('/', listarCategoriasDesvio);
+router.get('/', requerSessao, listarCategoriasDesvio);
 router.post('/', requerSessao, criarCategoriaDesvio);
 router.put('/:id', requerAdminAutenticado, requerGestaoTransporte, atualizarCategoriaDesvio);
 router.delete('/:id', requerAdminAutenticado, requerGestaoTransporte, excluirCategoriaDesvio);

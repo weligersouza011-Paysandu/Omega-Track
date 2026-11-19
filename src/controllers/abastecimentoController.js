@@ -22,6 +22,7 @@ import prisma from '../config/database.js';
 import { asyncHandler } from '../middleware/error.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { comRetryConexao } from '../utils/retryBanco.js';
+import { contratoOuNull, CONTRATO_PADRAO } from '../utils/contrato.js';
 
 const LIMITE_ERROS_DETALHADOS = 50;
 const TAMANHO_LOTE_INSERT = 1000;
@@ -540,7 +541,8 @@ export const importarAbastecimentos = asyncHandler(async (req, res) => {
       km_por_litro: kmPorLitro,
       emissao_co2_kg: calcularEmissaoCO2(litros, tipoCombustivel),
       estabelecimento: textoLimitado(valorDaLinha(linha, colunas.estabelecimento), 255),
-      contrato: textoLimitado(valorDaLinha(linha, colunas.contrato), 100) ?? veiculo?.contrato ?? null,
+      // Coluna da planilha (se for 3 numeros) > contrato do veiculo > padrao.
+      contrato: contratoOuNull(valorDaLinha(linha, colunas.contrato)) ?? veiculo?.contrato ?? CONTRATO_PADRAO,
       mes_referencia: mesReferencia(dataTransacao),
     });
   }
