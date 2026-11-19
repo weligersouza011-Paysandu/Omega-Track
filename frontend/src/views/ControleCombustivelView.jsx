@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import AvisoContratoLancamento from '../components/AvisoContratoLancamento.jsx';
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -427,7 +428,7 @@ function ModalImportacao({ onClose, onImportado }) {
       open
       onClose={fechar}
       title="Importar Planilha de Abastecimentos"
-      subtitle="Envie o relatório da matriz em .xlsx, .xls ou .csv (até 20 MB)."
+      subtitle={<>Envie o relatório da matriz em .xlsx, .xls ou .csv (até 20 MB). <br /><AvisoContratoLancamento /></>}
       size="lg"
       footer={rodape}
     >

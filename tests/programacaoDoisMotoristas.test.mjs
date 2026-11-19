@@ -262,6 +262,11 @@ test('cadastro rápido herda o contrato de quem cadastra; só Master escolhe out
   const escolhido = await api('/usuarios/rapido', { method: 'POST', usuario: MASTER_010, body: { matricula: '8003', nome: 'Herdeiro Tres', contrato: '251' } });
   assert.equal(escolhido.status, 201);
   assert.equal(criadosNoBanco.at(-1).contrato, '251');
+  // Master com o filtro em outro contrato: o cadastro cai nele; em "Todos" precisa escolher.
+  const pelaFiltro = await api('/usuarios/rapido?contrato=251', { method: 'POST', usuario: MASTER_010, body: { matricula: '8006', nome: 'Pelo Filtro' } });
+  assert.equal(pelaFiltro.status, 201);
+  assert.equal(criadosNoBanco.at(-1).contrato, '251');
+  assert.equal((await api('/usuarios/rapido?contrato=todos', { method: 'POST', usuario: MASTER_010, body: { matricula: '8007', nome: 'Sem Contrato' } })).status, 400);
   // Não-Master não cadastra em outro contrato; formato inválido é recusado.
   assert.equal((await api('/usuarios/rapido', { method: 'POST', body: { matricula: '8004', nome: 'Fora', contrato: '010' } })).status, 403);
   for (const ruim of ['25', '2511', '25a', '2 5', 'CT-251', 251]) {

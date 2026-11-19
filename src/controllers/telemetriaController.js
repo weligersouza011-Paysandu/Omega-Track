@@ -359,7 +359,10 @@ export const resumoTelemetria = asyncHandler(async (req, res) => {
 
 async function carregarVeiculosPorPlaca(contrato) {
   // So veiculos do contrato: placa de outro contrato conta como "sem veiculo".
-  const veiculos = await comRetry(() => prisma.mobDesmob.findMany({ where: { contrato }, select: { tag: true, placa: true } }), 'frota');
+  const veiculos = await comRetry(() => prisma.mobDesmob.findMany({
+    where: { contrato, deletado_em: null },
+    select: { tag: true, placa: true, status: true, data_desmob: true },
+  }), 'frota');
   const mapa = new Map();
   for (const v of veiculos) {
     const chave = chavePlaca(v.placa);
@@ -415,6 +418,46 @@ export async function reconciliarFadiga(registros) {
   return { parada_atualizada: paradaAtualizada, sem_parada_removidos: removidos };
 }
 
+const MOTIVOS_BLOQUEIO = {
+  NAO_MOBILIZADO: 'Não está mobilizado neste contrato ou não faz parte da base de veículos.',
+  DESMOBILIZADO: 'Eventos posteriores à desmobilização do veículo.',
+};
+
+/**
+ * Pre-avaliacao da importacao: so entram eventos de veiculos mobilizados no contrato
+ * de quem importa (por placa). Placa fora da base do contrato — ou evento depois da
+ * desmobilizacao — fica bloqueada e e listada na previa; o usuario decide ignorar
+ * essas placas e importar o restante.
+ * @returns {{ elegiveis: object[], bloqueadas: {placa, motivo, descricao, eventos}[] }}
+ */
+export function avaliarElegibilidade(eventos, veiculosPorPlaca) {
+  const porTag = new Map();
+  for (const v of veiculosPorPlaca.values()) porTag.set(v.tag, v);
+  const elegiveis = [];
+  const bloqueadas = new Map();
+  for (const e of eventos) {
+    let motivo = null;
+    if (!e.tag) {
+      motivo = 'NAO_MOBILIZADO';
+    } else {
+      const v = porTag.get(e.tag);
+      const diaLocal = new Date(e.data_hora.getTime() - 3 * HORA_MS).toISOString().slice(0, 10);
+      if (v?.status === 'Desmobilizado' && v.data_desmob && diaLocal > new Date(v.data_desmob).toISOString().slice(0, 10)) {
+        motivo = 'DESMOBILIZADO';
+      }
+    }
+    if (!motivo) {
+      elegiveis.push(e);
+      continue;
+    }
+    const chave = `${e.tag_placa}|${motivo}`;
+    const atual = bloqueadas.get(chave) || { placa: e.tag_placa, motivo, descricao: MOTIVOS_BLOQUEIO[motivo], eventos: 0 };
+    atual.eventos += 1;
+    bloqueadas.set(chave, atual);
+  }
+  return { elegiveis, bloqueadas: [...bloqueadas.values()].sort((a, b) => a.placa.localeCompare(b.placa)) };
+}
+
 function sim(valor) {
   return valor === true || ['true', '1', 'sim'].includes(String(valor ?? '').toLowerCase());
 }
@@ -442,6 +485,7 @@ export const importarTelemetria = asyncHandler(async (req, res) => {
     veiculosPorPlaca,
   });
   const placasSemVeiculo = [...new Set(eventos.filter((e) => !e.tag).map((e) => e.tag_placa))].sort();
+  const { elegiveis, bloqueadas } = avaliarElegibilidade(eventos, veiculosPorPlaca);
 
   const resultado = {
     sucesso: true,
@@ -453,8 +497,12 @@ export const importarTelemetria = asyncHandler(async (req, res) => {
     linhas_invalidas: invalidas.length,
     avisos: invalidas.slice(0, 50),
     total_eventos: eventos.length,
-    por_evento: contarPor(eventos, 'evento'),
-    por_severidade: contarPor(eventos, 'severidade'),
+    total_importaveis: elegiveis.length,
+    eventos_bloqueados: eventos.length - elegiveis.length,
+    placas_bloqueadas: bloqueadas.slice(0, 100),
+    contrato: contratoImportacao,
+    por_evento: contarPor(elegiveis, 'evento'),
+    por_severidade: contarPor(elegiveis, 'severidade'),
     fadiga,
     placas_sem_veiculo: placasSemVeiculo.slice(0, 50),
     periodo: eventos.length
@@ -469,8 +517,17 @@ export const importarTelemetria = asyncHandler(async (req, res) => {
   };
   if (!sim(opcoes.confirmar)) return res.status(200).json(resultado);
 
+  // Veiculo fora do contrato: so segue se o usuario aceitou ignorar essas placas.
+  if (bloqueadas.length && !sim(opcoes.ignorar_bloqueadas)) {
+    return res.status(409).json({
+      error: 'Veiculos fora do contrato',
+      message: `${bloqueadas.length} placa(s) não estão mobilizadas no contrato ${contratoImportacao}. Ignore essas placas para importar o restante.`,
+      placas_bloqueadas: bloqueadas.slice(0, 100),
+    });
+  }
+
   const prazo = prazoPadrao();
-  const registros = eventos.map((e) => ({
+  const registros = elegiveis.map((e) => ({
     ...e,
     contrato: contratoImportacao,
     // Dentro da tolerância não há conduta a tratar: nasce sem prazo.

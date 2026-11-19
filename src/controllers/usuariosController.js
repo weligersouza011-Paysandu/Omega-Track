@@ -11,7 +11,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { hashSenha } from '../utils/senha.js';
 import { atuanteDaRequisicao } from '../middleware/sessao.js';
 import { exigirContrato } from '../utils/contrato.js';
-import { filtroContrato } from '../middleware/escopo.js';
+import { filtroContrato, contratoDoEscopo } from '../middleware/escopo.js';
 import { registrarLogAtividade } from '../services/auditService.js';
 import { respostaAssinatura, salvarAssinaturaPadrao } from '../services/assinaturaService.js';
 
@@ -46,12 +46,18 @@ function normUpper(v) {
 // Contrato em que o usuario sera cadastrado. Cada usuario pertence a UM contrato.
 // MASTER escolhe (ou, sem escolher, usa o proprio); os demais so cadastram no
 // proprio contrato. `bootstrap` = primeiro administrador do sistema (sem atuante).
-function contratoDoCadastro(atuante, informado, { bootstrap = false } = {}) {
+function contratoDoCadastro(req, atuante, informado, { bootstrap = false } = {}) {
   if (bootstrap || atuante?.nivel === 'MASTER') {
-    const escolhido = informado === undefined || informado === null || String(informado).trim() === ''
-      ? atuante?.contrato
-      : informado;
-    return exigirContrato(escolhido);
+    const semInformado = informado === undefined || informado === null || String(informado).trim() === '';
+    // Master sem escolher: vale o contrato exibido no filtro (padrao: o proprio).
+    const doFiltro = semInformado && !bootstrap ? contratoDoEscopo(req) : undefined;
+    if (semInformado && !bootstrap && doFiltro === undefined) {
+      const erro = new Error('Selecione um contrato (o filtro está em "Todos os contratos").');
+      erro.statusCode = 400;
+      erro.error = 'Contrato obrigatorio';
+      throw erro;
+    }
+    return exigirContrato(semInformado ? doFiltro : informado);
   }
   const proprio = exigirContrato(atuante?.contrato, 'Contrato do seu usuário');
   if (informado !== undefined && informado !== null && String(informado).trim() !== '' && String(informado).trim() !== proprio) {
@@ -132,7 +138,7 @@ export const criarAdmin = asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'Sem permissao', message: 'Apenas ADM Master pode criar outro Master.' });
   }
 
-  const contratoFinal = contratoDoCadastro(atuante, contrato, { bootstrap });
+  const contratoFinal = contratoDoCadastro(req, atuante, contrato, { bootstrap });
 
   const existente = await prisma.usuario.findUnique({ where: { matricula: String(matricula).trim() } });
   if (existente) {
@@ -171,7 +177,7 @@ export const criarLoteOperacionais = asyncHandler(async (req, res) => {
   if (lista.length > 500) {
     return res.status(400).json({ error: 'Lote grande', message: 'Maximo de 500 usuarios por lote.' });
   }
-  const contratoLote = contratoDoCadastro(atuante, req.body?.contrato);
+  const contratoLote = contratoDoCadastro(req, atuante, req.body?.contrato);
 
   const existentes = await prisma.usuario.findMany({
     where: { matricula: { in: lista.map((u) => String(u.matricula || '').trim()).filter(Boolean) } },
@@ -235,7 +241,7 @@ export const criarUsuarioRapido = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Dados invalidos', message: 'Matrícula inválida (até 50 caracteres, sem espaços).' });
   }
 
-  const contratoRapido = contratoDoCadastro(req.atuante, body.contrato);
+  const contratoRapido = contratoDoCadastro(req, req.atuante, body.contrato);
 
   let matricula = matriculaInformada;
   if (matricula) {

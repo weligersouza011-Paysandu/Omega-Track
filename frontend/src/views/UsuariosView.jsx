@@ -11,6 +11,7 @@ import {
   SETOR_LABEL, ehMaster,
 } from '../utils/permissoes.js';
 import { authHeaders } from '../utils/sessao.js';
+import AvisoContratoLancamento from '../components/AvisoContratoLancamento.jsx';
 import { soDigitosContrato, contratoValido, MENSAGEM_CONTRATO } from '../utils/contrato.js';
 
 const SETOR_BADGE = {
@@ -660,6 +661,7 @@ export default function UsuariosView({ sessao }) {
           {modoCadastro === 'operacional' && (
             <div className="card p-4 space-y-3">
               <div className="text-sm font-extrabold text-omega-900">Cadastro em lote — Operacionais</div>
+              <div><AvisoContratoLancamento rotulo="Os usuários serão cadastrados no contrato" /></div>
               <div>
                 <label className="label">Cole as linhas do Excel (uma por linha: Matrícula ; Nome Completo ; Função — função opcional)</label>
                 <textarea

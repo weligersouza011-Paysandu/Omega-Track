@@ -7,6 +7,7 @@
 // Recharts, inventário com busca/paginação e modais de importação e edição.
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import AvisoContratoLancamento from '../components/AvisoContratoLancamento.jsx';
 import {
   AlertCircle,
   AlertTriangle,
@@ -251,7 +252,7 @@ function ModalImportacaoAtos({ onClose, onImportado }) {
       open
       onClose={onClose}
       title="Importar Planilha de Atos Autorizativos"
-      subtitle="Envie a planilha de licenças e certificados em .xlsx, .xls ou .csv (até 25 MB)."
+      subtitle={<>Envie a planilha de licenças e certificados em .xlsx, .xls ou .csv (até 25 MB). <br /><AvisoContratoLancamento /></>}
       size="lg"
       footer={rodape}
     >

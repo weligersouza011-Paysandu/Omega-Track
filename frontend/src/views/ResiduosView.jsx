@@ -6,6 +6,7 @@
 // e importação de planilhas com drag-and-drop e deduplicação automática.
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import AvisoContratoLancamento from '../components/AvisoContratoLancamento.jsx';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -209,7 +210,7 @@ function ModalImportacao({ onClose, onImportado }) {
       open
       onClose={onClose}
       title="Importar Planilha de Resíduos"
-      subtitle="Envie o inventário de resíduos em .xlsx, .xls ou .csv (até 25 MB)."
+      subtitle={<>Envie o inventário de resíduos em .xlsx, .xls ou .csv (até 25 MB). <br /><AvisoContratoLancamento /></>}
       size="lg"
       footer={rodape}
     >

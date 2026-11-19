@@ -6,6 +6,7 @@ import { criarPrismaEmMemoria } from './helpers/prismaTelemetriaEmMemoria.mjs';
 import { intervaloDaSemana, semanaISO } from '../src/utils/semanasTelemetria.js';
 
 globalThis.prisma = criarPrismaEmMemoria({
+  veiculos: [{ tag: 'JI448', placa: 'QVV5H92' }],
   administradores: [{ id: '00000000-0000-4000-8000-000000000001', nome: 'Analista', matricula: '90000' }],
 });
 const { default: app } = await import('../src/app.js');

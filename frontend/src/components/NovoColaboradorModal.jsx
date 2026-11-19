@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { Loader2, UserPlus } from 'lucide-react';
+import AvisoContratoLancamento from './AvisoContratoLancamento.jsx';
 import Modal from './Modal.jsx';
 import { authHeaders } from '../utils/sessao.js';
 import { mensagemFalha } from '../offline/index.js';
@@ -66,7 +67,7 @@ export default function NovoColaboradorModal({
   return (
     <Modal open={aberto} onClose={fechar} size="sm"
       title="Novo Usuário Operacional"
-      subtitle={destino ? `Será selecionado automaticamente em ${destino} ao salvar` : 'Cadastro rápido'}
+      subtitle={<>{destino ? `Será selecionado automaticamente em ${destino} ao salvar` : 'Cadastro rápido'} <br /><AvisoContratoLancamento rotulo="O usuário será cadastrado no contrato" /></>}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={fechar} disabled={salvando}>Cancelar</button>

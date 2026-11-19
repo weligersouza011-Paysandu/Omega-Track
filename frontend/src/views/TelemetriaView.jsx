@@ -38,6 +38,8 @@ import StatCard from '../components/StatCard.jsx';
 import BadgeStatus from '../components/BadgeStatus.jsx';
 import Modal from '../components/Modal.jsx';
 import { lerSessao } from '../utils/sessao.js';
+import { lerContratoSelecionado } from '../utils/contrato.js';
+import AvisoContratoLancamento from '../components/AvisoContratoLancamento.jsx';
 import { podeEscrever } from '../utils/permissoes.js';
 import { gerarModeloTelemetria } from '../utils/gerarModeloTelemetria.js';
 import { formatarDataHora, lerJson, obterHeaders } from '../utils/telemetriaApi.js';
@@ -152,13 +154,18 @@ function valorLimite(e) {
  * Envia a planilha com XMLHttpRequest (o fetch não informa o progresso do upload).
  * `aoProgredir({ etapa: 'enviando' | 'processando', percentual })`.
  */
-function enviarPlanilha(arquivo, confirmar, aoProgredir) {
+function enviarPlanilha(arquivo, confirmar, aoProgredir, ignorarBloqueadas = false) {
   return new Promise((resolve, reject) => {
     const formulario = new FormData();
     formulario.append('arquivo', arquivo);
     formulario.append('confirmar', confirmar ? 'true' : 'false');
+    if (ignorarBloqueadas) formulario.append('ignorar_bloqueadas', 'true');
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/telemetria/importar');
+    // XHR nao passa pelo fetch global: o filtro de contrato do Master vai aqui.
+    const contratoFiltro = lerContratoSelecionado();
+    const usuarioAtual = lerSessao()?.usuario;
+    const master = usuarioAtual?.tipo === 'ADMINISTRADOR' && usuarioAtual?.nivel === 'MASTER';
+    xhr.open('POST', `/api/telemetria/importar${master && contratoFiltro ? `?contrato=${contratoFiltro}` : ''}`);
     Object.entries(obterHeaders(false)).forEach(([nome, valor]) => xhr.setRequestHeader(nome, valor));
     xhr.timeout = 180000;
     xhr.upload.onprogress = (e) => {
@@ -248,13 +255,13 @@ function ModalImportar({ aberto, onFechar, onImportado }) {
     onFechar();
   }
 
-  async function enviar(confirmar) {
+  async function enviar(confirmar, ignorarBloqueadas = false) {
     if (!arquivo) return;
     setEnviando(true);
     setConfirmando(confirmar);
     setErro(null);
     try {
-      const dados = await enviarPlanilha(arquivo, confirmar, setProgresso);
+      const dados = await enviarPlanilha(arquivo, confirmar, setProgresso, ignorarBloqueadas);
       if (confirmar) {
         setRelatorio(dados);
         setPrevia(null);
@@ -278,7 +285,7 @@ function ModalImportar({ aberto, onFechar, onImportado }) {
       open={aberto}
       onClose={fechar}
       title="Importar Planilha de Telemetria"
-      subtitle="Use a planilha modelo (DATA/HORA, TAG/PLACA, MOTORISTA, EVENTO, VALOR REGISTRADO, VELOCIDADE LIMITE, LOCALIZAÇÃO, SEVERIDADE) ou a exportação da plataforma de telemetria. Reimportar o mesmo arquivo não duplica eventos."
+      subtitle={<>Use a planilha modelo (DATA/HORA, TAG/PLACA, MOTORISTA, EVENTO, VALOR REGISTRADO, VELOCIDADE LIMITE, LOCALIZAÇÃO, SEVERIDADE) ou a exportação da plataforma de telemetria. Reimportar o mesmo arquivo não duplica eventos. Só entram veículos mobilizados no seu contrato. <br /><AvisoContratoLancamento /></>}
       size="md"
     >
       <div className="space-y-4">
@@ -358,10 +365,29 @@ function ModalImportar({ aberto, onFechar, onImportado }) {
                 </li>
               ))}
             </ul>
-            {resumo.placas_sem_veiculo?.length > 0 && (
-              <p className="text-[11px] text-status-amarelo">
-                Placas sem TAG na frota (ficam só com a placa): {resumo.placas_sem_veiculo.join(', ')}
-              </p>
+            {resumo.placas_bloqueadas?.length > 0 && (
+              <div className="space-y-1.5 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-status-vermelho">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <AlertCircle size={14} />
+                  {relatorio
+                    ? `${resumo.eventos_bloqueados} evento(s) de ${resumo.placas_bloqueadas.length} placa(s) não foram importados.`
+                    : `${resumo.placas_bloqueadas.length} placa(s) não podem ser importadas no contrato ${resumo.contrato}.`}
+                </div>
+                <ul className="divide-y divide-red-100 text-red-900">
+                  {resumo.placas_bloqueadas.map((p) => (
+                    <li key={`${p.placa}|${p.motivo}`} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1">
+                      <span><span className="font-mono font-bold">{p.placa}</span> — {p.descricao}</span>
+                      <span className="font-bold tabular-nums">{p.eventos} evento(s)</span>
+                    </li>
+                  ))}
+                </ul>
+                {!relatorio && (
+                  <p className="text-[11px] text-red-800">
+                    Só entram veículos mobilizados no seu contrato. Ignore essas placas para importar o restante
+                    {resumo.total_importaveis > 0 ? ` (${resumo.total_importaveis} evento(s))` : ''}; ou cadastre/mobilize o veículo na frota e envie a planilha de novo.
+                  </p>
+                )}
+              </div>
             )}
             {resumo.periodo && (
               <p className="text-[11px] text-omega-500">
@@ -376,9 +402,14 @@ function ModalImportar({ aberto, onFechar, onImportado }) {
         <div className="flex items-center justify-end gap-2 border-t border-omega-100 pt-3">
           <button type="button" onClick={fechar} className="btn-secondary" disabled={enviando}>Fechar</button>
           {previa ? (
-            <button type="button" onClick={() => enviar(true)} className="btn-primary" disabled={enviando || !previa.total_eventos}>
+            <button
+              type="button"
+              onClick={() => enviar(true, previa.placas_bloqueadas?.length > 0)}
+              className="btn-primary"
+              disabled={enviando || !(previa.total_importaveis ?? previa.total_eventos)}
+            >
               {enviando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-              Confirmar Importação
+              {previa.placas_bloqueadas?.length > 0 ? 'Ignorar essas placas e importar o restante' : 'Confirmar Importação'}
             </button>
           ) : (
             <button type="button" onClick={() => enviar(false)} className="btn-primary" disabled={enviando || !arquivo}>

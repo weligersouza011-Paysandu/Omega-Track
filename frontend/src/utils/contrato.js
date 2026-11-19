@@ -40,3 +40,16 @@ export function salvarContratoSelecionado(valor) {
     /* armazenamento indisponivel */
   }
 }
+
+/**
+ * Contrato em que um lancamento/importacao sera gravado: o do usuario; o Master
+ * segue o filtro do topo (sem escolha: o proprio). null = "Todos" (precisa escolher).
+ */
+export function contratoDeLancamento(usuario) {
+  if (!usuario) return null;
+  const master = usuario.tipo === 'ADMINISTRADOR' && usuario.nivel === 'MASTER';
+  if (!master) return usuario.contrato || null;
+  const escolhido = lerContratoSelecionado();
+  if (escolhido === CONTRATO_TODOS) return null;
+  return escolhido || usuario.contrato || null;
+}

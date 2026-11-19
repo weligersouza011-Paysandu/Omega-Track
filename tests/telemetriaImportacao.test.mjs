@@ -39,10 +39,11 @@ function xlsx(linhas) {
   return XLSX.write(livro, { type: 'buffer', bookType: 'xlsx' });
 }
 
-async function importar(buffer, confirmar, nome = 'telemetria.xlsx') {
+async function importar(buffer, confirmar, nome = 'telemetria.xlsx', extras = {}) {
   const formulario = new FormData();
   formulario.append('arquivo', new Blob([buffer]), nome);
   formulario.append('confirmar', String(confirmar));
+  for (const [campo, valor] of Object.entries(extras)) formulario.append(campo, valor);
   const resposta = await fetch(`${base}/importar`, { method: 'POST', headers: AUTH, body: formulario });
   return { status: resposta.status, corpo: await resposta.json() };
 }
@@ -64,10 +65,13 @@ test('a planilha modelo baixada é lida pelo parser (prévia não grava)', async
   assert.equal(status, 200);
   assert.equal(corpo.confirmado, false);
   assert.equal(corpo.total_eventos, 1);
-  assert.deepEqual(corpo.por_evento, { 'Fadiga / Sono': 1 });
-  assert.deepEqual(corpo.por_severidade, { GRAVE: 1 }, 'a severidade informada na planilha prevalece');
+  // A placa de exemplo (ABC-1234) nao esta mobilizada no contrato: fica bloqueada na previa.
+  assert.equal(corpo.total_importaveis, 0);
+  assert.equal(corpo.eventos_bloqueados, 1);
+  assert.deepEqual(corpo.placas_bloqueadas.map((p) => [p.placa, p.motivo, p.eventos]), [['ABC-1234', 'NAO_MOBILIZADO', 1]]);
   assert.equal(corpo.amostra[0].localizacao, 'Rodovia BR-155 Km 20');
   assert.equal(corpo.amostra[0].data_hora, '2026-11-13T11:30:00.000Z');
+  assert.equal(corpo.amostra[0].severidade, 'GRAVE', 'a severidade informada na planilha prevalece');
   assert.deepEqual(corpo.placas_sem_veiculo, ['ABC-1234']);
   assert.equal(banco.eventos.length, 0, 'a prévia não grava nada');
 });
@@ -138,4 +142,49 @@ test('sem sessão administrativa a importação é recusada', async () => {
   formulario.append('arquivo', new Blob([xlsx([])]), 'x.xlsx');
   const resposta = await fetch(`${base}/importar`, { method: 'POST', body: formulario });
   assert.equal(resposta.status, 401);
+});
+
+test('so importa veiculos mobilizados no contrato: placa fora da base e bloqueada e pode ser ignorada', async () => {
+  const antes = banco.eventos.length;
+  const planilha = xlsx([
+    [dataLocal(40), 'QVN4G02', 'JOAO DA SILVA', 'Excesso de Velocidade', 95, 80, 'BR-155 Km 30', ''],
+    [dataLocal(41), 'ZZZ9Z99', 'MOTORISTA FORA', 'Excesso de Velocidade', 95, 80, 'BR-155 Km 31', ''],
+    [dataLocal(42), 'ZZZ9Z99', 'MOTORISTA FORA', 'Excesso de Velocidade', 99, 80, 'BR-155 Km 32', ''],
+  ]);
+
+  const previa = await importar(planilha, false);
+  assert.equal(previa.status, 200);
+  assert.equal(previa.corpo.total_eventos, 3);
+  assert.equal(previa.corpo.total_importaveis, 1);
+  assert.equal(previa.corpo.contrato, '251');
+  assert.deepEqual(previa.corpo.placas_bloqueadas.map((p) => [p.placa, p.eventos]), [['ZZZ9Z99', 2]]);
+  assert.match(previa.corpo.placas_bloqueadas[0].descricao, /mobilizado neste contrato/);
+
+  // Confirmar sem aceitar ignorar as placas bloqueadas: nada e gravado.
+  const recusada = await importar(planilha, true);
+  assert.equal(recusada.status, 409);
+  assert.equal(recusada.corpo.placas_bloqueadas[0].placa, 'ZZZ9Z99');
+  assert.equal(banco.eventos.length, antes);
+
+  // Ignorando as bloqueadas, o restante entra, com o contrato de quem importa.
+  const aceita = await importar(planilha, true, 'telemetria.xlsx', { ignorar_bloqueadas: 'true' });
+  assert.equal(aceita.status, 200);
+  assert.equal(aceita.corpo.importados, 1);
+  assert.equal(banco.eventos.length, antes + 1);
+  assert.equal(banco.eventos.at(-1).contrato, '251');
+  assert.equal(banco.eventos.at(-1).tag_placa, 'QVN4G02');
+});
+
+test('evento depois da desmobilizacao e bloqueado; ate a data de desmobilizacao entra', async () => {
+  const { avaliarElegibilidade } = await import('../src/controllers/telemetriaController.js');
+  const veiculo = { tag: 'CA-1', placa: 'AAA1A11', status: 'Desmobilizado', data_desmob: new Date('2026-11-10T00:00:00Z') };
+  const mapa = new Map([['AAA1A11', veiculo]]);
+  const evento = (iso, tag = 'CA-1') => ({ tag, tag_placa: 'AAA1A11', data_hora: new Date(iso) });
+  const { elegiveis, bloqueadas } = avaliarElegibilidade([
+    evento('2026-11-10T20:00:00Z'),  // 17h do dia 10 (-03:00): ainda mobilizado
+    evento('2026-11-11T02:30:00Z'),  // 23h30 do dia 10 (-03:00): ainda no dia
+    evento('2026-11-11T12:00:00Z'),  // dia 11: depois da desmobilizacao
+  ], mapa);
+  assert.equal(elegiveis.length, 2);
+  assert.deepEqual(bloqueadas.map((b) => [b.placa, b.motivo, b.eventos]), [['AAA1A11', 'DESMOBILIZADO', 1]]);
 });

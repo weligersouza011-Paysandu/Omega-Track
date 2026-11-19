@@ -7,6 +7,7 @@
 // e cadastro/edição manual de medições.
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import AvisoContratoLancamento from '../components/AvisoContratoLancamento.jsx';
 import {
   Activity,
   AlertTriangle,
@@ -241,7 +242,7 @@ function ModalImportacaoAgua({ onClose, onImportado }) {
       open
       onClose={onClose}
       title="Importar Medições de Consumo de Água"
-      subtitle="Envie a planilha de monitoramento de hidrômetros em .xlsx, .xls ou .csv (até 25 MB)."
+      subtitle={<>Envie a planilha de monitoramento de hidrômetros em .xlsx, .xls ou .csv (até 25 MB). <br /><AvisoContratoLancamento /></>}
       size="lg"
       footer={rodape}
     >

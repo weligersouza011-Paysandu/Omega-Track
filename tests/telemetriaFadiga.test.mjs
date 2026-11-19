@@ -6,7 +6,7 @@ import { criarPrismaEmMemoria } from './helpers/prismaTelemetriaEmMemoria.mjs';
 import { agruparOcorrenciasFadiga, classificarTexto, medidaFadiga } from '../src/utils/classificacaoTelemetria.js';
 
 const banco = criarPrismaEmMemoria({
-  veiculos: [{ tag: 'CA-0388', placa: 'GJN2B06' }],
+  veiculos: [{ tag: 'CA-0388', placa: 'GJN2B06' }, { tag: 'JI448', placa: 'QVV5H92' }, { tag: 'RRD-1', placa: 'RRD0B94' }],
   administradores: [{ id: '00000000-0000-4000-8000-000000000001', nome: 'Analista SSMA', matricula: '90000' }],
 });
 globalThis.prisma = banco;

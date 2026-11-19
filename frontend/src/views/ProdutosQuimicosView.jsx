@@ -7,6 +7,7 @@
 // e modais de importação e cadastro manual.
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import AvisoContratoLancamento from '../components/AvisoContratoLancamento.jsx';
 import {
   AlertCircle,
   AlertOctagon,
@@ -1492,7 +1493,7 @@ export default function ProdutosQuimicosView() {
         open={modalImportarAberto}
         onClose={() => setModalImportarAberto(false)}
         title="Importar Planilha de Produtos Químicos"
-        subtitle="Envie uma planilha nos formatos .xlsx, .xls ou .csv com as colunas de produtos, marcas, FISPQ e flags de risco."
+        subtitle={<>Envie uma planilha nos formatos .xlsx, .xls ou .csv com as colunas de produtos, marcas, FISPQ e flags de risco. <br /><AvisoContratoLancamento /></>}
         size="md"
       >
         <div className="space-y-4">
