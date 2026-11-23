@@ -325,9 +325,9 @@ html:not(.dark) .theme-login :is([class~="text-white"], [class~="text-white/90"]
 html:not(.dark) .theme-login :is([class~="text-white/60"], [class~="text-white/50"],
   [class~="text-white/40"]) { color: #475569; }
 html:not(.dark) .theme-login [class~="placeholder-white/30"]::placeholder { color: #94a3b8; }
-html:not(.dark) .theme-login :is([class~="text-violet-300"], [class~="hover:text-violet-100"]:hover) { color: #6d28d9; }
+html:not(.dark) .theme-login :is([class~="text-rose-300"], [class~="hover:text-rose-100"]:hover) { color: #9a142d; }
 html:not(.dark) .theme-login [class~="text-red-300"] { color: #be123c; }
-html:not(.dark) .theme-login [class~="from-violet-600"] { color: #fff; }
+html:not(.dark) .theme-login [class~="from-omega-brand"] { color: #fff; }
 html:not(.dark) .theme-login .theme-toggle { background-color: #fff; border-color: #cbd5e1; color: #334155; }
 html:not(.dark) .theme-login .theme-toggle:hover { color: #2563eb; border-color: #60a5fa; }
 
