@@ -53,6 +53,28 @@
   .chip {
     @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold;
   }
+
+  /* Login: as duas fotos de campo alternam com transição suave e um leve zoom. A segunda roda
+     defasada em meio ciclo; o zoom reinicia enquanto a foto está invisível. */
+  .foto-login {
+    animation: login-foto 16s ease-in-out infinite;
+    will-change: opacity, transform;
+  }
+  .foto-login-b {
+    animation-delay: -8s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .foto-login { animation: none; }
+    .foto-login-b { opacity: 0; }
+  }
+}
+
+@keyframes login-foto {
+  0% { opacity: 1; transform: scale(1); }
+  45% { opacity: 1; transform: scale(1.07); }
+  50% { opacity: 0; transform: scale(1.07); }
+  95% { opacity: 0; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
