@@ -21,6 +21,8 @@
 //   DELETE /:id            -> Exclusão de evento
 //   GET    /trajeto        -> ?veiculo=&dataInicio=&dataFim=&horaInicio=&horaFim= (janela diária em -03:00)
 //   GET    /placas-nao-cadastradas -> Placas da telemetria sem vínculo com a frota
+//   As leituras (lista, resumo, semanas, trajeto, fadiga, velocidade, histórico) mostram só
+//   veículos MOBILIZADOS do contrato (middleware somenteFrotaMobilizada); nada é apagado.
 //   DELETE /por-placa/:placa -> Exclui todos os eventos da placa (Master, Gestão, Transporte; JWT)
 // ============================================================================
 import { Router } from 'express';
@@ -51,7 +53,7 @@ import {
 } from '../controllers/telemetriaFadigaController.js';
 import { analiseVelocidade, validarVelocidade, matrizVelocidade } from '../controllers/telemetriaVelocidadeController.js';
 import { requerAdmin, requerMasterGestaoTransporte } from '../middleware/sessao.js';
-import { escopoNaQuery, paramContrato } from '../middleware/escopo.js';
+import { escopoNaQuery, paramContrato, somenteFrotaMobilizada } from '../middleware/escopo.js';
 import prisma from '../config/database.js';
 import { UUID } from '../utils/contrato.js';
 
@@ -96,20 +98,20 @@ function receberPlanilha(req, res, next) {
   });
 }
 
-router.get('/', requerAdmin, listarEventosTelemetria);
-router.get('/resumo', requerAdmin, resumoTelemetria);
-router.get('/semanas', requerAdmin, listarSemanasTelemetria);
-router.get('/trajeto', requerAdmin, trajetoTelemetria);
+router.get('/', requerAdmin, somenteFrotaMobilizada, listarEventosTelemetria);
+router.get('/resumo', requerAdmin, somenteFrotaMobilizada, resumoTelemetria);
+router.get('/semanas', requerAdmin, somenteFrotaMobilizada, listarSemanasTelemetria);
+router.get('/trajeto', requerAdmin, somenteFrotaMobilizada, trajetoTelemetria);
 router.get('/placas-nao-cadastradas', requerAdmin, placasNaoCadastradas);
 router.delete('/por-placa/:placa', requerMasterGestaoTransporte, excluirEventosPorPlaca);
 
 // Fadiga detectada (farol, ocorrências, mapa) e planos de ação do Anexo I.
-router.get('/fadiga', requerAdmin, analiseFadiga);
+router.get('/fadiga', requerAdmin, somenteFrotaMobilizada, analiseFadiga);
 router.patch('/fadiga/validacao', requerAdmin, validarFadiga);
-router.get('/motoristas/historico', requerAdmin, historicoMotorista);
+router.get('/motoristas/historico', requerAdmin, somenteFrotaMobilizada, historicoMotorista);
 router.get('/matriz-fadiga', requerAdmin, matrizFadiga);
 // Excesso de velocidade (ocorrências, farol do gatilho de 10 s, faixas do Anexo I).
-router.get('/velocidade', requerAdmin, analiseVelocidade);
+router.get('/velocidade', requerAdmin, somenteFrotaMobilizada, analiseVelocidade);
 router.patch('/velocidade/validacao', requerAdmin, validarVelocidade);
 router.get('/matriz-velocidade', requerAdmin, matrizVelocidade);
 router.get('/planos', requerAdmin, listarPlanos);

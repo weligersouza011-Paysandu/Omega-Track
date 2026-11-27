@@ -126,8 +126,22 @@ export function aplicarEscopo(prismaBase) {
   });
 }
 
-async function executar({ model, operation, args, query }) {
+// Leituras afetadas pelo filtro de frota da telemetria.
+const LEITURAS = new Set(['findMany', 'findFirst', 'findFirstOrThrow', 'count', 'aggregate', 'groupBy']);
+
+/**
+ * Telas de telemetria: só eventos de veículos MOBILIZADOS do contrato (lista de TAGs
+ * posta no contexto por `somenteFrotaMobilizada`). Vale para Master também.
+ */
+export function aplicarFiltroFrota({ model, operation, args }, contexto) {
+  const frota = contexto?.frotaTelemetria;
+  if (!frota || model !== 'EventoTelemetria' || !LEITURAS.has(operation)) return args;
+  return { ...(args || {}), where: juntarWhere(args?.where, { tag: { in: frota } }) };
+}
+
+async function executar({ model, operation, args: argsOriginais, query }) {
   const contexto = contextoDados.getStore();
+  const args = aplicarFiltroFrota({ model, operation, args: argsOriginais }, contexto);
   if (!contexto?.restrito) return query(args);
   const filtro = filtroDoModelo(model, contexto.contrato);
   if (!filtro) return query(args);

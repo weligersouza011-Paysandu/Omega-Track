@@ -159,6 +159,25 @@ export function escopoNaQuery(req, _res, next) {
  * Sem usuario (rotas publicas/chave de API) ou Master: sem restricao automatica.
  * Contrato ausente no usuario = fecha tudo (contrato vazio nao casa com nada).
  */
+/**
+ * Telas de telemetria: põe no contexto de dados as TAGs MOBILIZADAS do escopo (contrato
+ * do usuário; Master conforme o filtro). Toda leitura de eventos passa a ignorar veículos
+ * desmobilizados, excluídos ou sem cadastro (ver aplicarFiltroFrota em config/escopoDados.js).
+ * Nada é apagado: se o veículo for remobilizado, o histórico dele volta a aparecer.
+ */
+export async function somenteFrotaMobilizada(req, _res, next) {
+  try {
+    const veiculos = await prisma.mobDesmob.findMany({
+      where: { status: 'Mobilizado', deletado_em: null, ...filtroContrato(req) },
+      select: { tag: true },
+    });
+    req.contextoDados = { ...(req.contextoDados || { restrito: false }), frotaTelemetria: veiculos.map((v) => v.tag) };
+    contextoDados.run(req.contextoDados, next);
+  } catch (erro) {
+    next(erro);
+  }
+}
+
 export function contextoDeDados(req, _res, next) {
   const usuario = req.atuante;
   req.contextoDados = usuario && !ehMaster(usuario)

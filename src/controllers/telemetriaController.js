@@ -713,7 +713,13 @@ export const listarSemanasTelemetria = asyncHandler(async (req, res) => {
   // crua nao passa pela trava automatica de contrato: o contrato vai explicito (nao-Master
   // sempre tem o proprio; so o Master em "Todos" fica sem filtro). Semana ISO no fuso -03:00.
   const contrato = contratoDoEscopo(req);
-  const filtro = contrato === undefined ? Prisma.empty : Prisma.sql`WHERE contrato = ${contrato}`;
+  // Mesma regra das demais leituras: só veículos mobilizados (lista posta por somenteFrotaMobilizada).
+  const frota = req.contextoDados?.frotaTelemetria;
+  const condicoes = [
+    ...(contrato === undefined ? [] : [Prisma.sql`contrato = ${contrato}`]),
+    ...(frota ? [frota.length ? Prisma.sql`tag IN (${Prisma.join(frota)})` : Prisma.sql`FALSE`] : []),
+  ];
+  const filtro = condicoes.length ? Prisma.sql`WHERE ${Prisma.join(condicoes, ' AND ')}` : Prisma.empty;
   const linhas = await comRetry(() => prisma.$queryRaw`
     SELECT EXTRACT(ISOYEAR FROM t)::int AS ano,
            EXTRACT(WEEK FROM t)::int AS semana,
