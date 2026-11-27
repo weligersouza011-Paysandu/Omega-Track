@@ -42,7 +42,7 @@ async function chamar(usuarioId, caminho) {
 
 test('semanas em SQL = calculo em JS (virada de ano ISO, borda do fuso, tipos de evento) e isolam contrato', async () => {
   const evento = (n, iso, tipo, contrato) => ({
-    tag_placa: `PL${contrato}${n}`, tag: `${contrato}V1`, data_hora: new Date(iso), evento: tipo, severidade: 'MODERADO',
+    tag_placa: `PL${contrato}${n}`, tag: `X${contrato}V1`, data_hora: new Date(iso), evento: tipo, severidade: 'MODERADO',
     chave_unica: `sem-${contrato}-${n}`, contrato,
   });
   const lote = [
@@ -89,6 +89,41 @@ test('semanas em SQL = calculo em JS (virada de ano ISO, borda do fuso, tipos de
   // Master em "Todos" soma os dois contratos.
   const todos = await chamar(ids.master, '/telemetria/semanas?contrato=todos');
   assert.equal(todos.corpo.semanas.reduce((soma, s) => soma + s.total, 0), (lote.length + 1) * 2);
+});
+
+test('telemetria mostra so veiculos mobilizados (desmobilizado e placa sem cadastro ficam de fora, sem apagar)', async () => {
+  const agora = Date.now();
+  const novo = (n, tag, placa) => ({
+    tag_placa: placa, tag, data_hora: new Date(agora - n * 60000), evento: 'Excesso de Velocidade', severidade: 'GRAVE',
+    valor: 110, limite: 80, chave_unica: `frota-${n}`, contrato: '251',
+  });
+  await semente.mobDesmob.update({ where: { tag: 'X251V2' }, data: { status: 'Desmobilizado', data_desmob: new Date() } });
+  await semente.eventoTelemetria.createMany({
+    data: [novo(1, 'X251V1', 'X251P1'), novo(2, 'X251V2', 'X251P2'), novo(3, null, 'ZZZ9Z99')],
+  });
+
+  for (const usuario of [ids['251'].gestao, ids.master]) {
+    const lista = await chamar(usuario, '/telemetria?horas=24&limite=200');
+    assert.equal(lista.status, 200);
+    const tags = new Set(lista.corpo.eventos.map((e) => e.tag));
+    assert.ok(tags.has('X251V1'), 'o veiculo mobilizado continua aparecendo');
+    assert.ok(!tags.has('X251V2') && !tags.has(null), 'desmobilizado e placa sem cadastro nao aparecem');
+    assert.equal(lista.corpo.paginacao.total, lista.corpo.eventos.length);
+
+    const resumo = await chamar(usuario, '/telemetria/resumo?horas=24');
+    assert.equal(resumo.status, 200);
+    assert.equal(resumo.corpo.kpis.total, lista.corpo.paginacao.total, 'cartoes contam so a frota mobilizada');
+  }
+
+  // Nada foi apagado: os eventos seguem no banco e a placa sem cadastro segue no alerta.
+  assert.equal(await semente.eventoTelemetria.count({ where: { chave_unica: { in: ['frota-2', 'frota-3'] } } }), 2);
+  const semCadastro = await chamar(ids['251'].gestao, '/telemetria/placas-nao-cadastradas');
+  assert.ok(JSON.stringify(semCadastro.corpo).includes('ZZZ9Z99'));
+
+  // Remobilizado, o historico volta.
+  await semente.mobDesmob.update({ where: { tag: 'X251V2' }, data: { status: 'Mobilizado', data_desmob: null } });
+  const deNovo = await chamar(ids['251'].gestao, '/telemetria?horas=24&limite=200');
+  assert.ok(deNovo.corpo.eventos.some((e) => e.tag === 'X251V2'));
 });
 
 test('cache da sessao: mudar contrato/nivel do usuario vale na proxima requisicao', async () => {
